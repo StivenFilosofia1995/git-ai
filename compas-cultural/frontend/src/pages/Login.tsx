@@ -76,26 +76,41 @@ export default function Login() {
         return
       }
 
-      // Intentar crear perfil (puede fallar si el user aún no confirmó email)
+      // Save profile data locally — will be created after email confirmation
       try {
+        const profileData = {
+          nombre: nombre.trim(),
+          apellido: apellido.trim(),
+          email,
+          preferencias,
+          zona_id: zonaId ?? undefined,
+          telefono: telefono.trim() || undefined,
+          bio: bio.trim() || undefined,
+          ubicacion_barrio: barrio.trim() || undefined,
+          ubicacion_lat: ubicacion?.lat,
+          ubicacion_lng: ubicacion?.lng,
+        }
+        localStorage.setItem('eterea_pending_profile', JSON.stringify(profileData))
+
+        // Try creating profile immediately (works if email confirmation is disabled)
         const { data } = await import('../lib/supabase').then(m => m.supabase.auth.getUser())
         if (data?.user) {
-          await crearPerfil({
-            nombre: nombre.trim(),
-            apellido: apellido.trim(),
-            email,
-            preferencias,
-            zona_id: zonaId ?? undefined,
-            telefono: telefono.trim() || undefined,
-            bio: bio.trim() || undefined,
-            ubicacion_barrio: barrio.trim() || undefined,
-            ubicacion_lat: ubicacion?.lat,
-            ubicacion_lng: ubicacion?.lng,
-          }, data.user.id)
+          await crearPerfil(profileData, data.user.id)
+          localStorage.removeItem('eterea_pending_profile')
         }
       } catch {
-        // El perfil se creará cuando confirme el email
+        // Profile will be created on first sign-in via AuthContext
       }
+
+      // Send welcome email immediately after signup
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1'
+        fetch(`${apiBase}/auth/welcome-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, nombre: nombre.trim() }),
+        }).catch(() => {})
+      } catch { /* best-effort */ }
 
       setConfirmSent(true)
     } else {

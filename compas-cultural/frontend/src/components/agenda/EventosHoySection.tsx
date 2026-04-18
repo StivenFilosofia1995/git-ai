@@ -80,9 +80,7 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
   return (
     <Link
       to={`/evento/${evento.slug}`}
-      className={`group relative flex flex-col justify-end border-r-2 border-b-2 border-black overflow-hidden transition-all duration-500 ${
-        evento.imagen_url ? 'aspect-[3/4]' : ''
-      }`}
+      className="group relative flex flex-col justify-end aspect-[3/4] border-r-2 border-b-2 border-black overflow-hidden transition-all duration-500"
     >
       {evento.imagen_url ? (
         <>
@@ -96,14 +94,14 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
           <div className="relative p-5 text-white">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-2 h-2 bg-white" />
-              <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{dia} &middot; {hora}</span>
+              <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{dia} · {hora}</span>
             </div>
             <h3 className="font-heading font-black text-sm uppercase tracking-wider mb-2 line-clamp-2 leading-snug">
               {evento.titulo}
             </h3>
             <div className="flex items-center gap-1.5 text-[10px] font-mono opacity-70">
               <span className="w-1.5 h-1.5 bg-white" />
-              <span>{evento.nombre_lugar ?? 'Medell\u00edn'}</span>
+              <span>{evento.nombre_lugar ?? 'Medellín'}</span>
             </div>
             {evento.es_gratuito && (
               <span className="inline-block mt-3 text-[9px] font-mono font-bold uppercase tracking-wider border border-white px-2 py-0.5">
@@ -113,10 +111,10 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
           </div>
         </>
       ) : (
-        <div className="p-5 bg-white group-hover:bg-black group-hover:text-white transition-all duration-300">
+        <div className="absolute inset-0 flex flex-col justify-end p-5 bg-white group-hover:bg-black group-hover:text-white transition-all duration-300">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-2 h-2 bg-current" />
-            <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{dia} &middot; {hora}</span>
+            <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{dia} · {hora}</span>
           </div>
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-current px-2 py-0.5 inline-block mb-3">
             {cat.replaceAll('_', ' ')}
@@ -126,7 +124,7 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
           </h3>
           <div className="flex items-center gap-1.5 text-[10px] font-mono opacity-60 group-hover:opacity-100">
             <span className="w-1.5 h-1.5 bg-current" />
-            <span>{evento.nombre_lugar ?? 'Medell\u00edn'}</span>
+            <span>{evento.nombre_lugar ?? 'Medellín'}</span>
           </div>
           {evento.es_gratuito && (
             <span className="inline-block mt-3 text-[9px] font-mono font-bold uppercase tracking-wider border-2 border-current px-2 py-0.5">

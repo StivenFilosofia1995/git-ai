@@ -1,11 +1,15 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { obtenerPerfil, crearPerfil } from './api'
 
 interface AuthState {
   user: User | null
   session: Session | null
   loading: boolean
+  perfilCompleto: boolean
+  perfilLoading: boolean
+  marcarPerfilCompleto: () => void
   signUp: (email: string, password: string) => Promise<{ error: string | null }>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signInWithGoogle: () => Promise<{ error: string | null }>
@@ -18,11 +22,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [perfilCompleto, setPerfilCompleto] = useState(true)
+  const [perfilLoading, setPerfilLoading] = useState(false)
+
+  const checkPerfil = useCallback(async (userId: string) => {
+    setPerfilLoading(true)
+    try {
+      await obtenerPerfil(userId)
+      setPerfilCompleto(true)
+    } catch {
+      setPerfilCompleto(false)
+    } finally {
+      setPerfilLoading(false)
+    }
+  }, [])
+
+  const marcarPerfilCompleto = useCallback(() => {
+    setPerfilCompleto(true)
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s)
       setUser(s?.user ?? null)
+      if (s?.user) {
+        checkPerfil(s.user.id)
+      }
       setLoading(false)
     })
 
@@ -30,32 +55,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(s)
       setUser(s?.user ?? null)
 
-      // Send welcome email on first Google sign-in
-      if (event === 'SIGNED_IN' && s?.user?.app_metadata?.provider === 'google') {
-        const email = s.user.email
-        if (email) {
-          fetch(`${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1'}/auth/welcome-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, nombre: s.user.user_metadata?.full_name }),
-          }).catch(() => {})
+      if (event === 'SIGNED_IN' && s?.user) {
+        // Try to create profile from pending localStorage data (email registration flow)
+        const pendingRaw = localStorage.getItem('eterea_pending_profile')
+        if (pendingRaw) {
+          const pendingData = JSON.parse(pendingRaw)
+          crearPerfil(pendingData, s.user.id)
+            .then(() => {
+              localStorage.removeItem('eterea_pending_profile')
+              setPerfilCompleto(true)
+            })
+            .catch(() => {
+              // Profile might already exist or data is invalid — check normally
+            })
         }
+
+        // Check if profile exists
+        checkPerfil(s.user.id)
+
+        // Send welcome email ONLY on first sign-in (avoid duplicates)
+        const createdAt = new Date(s.user.created_at).getTime()
+        const now = Date.now()
+        const isNewUser = now - createdAt < 60_000 // created less than 60s ago
+        if (isNewUser) {
+          const email = s.user.email
+          if (email) {
+            fetch(`${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1'}/auth/welcome-email`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, nombre: s.user.user_metadata?.full_name }),
+            }).catch((err) => console.warn('Welcome email failed:', err))
+          }
+        }
+      }
+
+      if (event === 'SIGNED_OUT') {
+        setPerfilCompleto(true)
       }
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [checkPerfil])
 
   const signUp = async (email: string, password: string) => {
     const { error } = await supabase.auth.signUp({ email, password })
-    if (!error) {
-      // Send welcome email via backend
-      fetch(`${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1'}/auth/welcome-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      }).catch(() => {})
-    }
     return { error: error?.message ?? null }
   }
 
@@ -77,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, perfilCompleto, perfilLoading, marcarPerfilCompleto, signUp, signIn, signInWithGoogle, signOut }}>
       {children}
     </AuthContext.Provider>
   )

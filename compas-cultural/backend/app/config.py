@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     smtp_from_name: str = "Cultura ETÉREA"
     smtp_from_email: str = ""
 
+    # Resend (alternative to SMTP — easier setup: https://resend.com)
+    resend_api_key: str = ""
+
     # Meta (Instagram/Facebook) Graph API
     meta_access_token: str = ""
     meta_ig_business_account_id: str = ""

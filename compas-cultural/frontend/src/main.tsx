@@ -5,6 +5,21 @@ import { HelmetProvider } from 'react-helmet-async'
 import App from './App.tsx'
 import './index.css'
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  render() {
+    if (this.state.error) {
+      return <div style={{ padding: 40, fontFamily: 'monospace' }}>
+        <h1 style={{ color: 'red' }}>Runtime Error</h1>
+        <pre>{this.state.error.message}</pre>
+        <pre style={{ fontSize: 11, opacity: 0.6 }}>{this.state.error.stack}</pre>
+      </div>
+    }
+    return this.props.children
+  }
+}
+
 const rootElement = document.getElementById('root')
 
 if (!rootElement) {
@@ -13,10 +28,12 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <HelmetProvider>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </HelmetProvider>
+    <ErrorBoundary>
+      <HelmetProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </HelmetProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 )

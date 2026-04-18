@@ -1,5 +1,6 @@
 import smtplib
 import logging
+import httpx
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.config import settings
@@ -124,12 +125,20 @@ def _build_welcome_html(user_email: str, user_name: str | None = None) -> str:
 
 
 def send_welcome_email(to_email: str, user_name: str | None = None) -> bool:
+    # Try Resend first (simpler setup, no SMTP needed)
+    if settings.resend_api_key:
+        return _send_via_resend(to_email, user_name)
+
+    # Fall back to SMTP
     if not settings.smtp_password:
-        logger.warning("SMTP_PASSWORD not configured, skipping email send")
+        logger.warning(
+            "Email not configured. Set RESEND_API_KEY (recommended) or "
+            "SMTP_PASSWORD + SMTP_USER + SMTP_FROM_EMAIL to enable welcome emails."
+        )
         return False
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "🎭 Bienvenido a Cultura ETÉREA — Medellín"
+    msg["Subject"] = "Bienvenido a Cultura ETÉREA — Medellín"
     msg["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
     msg["To"] = to_email
 
@@ -150,8 +159,36 @@ def send_welcome_email(to_email: str, user_name: str | None = None) -> bool:
             server.starttls()
             server.login(settings.smtp_user, settings.smtp_password)
             server.send_message(msg)
-        logger.info(f"Welcome email sent to {to_email}")
+        logger.info("Welcome email sent to %s via SMTP", to_email)
         return True
     except Exception as e:
-        logger.error(f"Failed to send email to {to_email}: {e}")
+        logger.error("Failed to send email to %s via SMTP: %s", to_email, e)
+        return False
+
+
+def _send_via_resend(to_email: str, user_name: str | None = None) -> bool:
+    """Send welcome email using Resend HTTP API (https://resend.com)."""
+    try:
+        from_addr = settings.smtp_from_email or "noreply@culturaeterea.com"
+        resp = httpx.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {settings.resend_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": f"{settings.smtp_from_name} <{from_addr}>",
+                "to": [to_email],
+                "subject": "Bienvenido a Cultura ETÉREA — Medellín",
+                "html": _build_welcome_html(to_email, user_name),
+            },
+            timeout=10,
+        )
+        if resp.status_code in (200, 201):
+            logger.info("Welcome email sent to %s via Resend", to_email)
+            return True
+        logger.error("Resend API error (%s): %s", resp.status_code, resp.text)
+        return False
+    except Exception as e:
+        logger.error("Failed to send email to %s via Resend: %s", to_email, e)
         return False

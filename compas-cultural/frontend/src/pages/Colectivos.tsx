@@ -12,9 +12,12 @@ const TIPOS_COLECTIVO = [
   { value: 'musica_en_vivo', label: 'Música' },
   { value: 'arte_contemporaneo', label: 'Arte' },
   { value: 'poesia', label: 'Poesía' },
+  { value: 'filosofia', label: 'Filosofía' },
   { value: 'editorial', label: 'Editorial' },
   { value: 'fotografia', label: 'Fotografía' },
   { value: 'muralismo', label: 'Muralismo' },
+  { value: 'electronica', label: 'Electrónica' },
+  { value: 'batalla_freestyle', label: 'Freestyle' },
 ]
 
 export default function Colectivos() {
@@ -25,9 +28,8 @@ export default function Colectivos() {
 
   useEffect(() => {
     setLoading(true)
-    getEspacios({ limit: 100, categoria: filtro || undefined })
+    getEspacios({ limit: 300, categoria: filtro || undefined, tipo: 'colectivo' })
       .then(list => {
-        // Filter by tipo colectivo or broader search
         setColectivos(list)
       })
       .catch(() => {})
@@ -69,6 +71,13 @@ export default function Colectivos() {
                 className="inline-flex items-center gap-2 bg-black text-white px-6 py-3 font-mono text-xs font-bold uppercase tracking-wider hover:bg-white hover:text-black border-2 border-black transition-all duration-300"
               >
                 Registrar mi colectivo
+                <span>→</span>
+              </Link>
+              <Link
+                to="/registrar"
+                className="inline-flex items-center gap-2 bg-white text-black px-6 py-3 font-mono text-xs font-bold uppercase tracking-wider border-2 border-black hover:bg-black hover:text-white transition-all duration-300"
+              >
+                Registrar mi espacio
                 <span>→</span>
               </Link>
               <span className="inline-flex items-center px-4 py-3 border-2 border-black font-mono text-xs font-bold uppercase tracking-wider">
@@ -116,11 +125,11 @@ export default function Colectivos() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0 border-2 border-black">
             {colectivos.map((col, i) => (
-              <Link
+              <div
                 key={col.id}
-                to={`/espacio/${col.slug}`}
-                className="group border-b-2 border-r-2 border-black p-6 hover:bg-black hover:text-white transition-all duration-300"
+                className="group border-b-2 border-r-2 border-black p-6 hover:bg-black hover:text-white transition-all duration-300 relative"
               >
+                <Link to={`/espacio/${col.slug}`} className="absolute inset-0 z-10" />
                 <div className="flex items-start justify-between mb-3">
                   <span className="text-[10px] font-mono font-bold opacity-40 group-hover:opacity-100 tracking-wider">
                     {String(i + 1).padStart(2, '0')}
@@ -143,7 +152,30 @@ export default function Colectivos() {
                 <div className="flex items-center gap-3 text-[10px] font-mono opacity-50 group-hover:opacity-100">
                   {col.barrio && <span>◉ {col.barrio}</span>}
                   <span>{col.municipio}</span>
-                  {col.instagram_handle && <span>@{col.instagram_handle}</span>}
+                </div>
+
+                {/* External links — above the overlay */}
+                <div className="flex items-center gap-3 mt-2 relative z-20">
+                  {col.instagram_handle && (
+                    <a
+                      href={`https://instagram.com/${col.instagram_handle.replace(/^@/, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] font-mono font-bold opacity-50 hover:opacity-100 transition-opacity"
+                    >
+                      📸 @{col.instagram_handle.replace(/^@/, '')}
+                    </a>
+                  )}
+                  {col.sitio_web && (
+                    <a
+                      href={col.sitio_web}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] font-mono font-bold opacity-50 hover:opacity-100 transition-opacity"
+                    >
+                      🌐 Web
+                    </a>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 mt-3">
@@ -156,7 +188,7 @@ export default function Colectivos() {
                     {col.nivel_actividad?.replaceAll('_', ' ')}
                   </span>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}

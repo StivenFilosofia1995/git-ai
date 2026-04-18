@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { enviarMensajeChat, getEvento, getEspacio, getZonas, type ChatMessage, type Evento, type Espacio, type Zona } from '../../lib/api'
+import { enviarMensajeChat, getEvento, getEspacio, getZonas, registrarBusqueda, type ChatMessage, type Evento, type Espacio, type Zona } from '../../lib/api'
+import { useAuth } from '../../lib/AuthContext'
 
 function stripMarkdown(text: string): string {
   return text
@@ -24,6 +25,7 @@ interface Mensaje {
   contenido: string
   eventos?: Evento[]
   espacios?: Espacio[]
+  enlaces?: Array<{ tipo: string; nombre: string; url?: string | null; instagram?: string | null; sitio_web?: string | null }>
 }
 
 const QUICK_ASKS = [
@@ -36,6 +38,7 @@ const QUICK_ASKS = [
 ]
 
 export default function HomeChatSection() {
+  const { user } = useAuth()
   const [mensajes, setMensajes] = useState<Mensaje[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -113,14 +116,26 @@ export default function HomeChatSection() {
           .map(r => r.value)
       }
 
+      // Build links from fuentes
+      const enlaces = res.fuentes
+        .filter(f => f.instagram || f.sitio_web)
+        .map(f => ({ tipo: f.tipo, nombre: f.nombre, url: f.url, instagram: f.instagram, sitio_web: f.sitio_web }))
+
       const respuesta: Mensaje = {
         id: (Date.now() + 1).toString(),
         rol: 'compas',
         contenido: res.respuesta,
         eventos: eventosData.length > 0 ? eventosData : undefined,
         espacios: espaciosData.length > 0 ? espaciosData : undefined,
+        enlaces: enlaces.length > 0 ? enlaces : undefined,
       }
       setMensajes(prev => [...prev, respuesta])
+
+      // Track search for learning algorithm
+      if (user) {
+        const categorias = res.fuentes.map(f => f.categoria).filter(Boolean)
+        registrarBusqueda(texto, [...new Set(categorias)], user.id).catch(() => {})
+      }
     } catch {
       setMensajes(prev => [...prev, {
         id: (Date.now() + 1).toString(),
@@ -150,7 +165,7 @@ export default function HomeChatSection() {
       <div className="border-2 border-black bg-white">
         {/* Location/Zone bar */}
         <div className="flex items-center gap-3 px-4 py-3 border-b-2 border-black bg-black/[0.02] flex-wrap">
-          <span className="text-[9px] font-mono font-bold uppercase tracking-wider opacity-40">Contexto:</span>
+          <span className="text-[9px] font-mono font-bold uppercase tracking-wider opacity-40">🔍 Filtrá tu búsqueda:</span>
 
           {/* Zone selector */}
           <select
@@ -158,9 +173,9 @@ export default function HomeChatSection() {
             onChange={(e) => setZona(e.target.value)}
             className="text-[11px] font-mono font-bold border-2 border-black px-2 py-1 bg-white uppercase tracking-wider focus:outline-none"
           >
-            <option value="">Toda la ciudad</option>
+            <option value="">📍 Toda la ciudad</option>
             {zonas.map(z => (
-              <option key={z.id} value={z.nombre}>{z.nombre}</option>
+              <option key={z.id} value={z.nombre}>◉ {z.nombre}</option>
             ))}
           </select>
 
@@ -171,13 +186,14 @@ export default function HomeChatSection() {
             className={`inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all duration-200 ${
               ubicacion ? 'bg-black text-white' : 'hover:bg-black hover:text-white'
             }`}
+            title="Activá tu ubicación para resultados cerca de vos"
           >
             {geoLoading ? (
               <div className="w-3 h-3 border border-current border-t-transparent animate-spin" />
             ) : (
               <span className="text-xs">◎</span>
             )}
-            {ubicacion ? 'Ubicación activa' : 'Mi ubicación'}
+            {ubicacion ? 'Cerca de mí ✓' : 'Usar mi ubicación'}
           </button>
 
           {ubicacion && (
@@ -188,14 +204,23 @@ export default function HomeChatSection() {
               ✕
             </button>
           )}
+
+          {(zona || ubicacion) && (
+            <span className="text-[9px] font-mono text-green-700 font-bold">
+              ✓ Resultados filtrados por {zona ? `zona "${zona}"` : ''}{zona && ubicacion ? ' y ' : ''}{ubicacion ? 'tu ubicación' : ''}
+            </span>
+          )}
         </div>
 
         {/* Chat messages */}
         <div className="min-h-[120px] max-h-[460px] overflow-y-auto p-4 space-y-3">
           {mensajes.length === 0 ? (
             <div>
-              <p className="text-sm font-mono opacity-40 mb-4">
-                Preguntá lo que quieras sobre cultura en el Valle de Aburrá. Seleccioná zona o ubicación para resultados más relevantes.
+              <p className="text-sm font-mono opacity-60 mb-2">
+                🔍 Buscá eventos, espacios, artistas y más en el Valle de Aburrá.
+              </p>
+              <p className="text-[11px] font-mono opacity-40 mb-4">
+                Podés seleccionar tu zona arriba o activar tu ubicación para resultados cercanos. ETÉREA busca en toda la base de datos cultural.
               </p>
               <div className="flex flex-wrap gap-2">
                 {QUICK_ASKS.map(q => (
@@ -272,6 +297,36 @@ export default function HomeChatSection() {
                             </div>
                             <span className="text-[9px] opacity-50">→</span>
                           </Link>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* External links (Instagram, websites) */}
+                    {msg.enlaces && msg.enlaces.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+                        {msg.enlaces.map((enlace, i) => (
+                          <span key={i} className="inline-flex items-center gap-1">
+                            {enlace.instagram && (
+                              <a
+                                href={`https://instagram.com/${enlace.instagram.replace('@', '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[9px] font-mono px-1.5 py-0.5 border border-black/30 hover:bg-black hover:text-white transition-all"
+                              >
+                                @{enlace.instagram.replace('@', '')}
+                              </a>
+                            )}
+                            {enlace.sitio_web && (
+                              <a
+                                href={enlace.sitio_web.startsWith('http') ? enlace.sitio_web : `https://${enlace.sitio_web}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[9px] font-mono px-1.5 py-0.5 border border-black/30 hover:bg-black hover:text-white transition-all"
+                              >
+                                🌐 Web
+                              </a>
+                            )}
+                          </span>
                         ))}
                       </div>
                     )}

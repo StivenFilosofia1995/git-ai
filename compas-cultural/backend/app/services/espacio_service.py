@@ -12,6 +12,7 @@ def get_espacios(
     es_underground: Optional[bool] = None,
     limit: int = 20,
     offset: int = 0,
+    tipo: Optional[str] = None,
 ) -> List[dict]:
     query = supabase.table("lugares").select("*").neq("nivel_actividad", "cerrado")
 
@@ -21,6 +22,8 @@ def get_espacios(
         query = query.ilike("barrio", f"%{barrio}%")
     if categoria:
         query = query.contains("categorias", [categoria])
+    if tipo:
+        query = query.eq("tipo", tipo)
     if nivel_actividad:
         query = query.eq("nivel_actividad", nivel_actividad)
     if es_underground is not None:

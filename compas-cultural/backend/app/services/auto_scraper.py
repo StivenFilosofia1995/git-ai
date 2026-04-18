@@ -634,3 +634,187 @@ async def enrich_event_images() -> dict:
 
     print(f"  ✅ {updated} eventos actualizados con imagen")
     return {"total_sin_imagen": len(eventos), "actualizados": updated}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Alternative / independent agenda scraping
+# ──────────────────────────────────────────────────────────────────────────
+AGENDA_SOURCES = [
+    {
+        "nombre": "Vivir en el Poblado - Agenda Cultural",
+        "url": "https://vivirenelpoblado.com/agenda-cultural/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Timeout Medellín",
+        "url": "https://www.timeout.com/medellin/things-to-do",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Plan B Medellín",
+        "url": "https://planbmedellin.com/",
+        "categoria_default": "musica_en_vivo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Tu Cultura Medellín",
+        "url": "https://tucultura.medellin.gov.co/",
+        "categoria_default": "casa_cultura",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Mincultura Agenda",
+        "url": "https://www.mincultura.gov.co/areas/artes/literatura/Paginas/default.aspx",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+]
+
+AGENDA_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
+Analiza el contenido de esta página de agenda cultural y extrae TODOS los EVENTOS culturales mencionados.
+
+Fecha actual: {fecha_actual}
+Año actual: {anio_actual}
+
+Fuente: {nombre_fuente}
+URL: {fuente_url}
+Municipio por defecto: {municipio}
+
+Contenido:
+---
+{contenido}
+---
+
+Extrae en JSON con esta estructura exacta:
+{{
+  "eventos": [
+    {{
+      "titulo": "nombre del evento",
+      "categoria_principal": "teatro | hip_hop | jazz | musica_en_vivo | electronica | galeria | arte_contemporaneo | libreria | editorial | poesia | filosofia | cine | danza | circo | fotografia | casa_cultura | centro_cultural | festival | batalla_freestyle | muralismo | radio_comunitaria | publicacion | otro",
+      "categorias": ["lista"],
+      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
+      "fecha_fin": "YYYY-MM-DDTHH:MM:SS o null",
+      "descripcion": "descripción del evento (máx 500 chars)",
+      "nombre_lugar": "nombre del lugar si se menciona",
+      "barrio": "barrio si se menciona",
+      "municipio": "municipio o medellin por defecto",
+      "precio": "valor o 'Entrada libre'",
+      "es_gratuito": true/false,
+      "es_recurrente": true/false,
+      "imagen_url": "URL de imagen del evento si la hay, o null"
+    }}
+  ]
+}}
+
+Reglas:
+- Cuando una fecha NO especifica año, usa {anio_actual}.
+- Incluye SOLO eventos que ocurran DESPUÉS de {fecha_actual}.
+- Prioriza agenda alternativa, underground, independiente.
+- Si no hay eventos claros, responde: {{"eventos": []}}
+- Para horas ambiguas, usa 19:00:00 como default.
+- Si el contenido incluye [OG_IMAGE: url], usa esa URL como imagen_url del evento principal.
+- Responde SOLO con el JSON, sin texto adicional.
+"""
+
+
+async def scrape_agenda_sources() -> dict:
+    """
+    Scrape independent agenda websites (not linked to a specific lugar).
+    These are cultural agenda aggregators, media outlets, etc.
+    """
+    print("\n📰 ═══════════════════════════════════════════════")
+    print("   AGENDA ALTERNATIVA — scraping fuentes externas...")
+    print("═══════════════════════════════════════════════════")
+
+    now_co = datetime.utcnow() - timedelta(hours=5)
+    now_iso = now_co.isoformat()
+    anio = now_co.year
+
+    total = {"fuentes": 0, "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
+
+    for src in AGENDA_SOURCES:
+        print(f"\n📰 [{src['nombre']}] {src['url']}")
+        try:
+            content = await _fetch_website(src["url"])
+            if not content or len(content) < 100:
+                print(f"  ⚠ Sin contenido suficiente")
+                continue
+
+            prompt = AGENDA_EXTRACTION_PROMPT.format(
+                fecha_actual=now_iso,
+                anio_actual=anio,
+                nombre_fuente=src["nombre"],
+                fuente_url=src["url"],
+                municipio=src["municipio"],
+                contenido=content[:12000],
+            )
+            events = _extract_events_with_claude(prompt)
+            total["fuentes"] += 1
+
+            for ev in events:
+                try:
+                    titulo = ev.get("titulo")
+                    if not titulo:
+                        continue
+
+                    fecha_str = ev.get("fecha_inicio")
+                    if fecha_str:
+                        try:
+                            fecha = datetime.fromisoformat(fecha_str)
+                            if fecha < now_co:
+                                continue
+                        except (ValueError, TypeError):
+                            fecha = now_co + timedelta(days=7)
+                    else:
+                        continue
+
+                    slug = _slugify(titulo)
+                    existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
+                    if existing.data:
+                        total["duplicados"] += 1
+                        continue
+
+                    evento_data = {
+                        "titulo": titulo,
+                        "slug": slug,
+                        "fecha_inicio": fecha.isoformat(),
+                        "fecha_fin": ev.get("fecha_fin"),
+                        "categorias": ev.get("categorias", [src["categoria_default"]]),
+                        "categoria_principal": ev.get("categoria_principal", src["categoria_default"]),
+                        "municipio": ev.get("municipio", src["municipio"]),
+                        "barrio": ev.get("barrio"),
+                        "nombre_lugar": ev.get("nombre_lugar"),
+                        "descripcion": ev.get("descripcion"),
+                        "precio": ev.get("precio"),
+                        "es_gratuito": ev.get("es_gratuito", False),
+                        "es_recurrente": ev.get("es_recurrente", False),
+                        "imagen_url": ev.get("imagen_url"),
+                        "fuente": f"agenda_{src['nombre'][:30]}",
+                        "fuente_url": src["url"],
+                        "verificado": False,
+                    }
+                    supabase.table("eventos").insert(evento_data).execute()
+                    total["eventos_nuevos"] += 1
+                    print(f"    ✅ {titulo[:60]}")
+
+                except Exception as e:
+                    total["errores"] += 1
+                    print(f"    ❌ Error: {e}")
+
+            await asyncio.sleep(3)
+
+        except Exception as e:
+            total["errores"] += 1
+            print(f"  ❌ Error scraping {src['nombre']}: {e}")
+
+    _log_scraping(
+        fuente="agenda_alternativa",
+        registros_nuevos=total["eventos_nuevos"],
+        errores=total["errores"],
+        detalle=total,
+    )
+
+    print(f"\n✅ Agenda alternativa: {total['eventos_nuevos']} nuevos, {total['duplicados']} dup, {total['errores']} err")
+    return total

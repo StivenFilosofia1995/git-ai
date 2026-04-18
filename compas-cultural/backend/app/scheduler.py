@@ -1,5 +1,5 @@
 """
-Scheduler: ejecuta el auto-scraper periódicamente usando APScheduler.
+Scheduler: ejecuta auto-scraper, discovery y social listener periódicamente.
 """
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -28,9 +28,36 @@ async def _run_image_enrichment():
         print(f"❌ Image enrichment error: {e}")
 
 
+async def _run_social_listener():
+    """Job wrapper for the social listener."""
+    from app.services.social_listener import run_social_listener
+    try:
+        await run_social_listener()
+    except Exception as e:
+        print(f"❌ Social listener error: {e}")
+
+
+async def _run_discovery():
+    """Job wrapper for discovery (modo rápido)."""
+    from app.services.discovery_service import run_discovery
+    try:
+        await run_discovery(mode="rapido")
+    except Exception as e:
+        print(f"❌ Discovery error: {e}")
+
+
+async def _run_agenda_alternativa():
+    """Job wrapper for alternative agenda scraping."""
+    from app.services.auto_scraper import scrape_agenda_sources
+    try:
+        await scrape_agenda_sources()
+    except Exception as e:
+        print(f"❌ Agenda alternativa error: {e}")
+
+
 def start_scheduler():
     """Start the periodic scraper. Called from FastAPI lifespan."""
-    # Scrape completo cada 6 horas
+    # Auto-scraper: cada 6 horas
     scheduler.add_job(
         _run_scraper_job,
         trigger=IntervalTrigger(hours=6),
@@ -39,12 +66,39 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Enriquecer imágenes cada 8 horas
+    # Social Listener: cada 3 horas (escucha IG/FB por nuevos eventos)
+    scheduler.add_job(
+        _run_social_listener,
+        trigger=IntervalTrigger(hours=3),
+        id="social_listener",
+        name="Social Listener — redes sociales",
+        replace_existing=True,
+    )
+
+    # Discovery: cada 24 horas (descubre nuevos colectivos)
+    scheduler.add_job(
+        _run_discovery,
+        trigger=IntervalTrigger(hours=24),
+        id="discovery",
+        name="Discovery — nuevos colectivos",
+        replace_existing=True,
+    )
+
+    # Enriquecer imágenes: cada 8 horas
     scheduler.add_job(
         _run_image_enrichment,
         trigger=IntervalTrigger(hours=8),
         id="image_enrichment",
         name="Enriquecimiento de imágenes",
+        replace_existing=True,
+    )
+
+    # Agenda alternativa: cada 12 horas
+    scheduler.add_job(
+        _run_agenda_alternativa,
+        trigger=IntervalTrigger(hours=12),
+        id="agenda_alternativa",
+        name="Agenda alternativa — medios independientes",
         replace_existing=True,
     )
 
@@ -57,8 +111,21 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Social Listener inicial: 2 minutos después de arrancar
+    scheduler.add_job(
+        _run_social_listener,
+        trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=2)),
+        id="social_listener_startup",
+        name="Social Listener inicial",
+        replace_existing=True,
+    )
+
     scheduler.start()
-    print("⏰ Scheduler iniciado — scrape inicial en 30s, luego cada 6 horas")
+    print("⏰ Scheduler iniciado:")
+    print("   • Auto-scraper: cada 6h (inicio en 30s)")
+    print("   • Social Listener: cada 3h (inicio en 2min)")
+    print("   • Discovery: cada 24h")
+    print("   • Imágenes: cada 8h")
 
 
 def stop_scheduler():

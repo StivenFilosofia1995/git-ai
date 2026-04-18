@@ -16,6 +16,10 @@ class FuenteCitada(BaseModel):
     nombre: str
     categoria: str
     barrio: Optional[str] = None
+    url: Optional[str] = None
+    instagram: Optional[str] = None
+    sitio_web: Optional[str] = None
+    imagen_url: Optional[str] = None
 
 class ChatResponse(BaseModel):
     respuesta: str

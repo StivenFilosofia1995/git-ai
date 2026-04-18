@@ -1,8 +1,9 @@
 import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
-import { getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, type Espacio, type Evento } from '../lib/api'
+import { getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, scrapeLugar, type Espacio, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import ReviewSection from '../components/ui/ReviewSection'
 
 export default function EspacioDetalle() {
   const { slug } = useParams()
@@ -12,6 +13,8 @@ export default function EspacioDetalle() {
   const [cercanos, setCercanos] = useState<Espacio[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [scrapingEventos, setScrapingEventos] = useState(false)
+  const [scrapeMsg, setScrapeMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const cargarEspacio = async () => {
@@ -78,27 +81,86 @@ export default function EspacioDetalle() {
               <div>
                 <h3 className="font-mono font-bold mb-2 uppercase tracking-wider text-xs">CONTACTO</h3>
                 {espacio.instagram_handle && (
-                  <p>Instagram: @{espacio.instagram_handle}</p>
+                  <p>
+                    <a
+                      href={`https://instagram.com/${espacio.instagram_handle.replace(/^@/, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all mb-2"
+                    >
+                      📸 @{espacio.instagram_handle.replace(/^@/, '')}
+                    </a>
+                  </p>
                 )}
                 {espacio.sitio_web && (
                   <p>
-                    Web:{' '}
-                    <a href={espacio.sitio_web} className="underline" target="_blank" rel="noreferrer">
-                      {espacio.sitio_web}
+                    <a
+                      href={espacio.sitio_web}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
+                    >
+                      🌐 {espacio.sitio_web.replace(/^https?:\/\//, '').replace(/\/$/, '')}
                     </a>
                   </p>
                 )}
               </div>
               <div>
                 <h3 className="font-mono font-bold mb-2 uppercase tracking-wider text-xs">UBICACIÓN</h3>
-                <p>{espacio.barrio ?? 'Sin barrio'}</p>
-                <p>{espacio.municipio}</p>
+                {espacio.direccion && (
+                  <p className="font-mono text-sm">{espacio.direccion}</p>
+                )}
+                {espacio.barrio && espacio.barrio !== 'Sin barrio' && (
+                  <p className="font-mono text-sm">{espacio.barrio}</p>
+                )}
+                <p className="font-mono text-sm capitalize">{espacio.municipio}</p>
+                <a
+                  href={
+                    espacio.lat && espacio.lng
+                      ? `https://www.google.com/maps?q=${espacio.lat},${espacio.lng}`
+                      : `https://www.google.com/maps/search/${encodeURIComponent(`${espacio.nombre}, ${espacio.municipio}, Colombia`)}`
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 mt-2 hover:bg-black hover:text-white transition-all"
+                >
+                  📍 Ver en Google Maps
+                </a>
               </div>
             </div>
           </div>
 
           <div className="border-t-2 border-black pt-8">
-            <h3 className="font-mono font-bold mb-4 uppercase tracking-wider text-xs">PRÓXIMOS EVENTOS</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-mono font-bold uppercase tracking-wider text-xs">PRÓXIMOS EVENTOS</h3>
+              <button
+                onClick={async () => {
+                  setScrapingEventos(true)
+                  setScrapeMsg(null)
+                  try {
+                    const res = await scrapeLugar(espacio.id)
+                    setScrapeMsg(res.message)
+                    setTimeout(() => {
+                      getEventosByEspacio(espacio.id).then(setEventos).catch(() => {})
+                    }, 8000)
+                  } catch {
+                    setScrapeMsg('No se pudo iniciar la búsqueda.')
+                  } finally {
+                    setScrapingEventos(false)
+                  }
+                }}
+                disabled={scrapingEventos}
+                className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {scrapingEventos
+                  ? <><span className="w-2 h-2 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" /> Buscando...</>
+                  : <>🔍 Buscar eventos</>
+                }
+              </button>
+            </div>
+            {scrapeMsg && (
+              <p className="text-xs font-mono text-neutral-500 mb-3 border border-neutral-300 px-3 py-2">{scrapeMsg}</p>
+            )}
             {eventos.length === 0 ? (
               <p className="font-mono text-sm">No hay eventos próximos programados en este espacio.</p>
             ) : (
@@ -152,6 +214,9 @@ export default function EspacioDetalle() {
               </div>
             )}
           </div>
+
+          {/* Reviews */}
+          <ReviewSection tipo="espacio" itemId={espacio.id} itemNombre={espacio.nombre} />
         </div>
       </div>
     </>

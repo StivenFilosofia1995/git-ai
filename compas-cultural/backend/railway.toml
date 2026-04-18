@@ -1,0 +1,14 @@
+# =============================================
+# Backend: FastAPI (Python) — Railway config
+# =============================================
+# Deploy as: Docker service
+# Root Directory in Railway: backend/
+
+[build]
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

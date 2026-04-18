@@ -1,24 +1,43 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense, Component, type ReactNode } from 'react'
 import { Helmet } from 'react-helmet-async'
 import { Link } from 'react-router-dom'
-import CulturalMap from '../components/map/CulturalMap'
 import AgendaFeed from '../components/agenda/AgendaFeed'
 import EventosHoySection from '../components/agenda/EventosHoySection'
 import RecomendacionesSection from '../components/agenda/RecomendacionesSection'
 import HomeChatSection from '../components/chat/HomeChatSection'
 import AISearchBar from '../components/search/AISearchBar'
+import ColtejerWireframe from '../components/illustrations/ColtejerWireframe'
 import ZonaCard from '../components/zones/ZonaCard'
-import { getZonas, getEspacios, getEventos, type Zona } from '../lib/api'
+import { getZonas, getStats, type Zona } from '../lib/api'
+
+const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
+
+class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false }
+  static getDerivedStateFromError() { return { hasError: true } }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="w-full h-[600px] border-2 border-black bg-gray-50 flex items-center justify-center">
+          <div className="text-center px-8">
+            <div className="text-4xl mb-4">🗺️</div>
+            <p className="font-mono text-sm text-gray-600">No se pudo cargar el mapa</p>
+            <p className="font-mono text-xs text-gray-400 mt-2">Explorá los espacios desde la sección Explorar</p>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 export default function Home() {
   const [zonas, setZonas] = useState<Zona[]>([])
-  const [totalEspacios, setTotalEspacios] = useState(0)
-  const [totalEventos, setTotalEventos] = useState(0)
+  const [stats, setStats] = useState({ espacios: 0, eventos: 0, zonas: 0 })
 
   useEffect(() => {
     getZonas().then(setZonas).catch(() => {})
-    getEspacios({ limit: 200 }).then(e => setTotalEspacios(e.length)).catch(() => {})
-    getEventos({ limit: 200 }).then(e => setTotalEventos(e.length)).catch(() => {})
+    getStats().then(setStats).catch(() => {})
   }, [])
 
   return (
@@ -30,50 +49,50 @@ export default function Home() {
 
       {/* HERO */}
       <section className="relative bg-white border-b-2 border-black overflow-hidden">
-        {/* Bauhaus geometric accents — contained to right edge */}
-        <div className="absolute top-12 right-8 w-24 h-24 border-2 border-black rounded-full hidden lg:block" />
-        <div className="absolute bottom-20 right-16 w-12 h-12 bg-black hidden lg:block" style={{ clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }} />
-        <div className="absolute top-1/2 right-6 w-6 h-6 bg-black hidden lg:block" />
-
         <div className="relative max-w-7xl mx-auto px-6 pt-24 pb-16 lg:pt-32 lg:pb-24">
-          <div className="max-w-2xl">
-            {/* Top label */}
-            <div className="flex items-center gap-3 mb-10">
-              <span className="block w-3 h-3 bg-black animate-pulse" />
-              <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
-                Medell&iacute;n &middot; Valle de Aburr&aacute; &middot; Live
-              </span>
+          <div className="flex items-start justify-between gap-12">
+            <div className="max-w-2xl">
+              <div className="flex items-center gap-3 mb-10">
+                <span className="block w-3 h-3 bg-black animate-pulse" />
+                <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
+                  Medellín · Valle de Aburrá · Live
+                </span>
+              </div>
+
+              <h1 className="font-heading font-black tracking-tighter leading-[0.9] mb-8">
+                <span className="block text-[3.5rem] md:text-[5rem] lg:text-[6.5rem] text-black">Cultura</span>
+                <span className="block text-[4rem] md:text-[6rem] lg:text-[8rem] text-black" style={{
+                  WebkitTextStroke: '2px black',
+                  WebkitTextFillColor: 'transparent',
+                }}>ETÉREA</span>
+              </h1>
+
+              <p className="text-black max-w-md text-base leading-relaxed mb-10 font-mono">
+                Teatro · Jazz · Hip-hop · Galerías ·
+                Spoken Word · Arte Underground
+                — actualizado en tiempo real.
+              </p>
+
+              <AISearchBar />
+
+              {/* Real-time data counters */}
+              <div className="flex gap-8 mt-10">
+                {[
+                  { n: stats.espacios || zonas.length, label: 'ESPACIOS' },
+                  { n: stats.eventos, label: 'EVENTOS' },
+                  { n: stats.zonas || zonas.length, label: 'ZONAS' },
+                ].map(d => (
+                  <div key={d.label}>
+                    <div className="text-3xl font-heading font-black">{d.n}</div>
+                    <div className="text-[9px] font-mono font-bold tracking-[0.2em] mt-1">{d.label}</div>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {/* Title */}
-            <h1 className="font-heading font-black tracking-tighter leading-[0.9] mb-8">
-              <span className="block text-[3.5rem] md:text-[5rem] lg:text-[6.5rem] text-black">Cultura</span>
-              <span className="block text-[4rem] md:text-[6rem] lg:text-[8rem] text-black" style={{
-                WebkitTextStroke: '2px black',
-                WebkitTextFillColor: 'transparent',
-              }}>ET&Eacute;REA</span>
-            </h1>
-
-            <p className="text-black max-w-md text-base leading-relaxed mb-10 font-mono">
-              Teatro &middot; Jazz &middot; Hip-hop &middot; Galer&iacute;as &middot;
-              Spoken Word &middot; Arte Underground
-              &mdash; actualizado en tiempo real.
-            </p>
-
-            <AISearchBar />
-
-            {/* Data counters */}
-            <div className="flex gap-8 mt-10">
-              {[
-                { n: totalEspacios || 110, label: 'ESPACIOS' },
-                { n: totalEventos || 90, label: 'EVENTOS' },
-                { n: zonas.length || 15, label: 'ZONAS' },
-              ].map(d => (
-                <div key={d.label}>
-                  <div className="text-3xl font-heading font-black">{d.n}</div>
-                  <div className="text-[9px] font-mono font-bold tracking-[0.2em] mt-1">{d.label}</div>
-                </div>
-              ))}
+            {/* Coltejer wireframe — hidden on small screens */}
+            <div className="hidden lg:block flex-shrink-0 -mr-8 mt-8">
+              <ColtejerWireframe />
             </div>
           </div>
         </div>
@@ -84,7 +103,7 @@ export default function Home() {
         <div className="animate-marquee whitespace-nowrap flex gap-8">
           {Array.from({ length: 2 }, (_, j) => (
             <span key={j} className="flex gap-8">
-              {['TEATRO', 'JAZZ', 'HIP-HOP', 'GALER&Iacute;AS', 'DANZA', 'ELECTR&Oacute;NICA', 'POES&Iacute;A', 'CINE', 'MURALISMO', 'FREESTYLE', 'EDITORIAL', 'CIRCO'].map(cat => (
+              {['TEATRO', 'JAZZ', 'HIP-HOP', 'GALERÍAS', 'DANZA', 'ELECTRÓNICA', 'POESÍA', 'CINE', 'MURALISMO', 'FREESTYLE', 'EDITORIAL', 'CIRCO', 'FOTOGRAFÍA', 'SPOKEN WORD'].map(cat => (
                 <span key={`${j}-${cat}`} className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase flex items-center gap-3">
                   <span className="w-1.5 h-1.5 bg-white" />
                   {cat}
@@ -112,7 +131,15 @@ export default function Home() {
                 <h2 className="text-xl font-heading font-black uppercase tracking-wider">Mapa Cultural</h2>
               </div>
               <div className="border-2 border-black overflow-hidden">
-                <CulturalMap />
+                <MapErrorBoundary>
+                  <Suspense fallback={
+                    <div className="w-full h-[600px] bg-gray-50 flex items-center justify-center">
+                      <p className="font-mono text-sm text-gray-400 animate-pulse">Cargando mapa…</p>
+                    </div>
+                  }>
+                    <CulturalMap />
+                  </Suspense>
+                </MapErrorBoundary>
               </div>
             </div>
 
@@ -154,25 +181,43 @@ export default function Home() {
 
         {/* CTA REGISTRO */}
         <section className="py-20 mb-8 border-t-2 border-black">
-          <div className="bg-black text-white p-12 md:p-20 border-2 border-black relative overflow-hidden">
-            {/* Bauhaus decorative geometry */}
-            <div className="absolute top-0 right-0 w-40 h-40 border-2 border-white/20 rounded-full -translate-y-1/2 translate-x-1/2" />
-            <div className="absolute bottom-0 left-12 w-20 h-20 border-2 border-white/10" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 border-2 border-black">
+            {/* Espacio */}
+            <div className="bg-black text-white p-10 md:p-14 relative overflow-hidden border-b-2 lg:border-b-0 lg:border-r-2 border-black">
+              <div className="absolute top-0 right-0 w-32 h-32 border-2 border-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+              <div className="relative z-10">
+                <h2 className="text-2xl md:text-4xl font-heading font-black uppercase tracking-tighter mb-3 leading-[0.95]">
+                  ¿Tenés un espacio cultural?
+                </h2>
+                <p className="text-white text-sm mb-8 font-mono leading-relaxed opacity-80">
+                  Registrá tu centro cultural, galería, teatro o librería pegando tu link de Instagram o web.
+                </p>
+                <Link
+                  to="/registrar"
+                  className="inline-flex items-center gap-3 bg-white text-black px-6 py-3 font-heading text-sm font-black uppercase tracking-wider hover:bg-black hover:text-white hover:outline hover:outline-2 hover:outline-white transition-all duration-300"
+                >
+                  Registrar espacio →
+                </Link>
+              </div>
+            </div>
 
-            <div className="relative z-10 max-w-lg">
-              <h2 className="text-3xl md:text-5xl font-heading font-black uppercase tracking-tighter mb-4 leading-[0.95]">
-                &iquest;Ten&eacute;s un espacio cultural?
-              </h2>
-              <p className="text-white text-sm mb-10 font-mono leading-relaxed">
-                Registr&aacute; tu centro cultural, colectivo o proyecto con solo pegar tu link de Instagram o web.
-              </p>
-              <Link
-                to="/registrar"
-                className="inline-flex items-center gap-3 bg-white text-black px-8 py-4 font-heading text-sm font-black uppercase tracking-wider hover:bg-black hover:text-white hover:outline hover:outline-2 hover:outline-white transition-all duration-300"
-              >
-                Registrar mi espacio
-                <span className="text-lg">&rarr;</span>
-              </Link>
+            {/* Colectivo */}
+            <div className="bg-white text-black p-10 md:p-14 relative overflow-hidden">
+              <div className="absolute bottom-0 left-0 w-24 h-24 border-2 border-black/10" />
+              <div className="relative z-10">
+                <h2 className="text-2xl md:text-4xl font-heading font-black uppercase tracking-tighter mb-3 leading-[0.95]">
+                  ¿Tenés un colectivo?
+                </h2>
+                <p className="text-black text-sm mb-8 font-mono leading-relaxed opacity-60">
+                  Colectivos de hip-hop, teatro, danza, poesía, filosofía... Registrá tu proyecto y quedá conectado al scraping activo.
+                </p>
+                <Link
+                  to="/registrar"
+                  className="inline-flex items-center gap-3 bg-black text-white px-6 py-3 font-heading text-sm font-black uppercase tracking-wider hover:bg-white hover:text-black border-2 border-black transition-all duration-300"
+                >
+                  Registrar colectivo →
+                </Link>
+              </div>
             </div>
           </div>
         </section>

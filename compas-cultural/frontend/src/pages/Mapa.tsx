@@ -1,5 +1,25 @@
+import { lazy, Suspense, Component, type ReactNode } from 'react'
 import { Helmet } from 'react-helmet-async'
-import CulturalMap from '../components/map/CulturalMap'
+
+const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
+
+class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false }
+  static getDerivedStateFromError() { return { hasError: true } }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="w-full h-[600px] border-2 border-black bg-gray-50 flex items-center justify-center">
+          <div className="text-center px-8">
+            <div className="text-4xl mb-4">🗺️</div>
+            <p className="font-mono text-sm text-gray-600">No se pudo cargar el mapa</p>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 export default function Mapa() {
   return (
@@ -15,7 +35,15 @@ export default function Mapa() {
           </p>
         </div>
         <div className="overflow-hidden border-2 border-black">
-          <CulturalMap />
+          <MapErrorBoundary>
+            <Suspense fallback={
+              <div className="w-full h-[600px] bg-gray-50 flex items-center justify-center">
+                <p className="font-mono text-sm text-gray-400 animate-pulse">Cargando mapa…</p>
+              </div>
+            }>
+              <CulturalMap />
+            </Suspense>
+          </MapErrorBoundary>
         </div>
       </div>
     </>

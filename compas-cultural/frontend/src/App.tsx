@@ -1,5 +1,5 @@
-import { Routes, Route, Outlet } from 'react-router-dom'
-import { AuthProvider } from './lib/AuthContext'
+import { Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom'
+import { AuthProvider, useAuth } from './lib/AuthContext'
 import Header from './components/layout/Header'
 import Footer from './components/layout/Footer'
 import ChatWidget from './components/chat/ChatWidget'
@@ -14,14 +14,33 @@ import Login from './pages/Login'
 import Colectivos from './pages/Colectivos'
 import Mapa from './pages/Mapa'
 import EventoDetalle from './pages/EventoDetalle'
+import CompletarPerfil from './pages/CompletarPerfil'
 import NotFound from './pages/NotFound'
+
+/** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
+function ProfileGuard({ children }: Readonly<{ children: React.ReactNode }>) {
+  const { user, perfilCompleto, perfilLoading, loading } = useAuth()
+  const location = useLocation()
+
+  // Still loading — render nothing to avoid flash
+  if (loading || perfilLoading) return <>{children}</>
+
+  // Logged-in user without profile → redirect (except if already on the page)
+  if (user && !perfilCompleto && location.pathname !== '/completar-perfil') {
+    return <Navigate to="/completar-perfil" replace />
+  }
+
+  return <>{children}</>
+}
 
 function Layout() {
   return (
     <div className="min-h-screen bg-white">
       <Header />
       <main>
-        <Outlet />
+        <ProfileGuard>
+          <Outlet />
+        </ProfileGuard>
       </main>
       <Footer />
       <ChatWidget />
@@ -44,6 +63,7 @@ function App() {
           <Route path="colectivos" element={<Colectivos />} />
           <Route path="zona/:slug" element={<ZonaDetalle />} />
           <Route path="login" element={<Login />} />
+          <Route path="completar-perfil" element={<CompletarPerfil />} />
         </Route>
         <Route path="/chat" element={<Chat />} />
         <Route path="*" element={<NotFound />} />

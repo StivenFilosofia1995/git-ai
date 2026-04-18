@@ -53,12 +53,12 @@ export default function AgendaFeed() {
           No hay eventos hoy — mostrando próximos
         </p>
       )}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {eventos.length === 0 ? (
           <p className="text-sm font-mono p-4 border-2 border-black">No hay eventos próximos programados.</p>
         ) : (
           eventos.map((evento) => (
-            <EventCard key={evento.id} evento={evento} />
+            <EventCard key={evento.id} evento={evento} compact />
           ))
         )}
       </div>

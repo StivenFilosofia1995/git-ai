@@ -10,13 +10,14 @@ def get_espacios(
     municipio: Optional[str] = None,
     barrio: Optional[str] = None,
     categoria: Optional[str] = None,
+    tipo: Optional[str] = None,
     nivel_actividad: Optional[str] = None,
     es_underground: Optional[bool] = None,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    limit: Annotated[int, Query(ge=1, le=500)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     return espacio_service.get_espacios(
-        municipio, barrio, categoria, nivel_actividad, es_underground, limit, offset
+        municipio, barrio, categoria, nivel_actividad, es_underground, limit, offset, tipo=tipo
     )
 
 

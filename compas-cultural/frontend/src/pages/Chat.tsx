@@ -1,6 +1,6 @@
 import { Helmet } from 'react-helmet-async'
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { enviarMensajeChat, getEvento, getEspacio, type ChatMessage, type Evento, type Espacio } from '../lib/api'
 
 function stripMarkdown(text: string): string {
@@ -29,6 +29,7 @@ interface Mensaje {
 }
 
 export default function Chat() {
+  const [searchParams] = useSearchParams()
   const [mensajes, setMensajes] = useState<Mensaje[]>([
     {
       id: '1',
@@ -40,6 +41,13 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (q) {
+      setInput(q)
+    }
+  }, [searchParams])
 
   const construirHistorial = (mensajesActuales: Mensaje[]): ChatMessage[] => {
     return mensajesActuales.map((m) => ({

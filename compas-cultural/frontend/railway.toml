@@ -1,0 +1,14 @@
+# =============================================
+# Frontend: React/Vite (Static) — Railway config
+# =============================================
+# Deploy as: Docker service
+# Root Directory in Railway: frontend/
+
+[build]
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 10
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

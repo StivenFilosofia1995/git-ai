@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import Navigation from './Navigation'
 import MobileNav from './MobileNav'
 import { useAuth } from '../../lib/AuthContext'
+import { useState, useRef, useEffect } from 'react'
 
 export default function Header() {
   const { user, signOut, loading } = useAuth()
@@ -21,6 +22,19 @@ export default function Header() {
           </Link>
           <div className="flex items-center gap-4">
             <Navigation />
+
+            {/* Preguntale a ETÉREA — compact header CTA */}
+            {/* Registrar CTA */}
+            <RegisterDropdown />
+
+            <Link
+              to="/chat"
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 border border-black text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all duration-200"
+            >
+              <span className="w-1.5 h-1.5 bg-black rounded-full animate-pulse group-hover:bg-white" />
+              Preguntale a ETÉREA
+            </Link>
+
             {!loading && (
               user ? (
                 <div className="flex items-center gap-3">
@@ -48,5 +62,48 @@ export default function Header() {
       </header>
       <MobileNav />
     </>
+  )
+}
+
+function RegisterDropdown() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={ref} className="relative hidden md:block">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 px-3 py-1.5 border-2 border-black text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all duration-200"
+      >
+        + Registrar
+        <span className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-52 bg-white border-2 border-black z-50 shadow-lg">
+          <Link
+            to="/registrar"
+            onClick={() => setOpen(false)}
+            className="block px-4 py-3 text-xs font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all border-b border-black"
+          >
+            🏛 Registrar espacio
+          </Link>
+          <Link
+            to="/registrar"
+            onClick={() => setOpen(false)}
+            className="block px-4 py-3 text-xs font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all"
+          >
+            🎨 Registrar colectivo
+          </Link>
+        </div>
+      )}
+    </div>
   )
 }

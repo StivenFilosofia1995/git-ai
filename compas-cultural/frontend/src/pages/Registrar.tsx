@@ -56,7 +56,7 @@ export default function Registrar() {
         const resp = await consultarEstadoRegistro(id)
         setEstado(resp)
 
-        if (resp.estado === 'completado' || resp.estado === 'error' || resp.estado === 'rechazado') {
+        if (resp.estado === 'completado' || resp.estado === 'fallido' || resp.estado === 'error' || resp.estado === 'rechazado') {
           limpiarPolling()
           setFase('resultado')
         }
@@ -194,12 +194,20 @@ export default function Registrar() {
               >
                 Registrar otro
               </button>
-              {estado.espacio_id && (
+              {estado.espacio_id && estado.estado === 'completado' && (
                 <Link
-                  to={`/espacio/${estado.datos_extraidos?.slug ?? estado.espacio_id}`}
+                  to={`/espacio/${(estado.datos_extraidos?.slug as string) ?? estado.espacio_id}`}
                   className="flex-1 bg-black text-white py-3 font-mono text-sm uppercase tracking-wider hover:bg-white hover:text-black border-2 border-black transition-all duration-300 text-center"
                 >
                   Ver perfil
+                </Link>
+              )}
+              {estado.estado === 'completado' && (
+                <Link
+                  to="/colectivos"
+                  className="flex-1 border-2 border-black py-3 font-mono text-sm uppercase tracking-wider hover:bg-black hover:text-white transition-all duration-300 text-center"
+                >
+                  Ver colectivos
                 </Link>
               )}
             </div>

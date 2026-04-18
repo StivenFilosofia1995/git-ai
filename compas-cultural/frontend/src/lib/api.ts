@@ -10,12 +10,15 @@ export interface Espacio {
   slug: string
   nombre: string
   categoria_principal: string
+  categorias?: string[]
   barrio?: string | null
+  direccion?: string | null
   municipio: string
   descripcion_corta?: string | null
   descripcion?: string | null
   instagram_handle?: string | null
   sitio_web?: string | null
+  imagen_url?: string | null
   nivel_actividad: string
   coordenadas?: Coordenadas | null
   lat?: number | null
@@ -27,13 +30,20 @@ export interface Evento {
   slug: string
   titulo: string
   fecha_inicio: string
+  fecha_fin?: string | null
   categoria_principal: string
+  categorias?: string[]
   barrio?: string | null
+  municipio?: string | null
   nombre_lugar?: string | null
+  espacio_id?: string | null
   descripcion?: string | null
   imagen_url?: string | null
   precio?: string | null
   es_gratuito?: boolean
+  es_recurrente?: boolean
+  fuente?: string | null
+  fuente_url?: string | null
   lat?: number | null
   lng?: number | null
 }
@@ -73,6 +83,10 @@ export interface ChatResponse {
     nombre: string
     categoria: string
     barrio?: string | null
+    url?: string | null
+    instagram?: string | null
+    sitio_web?: string | null
+    imagen_url?: string | null
   }>
 }
 
@@ -109,12 +123,14 @@ export async function getEspacios(params?: {
   offset?: number
   municipio?: string
   categoria?: string
+  tipo?: string
 }): Promise<Espacio[]> {
   const query = new URLSearchParams()
   if (params?.limit !== undefined) query.set('limit', String(params.limit))
   if (params?.offset !== undefined) query.set('offset', String(params.offset))
   if (params?.municipio) query.set('municipio', params.municipio)
   if (params?.categoria) query.set('categoria', params.categoria)
+  if (params?.tipo) query.set('tipo', params.tipo)
 
   const suffix = query.toString() ? `?${query.toString()}` : ''
   return apiGet<Espacio[]>(`/espacios/${suffix}`)
@@ -134,6 +150,10 @@ export async function getEvento(slug: string): Promise<Evento> {
 
 export async function getEventosByEspacio(espacioId: string): Promise<Evento[]> {
   return apiGet<Evento[]>(`/eventos/espacio/${espacioId}`)
+}
+
+export async function scrapeLugar(lugarId: string): Promise<{ status: string; message: string }> {
+  return apiPost<{ status: string; message: string }>(`/scraper/lugar/${lugarId}/publico`, {})
 }
 
 export async function getEventos(params?: {
@@ -157,6 +177,16 @@ export async function buscar(q: string): Promise<BusquedaResponse> {
 
 export async function getZonas(): Promise<Zona[]> {
   return apiGet<Zona[]>('/zonas/')
+}
+
+export interface StatsResponse {
+  espacios: number
+  eventos: number
+  zonas: number
+}
+
+export async function getStats(): Promise<StatsResponse> {
+  return apiGet<StatsResponse>('/health/stats')
 }
 
 export async function getZona(slug: string): Promise<Zona> {
@@ -284,6 +314,21 @@ export async function registrarInteraccion(
   }).catch(() => {})
 }
 
+export async function registrarBusqueda(
+  query: string,
+  categorias: string[],
+  userId: string
+): Promise<void> {
+  await fetch(`${API_BASE_URL}/perfil/busqueda`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${userId}`,
+    },
+    body: JSON.stringify({ query, categorias }),
+  }).catch(() => {})
+}
+
 export async function obtenerRecomendaciones(userId: string, limit = 10): Promise<Evento[]> {
   const response = await fetch(`${API_BASE_URL}/perfil/recomendaciones?limit=${limit}`, {
     headers: { 'Authorization': `Bearer ${userId}` },
@@ -322,3 +367,76 @@ export const CATEGORIAS_CULTURALES = [
   { value: 'editorial', label: 'Editorial' },
   { value: 'freestyle', label: 'Freestyle' },
 ]
+
+// ---------- Reseñas (Reviews) ----------
+
+export interface Resena {
+  id: string
+  user_id: string
+  user_nombre?: string | null
+  tipo: string
+  item_id: string
+  puntuacion: number
+  titulo?: string | null
+  comentario: string
+  created_at: string
+}
+
+export interface ResenaStats {
+  promedio: number
+  total: number
+  distribucion: Record<string, number>
+}
+
+export async function getResenas(tipo: string, itemId: string, limit = 20, offset = 0): Promise<Resena[]> {
+  return apiGet<Resena[]>(`/resenas/${tipo}/${itemId}?limit=${limit}&offset=${offset}`)
+}
+
+export async function getResenaStats(tipo: string, itemId: string): Promise<ResenaStats> {
+  return apiGet<ResenaStats>(`/resenas/${tipo}/${itemId}/stats`)
+}
+
+export async function crearResena(
+  data: { tipo: string; item_id: string; puntuacion: number; titulo?: string; comentario: string },
+  userId: string,
+  userNombre?: string
+): Promise<Resena> {
+  const response = await fetch(`${API_BASE_URL}/resenas/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${userId}`,
+      ...(userNombre ? { 'X-User-Nombre': userNombre } : {}),
+    },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text)
+  }
+  return response.json() as Promise<Resena>
+}
+
+export async function actualizarResena(
+  resenaId: string,
+  data: { puntuacion?: number; titulo?: string; comentario?: string },
+  userId: string
+): Promise<Resena> {
+  const response = await fetch(`${API_BASE_URL}/resenas/${resenaId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${userId}`,
+    },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) throw new Error('Error al actualizar reseña')
+  return response.json() as Promise<Resena>
+}
+
+export async function eliminarResena(resenaId: string, userId: string): Promise<void> {
+  await fetch(`${API_BASE_URL}/resenas/${resenaId}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${userId}` },
+  })
+}

@@ -66,6 +66,16 @@ def registrar_interaccion(
     return {"ok": True}
 
 
+@router.post("/busqueda", status_code=201)
+def registrar_busqueda(
+    body: dict,
+    authorization: Optional[str] = Header(None),
+):
+    user_id = _get_user_id(authorization)
+    perfil_service.registrar_busqueda(user_id, body.get("query", ""), body.get("categorias", []))
+    return {"ok": True}
+
+
 @router.get("/recomendaciones")
 def obtener_recomendaciones(
     limit: int = 10,

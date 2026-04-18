@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { getEvento, registrarInteraccion, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import ReviewSection from '../components/ui/ReviewSection'
 
 export default function EventoDetalle() {
   const { slug } = useParams()
@@ -41,6 +42,13 @@ export default function EventoDetalle() {
     year: 'numeric',
   })
   const horaStr = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+  const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
+  const mapsUrl = evento.lat && evento.lng
+    ? `https://www.google.com/maps?q=${evento.lat},${evento.lng}`
+    : `https://www.google.com/maps/search/${encodeURIComponent(ubicacionLabel || `${evento.titulo}, Medellin`)}`
+  const preguntaEterea = encodeURIComponent(
+    `Recomiendame mas detalles de este evento: ${evento.titulo}. Fecha: ${fechaStr} ${horaStr}. Lugar: ${ubicacionLabel || 'Medellin'}.`
+  )
 
   return (
     <>
@@ -104,14 +112,59 @@ export default function EventoDetalle() {
                   <p className="text-lg">{evento.nombre_lugar}</p>
                 </div>
               )}
-              {evento.barrio && (
+              {(evento.barrio || evento.municipio) && (
                 <div>
                   <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">UBICACIÓN</h3>
-                  <p className="text-lg">{evento.barrio}</p>
+                  <p className="text-lg">{[evento.barrio, evento.municipio].filter(Boolean).join(', ')}</p>
                 </div>
               )}
             </div>
           </div>
+
+          <div className="border-t-2 border-black pt-6">
+            <h3 className="font-mono font-bold text-xs mb-3 uppercase tracking-wider">ACCIONES RÁPIDAS</h3>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to={`/chat?q=${preguntaEterea}`}
+                className="inline-flex items-center gap-2 text-sm font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 hover:bg-black hover:text-white transition-all"
+              >
+                🤖 Habla con ETÉREA sobre este evento
+              </Link>
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 hover:bg-black hover:text-white transition-all"
+              >
+                📍 Ver ubicación
+              </a>
+              {evento.fuente_url && (
+                <a
+                  href={evento.fuente_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 hover:bg-black hover:text-white transition-all"
+                >
+                  ℹ Más información
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Source links */}
+          {evento.fuente_url && (
+            <div className="border-t-2 border-black pt-6">
+              <h3 className="font-mono font-bold text-xs mb-3 uppercase tracking-wider">FUENTE</h3>
+              <a
+                href={evento.fuente_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-mono font-bold border-2 border-black px-4 py-2 hover:bg-black hover:text-white transition-all"
+              >
+                {evento.fuente?.includes('instagram') ? '📸 Ver en Instagram' : '🌐 Ver fuente original'}
+              </a>
+            </div>
+          )}
 
           {/* Description */}
           {evento.descripcion && (
@@ -120,6 +173,9 @@ export default function EventoDetalle() {
               <p className="leading-relaxed whitespace-pre-line">{evento.descripcion}</p>
             </div>
           )}
+
+          {/* Reviews */}
+          <ReviewSection tipo="evento" itemId={evento.id} itemNombre={evento.titulo} />
         </div>
       </div>
     </>

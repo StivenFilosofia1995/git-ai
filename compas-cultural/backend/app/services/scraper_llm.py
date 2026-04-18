@@ -58,7 +58,8 @@ Extrae la información en formato JSON con esta estructura exacta:
       "nombre_lugar": "dónde se realiza",
       "precio": "precio o 'Entrada libre'",
       "es_gratuito": true/false,
-      "es_recurrente": true/false
+      "es_recurrente": true/false,
+      "imagen_url": "URL de la imagen o póster del evento (si existe)"
     }}
   ]
 }}
@@ -83,8 +84,8 @@ def _slugify(text: str) -> str:
     return text.strip("-")[:250]
 
 
-async def _fetch_page(url: str) -> str:
-    """Fetch page content with httpx and extract text with BS4."""
+async def _fetch_page(url: str) -> tuple[str, str | None]:
+    """Fetch page content with httpx and extract text with BS4. Returns (text, og_image_url)."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
@@ -94,13 +95,51 @@ async def _fetch_page(url: str) -> str:
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
+    # Extract OG image before removing tags
+    og_image = None
+    og_tag = soup.find("meta", property="og:image")
+    if og_tag and og_tag.get("content"):
+        og_image = og_tag["content"]
+    if not og_image:
+        twitter_tag = soup.find("meta", attrs={"name": "twitter:image"})
+        if twitter_tag and twitter_tag.get("content"):
+            og_image = twitter_tag["content"]
+
+    # Extract OG description for Instagram pages (often the only useful data)
+    og_desc = ""
+    og_desc_tag = soup.find("meta", property="og:description")
+    if og_desc_tag and og_desc_tag.get("content"):
+        og_desc = og_desc_tag["content"]
+    og_title = ""
+    og_title_tag = soup.find("meta", property="og:title")
+    if og_title_tag and og_title_tag.get("content"):
+        og_title = og_title_tag["content"]
+
     # Remove scripts, styles, nav, footer
     for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
         tag.decompose()
 
     text = soup.get_text(separator="\n", strip=True)
+
+    # For Instagram URLs, the page is usually a login wall — enrich with OG meta
+    if "instagram.com" in url:
+        ig_handle = _extract_ig_handle(url)
+        text = f"Instagram profile: @{ig_handle}\nOG Title: {og_title}\nOG Description: {og_desc}\n\n{text}"
+
     # Limit to 8000 chars to stay within Claude context
-    return text[:8000]
+    return text[:8000], og_image
+
+
+def _extract_ig_handle(url: str) -> str:
+    """Extract Instagram handle from a URL."""
+    # Clean query params and fragments
+    clean = url.split("?")[0].split("#")[0].rstrip("/")
+    parts = clean.split("/")
+    # instagram.com/username or instagram.com/username/
+    for i, part in enumerate(parts):
+        if "instagram.com" in part and i + 1 < len(parts):
+            return parts[i + 1]
+    return parts[-1] if parts else ""
 
 
 def _extract_with_claude(url: str, page_text: str) -> dict:
@@ -143,7 +182,7 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
         }).eq("id", solicitud_id).execute()
 
         # Fetch page
-        page_text = await _fetch_page(solicitud["url"])
+        page_text, og_image = await _fetch_page(solicitud["url"])
 
         supabase.table("solicitudes_registro").update({
             "mensaje": "Analizando contenido con inteligencia artificial…",
@@ -176,23 +215,35 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
             lugar_data = {
                 "nombre": nombre,
                 "slug": slug,
-                "tipo": esp.get("tipo", "espacio_fisico"),
-                "categorias": esp.get("categorias", []),
-                "categoria_principal": esp.get("categoria_principal", "otro"),
-                "municipio": esp.get("municipio", "medellin"),
-                "barrio": esp.get("barrio"),
-                "direccion": esp.get("direccion"),
-                "descripcion_corta": esp.get("descripcion_corta"),
-                "descripcion": esp.get("descripcion"),
-                "instagram_handle": esp.get("instagram_handle"),
+                "tipo": esp.get("tipo") or "colectivo",
+                "categorias": esp.get("categorias") or [],
+                "categoria_principal": esp.get("categoria_principal") or "otro",
+                "municipio": esp.get("municipio") or "medellin",
+                "barrio": esp.get("barrio") or None,
+                "direccion": esp.get("direccion") or None,
+                "descripcion_corta": (esp.get("descripcion_corta") or "")[:300] or None,
+                "descripcion": esp.get("descripcion") or None,
+                "instagram_handle": esp.get("instagram_handle") or None,
                 "sitio_web": esp.get("sitio_web") or solicitud["url"],
-                "telefono": esp.get("telefono"),
-                "email": esp.get("email"),
-                "es_underground": esp.get("es_underground", False),
-                "es_institucional": esp.get("es_institucional", False),
+                "telefono": esp.get("telefono") or None,
+                "email": esp.get("email") or None,
+                "es_underground": esp.get("es_underground") or False,
+                "es_institucional": esp.get("es_institucional") or False,
                 "fuente_datos": "scraping_llm",
                 "nivel_actividad": "activo",
             }
+            # Ensure municipio is never null (DB NOT NULL constraint)
+            if not lugar_data["municipio"]:
+                lugar_data["municipio"] = "medellin"
+
+            # If source is Instagram, ensure handle is set
+            if "instagram.com" in solicitud["url"]:
+                if not lugar_data["instagram_handle"]:
+                    handle = _extract_ig_handle(solicitud["url"])
+                    if handle:
+                        lugar_data["instagram_handle"] = f"@{handle}"
+                if not lugar_data["sitio_web"] or "instagram.com" in lugar_data["sitio_web"]:
+                    lugar_data["sitio_web"] = solicitud["url"]
             insert_resp = supabase.table("lugares").insert(lugar_data).execute()
             if insert_resp.data:
                 espacio_id = insert_resp.data[0]["id"]
@@ -226,12 +277,13 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
                 "espacio_id": espacio_id,
                 "fecha_inicio": fecha.isoformat(),
                 "fecha_fin": ev_data.get("fecha_fin"),
-                "categorias": ev_data.get("categorias", []),
-                "categoria_principal": ev_data.get("categoria_principal", "otro"),
-                "municipio": data.get("espacio", {}).get("municipio", "medellin"),
+                "categorias": ev_data.get("categorias") or [],
+                "categoria_principal": ev_data.get("categoria_principal") or "otro",
+                "municipio": ev_data.get("municipio") or (data.get("espacio") or {}).get("municipio") or "medellin",
                 "barrio": ev_data.get("barrio"),
                 "nombre_lugar": ev_data.get("nombre_lugar"),
                 "descripcion": ev_data.get("descripcion"),
+                "imagen_url": ev_data.get("imagen_url") or og_image,
                 "precio": ev_data.get("precio"),
                 "es_gratuito": ev_data.get("es_gratuito", False),
                 "es_recurrente": ev_data.get("es_recurrente", False),
@@ -241,10 +293,30 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
             }
             supabase.table("eventos").insert(evento_data).execute()
 
+        # Enrich datos_extraidos with the slug and nombre for the frontend
+        enriched_data = {**data}
+        if data.get("espacio"):
+            esp_name = data["espacio"].get("nombre", "")
+            enriched_data["slug"] = _slugify(esp_name) if esp_name else None
+            # If we created a lugar, use the actual slug that was inserted
+            if espacio_id:
+                try:
+                    lugar_row = supabase.table("lugares").select("slug").eq("id", espacio_id).single().execute()
+                    if lugar_row.data:
+                        enriched_data["slug"] = lugar_row.data["slug"]
+                except Exception:
+                    pass
+            enriched_data["nombre"] = data["espacio"].get("nombre")
+            enriched_data["categoria_sugerida"] = data["espacio"].get("categoria_principal")
+            enriched_data["instagram_handle"] = data["espacio"].get("instagram_handle")
+            enriched_data["sitio_web"] = data["espacio"].get("sitio_web")
+            enriched_data["descripcion_corta"] = data["espacio"].get("descripcion_corta")
+            enriched_data["fuente"] = "scraping_llm"
+
         supabase.table("solicitudes_registro").update({
             "estado": "completado",
             "espacio_id": espacio_id,
-            "datos_extraidos": data,
+            "datos_extraidos": enriched_data,
             "mensaje": "Datos extraídos exitosamente con IA.",
         }).eq("id", solicitud_id).execute()
 
