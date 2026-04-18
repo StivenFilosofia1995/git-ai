@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
-import { obtenerRecomendaciones, type Evento } from '../../lib/api'
+import { obtenerRecomendaciones, getEventosFeed, type Evento } from '../../lib/api'
 
 export default function RecomendacionesSection() {
   const { user } = useAuth()
@@ -9,17 +9,26 @@ export default function RecomendacionesSection() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!user) {
-      setLoading(false)
-      return
+    const load = async () => {
+      try {
+        if (user) {
+          const recs = await obtenerRecomendaciones(user.id, 6)
+          setEventos(recs)
+        } else {
+          // Show general diverse picks for anonymous users
+          const feed = await getEventosFeed(6)
+          setEventos(feed)
+        }
+      } catch {
+        /* silent */
+      } finally {
+        setLoading(false)
+      }
     }
-    obtenerRecomendaciones(user.id, 6)
-      .then(setEventos)
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    void load()
   }, [user])
 
-  if (!user || (!loading && eventos.length === 0)) return null
+  if (!loading && eventos.length === 0) return null
 
   return (
     <section className="py-16 border-t-2 border-black">
@@ -30,10 +39,10 @@ export default function RecomendacionesSection() {
             <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em]">Para ti</span>
           </div>
           <h2 className="text-3xl md:text-4xl font-heading font-black uppercase tracking-tighter">
-            Recomendado
+            {user ? 'Recomendado' : 'Explorá'}
           </h2>
           <p className="text-xs font-mono mt-1 uppercase tracking-wider opacity-60">
-            Basado en tus gustos e interacciones
+            {user ? 'Basado en tus gustos e interacciones' : 'Eventos diversos del Valle de Aburrá'}
           </p>
         </div>
       </div>

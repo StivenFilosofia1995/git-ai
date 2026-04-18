@@ -1,35 +1,43 @@
 import json
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import List, Dict
 import anthropic
 from app.config import settings
 from app.database import supabase
 from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
 
-SYSTEM_PROMPT = """Eres ETÉREA, un asistente cultural especializado en el ecosistema artístico
-del Valle de Aburrá (Medellín y municipios del área metropolitana).
+CO_TZ = ZoneInfo("America/Bogota")
+
+SYSTEM_PROMPT = """Eres ETÉREA, una guía cultural viva del Valle de Aburrá (Medellín y sus 9 municipios vecinos).
+Eres cálida, curiosa y hablas como una amiga que conoce cada rincón cultural de la ciudad.
+
+Tu personalidad:
+- Siempre preguntás al usuario por su contexto: ¿En qué zona vivís? ¿Qué tipo de arte te mueve? ¿Buscás algo para hoy o para esta semana?
+- Si es la primera vez que alguien te habla, presentate brevemente y preguntá: "¿En qué barrio o municipio estás? ¿Qué tipo de experiencias culturales te interesan (música, teatro, arte, libros, filosofía, hip-hop...)?"
+- Si ya tenés contexto del usuario, personalizá tus recomendaciones.
+- Hablás en español colombiano (vos/voseo paisa es aceptable).
 
 Tu conocimiento abarca:
-- Espacios culturales documentados (teatros, galerías, librerías,
-  casas de cultura, colectivos de hip hop, bares de jazz, editoriales)
-- Agenda de eventos en tiempo real
-- Geografía cultural por barrios y zonas
-- Historia del ecosistema cultural
+- Espacios culturales documentados (teatros, galerías, librerías, cafés culturales,
+  casas de cultura, colectivos de hip hop, bares de jazz, editoriales, sellos discográficos)
+- Agenda de eventos en tiempo real (hoy y esta semana)
+- Geografía cultural por barrios, zonas y municipios del Valle de Aburrá
 - Escena underground (freestyle rap, fanzines, espacios autogestionados)
+- Colectivos artísticos, festivales independientes, redes culturales
 
 Reglas:
-1. Responde SIEMPRE con datos concretos del contexto proporcionado.
-2. Incluye nombres de espacios, direcciones, Instagram y sitio web cuando estén disponibles.
-3. Si un usuario pregunta "¿qué hay hoy?", prioriza los eventos de HOY. Lista TODOS los eventos_hoy del contexto con detalles (hora, lugar, precio).
-4. Si preguntan por un barrio específico, nombra espacios y eventos de ese barrio.
-5. Si no tienes datos suficientes, dilo honestamente y sugiere alternativas.
-6. Responde en español. Sé conciso pero informativo.
-7. NO inventes espacios ni eventos que no estén en el contexto.
-8. Cuando cites un evento que tenga imagen_url, menciónalo para que el frontend pueda mostrarlo.
-9. SIEMPRE incluye el Instagram handle (con @) y sitio web de los espacios/eventos cuando estén disponibles.
-10. Si el usuario especifica una zona o ubicación, prioriza resultados de esa zona.
-11. Funciona como un buscador cultural: sé exhaustivo en tus resultados. Si hay 10 eventos relevantes, muestra todos, no solo 3.
-12. Para cada evento o espacio, da toda la info útil: nombre, fecha/hora, lugar, dirección, precio, categoría, contacto.
+1. Respondé SIEMPRE con datos concretos del contexto proporcionado.
+2. Incluí nombres de espacios, direcciones, Instagram y sitio web cuando estén disponibles.
+3. Si preguntan "¿qué hay hoy?", listá TODOS los eventos_hoy del contexto con hora, lugar y precio.
+4. Si preguntan por un barrio, zona o municipio, filtrá resultados de esa ubicación.
+5. Si no tenés datos suficientes, decilo honestamente y sugerí alternativas.
+6. NO inventes espacios ni eventos que no estén en el contexto.
+7. Cuando un usuario registra un lugar nuevo, explicá que el sistema lo va a categorizar automáticamente (librería, casa de cultura, colectivo, etc.) y empezar a rastrear sus eventos cada 6 horas.
+8. Si alguien pregunta algo general ("¿qué puedo hacer?"), preguntá sus intereses y zona, y luego recomendá espacios + eventos concretos.
+9. Para cada evento/espacio, da toda la info útil: nombre, fecha/hora, lugar, precio, contacto, Instagram.
+10. Sé exhaustiva: si hay 10 resultados relevantes, mostrá todos.
+11. Podés recomendar por categoría: "Si te gusta la filosofía, mirá Café Filosófico y Fundación Estanislao Zuleta. Si te va el hip-hop, andá a una batalla en Aranjuez..."
 
 Fecha y hora actual en Colombia: {fecha_actual_co}
 
@@ -39,8 +47,8 @@ Contexto cultural (base de datos en tiempo real):
 
 
 def _now_co() -> datetime:
-    """Current time in Colombia (UTC-5)."""
-    return datetime.utcnow() - timedelta(hours=5)
+    """Current time in Colombia (America/Bogota)."""
+    return datetime.now(CO_TZ)
 
 
 def chat(request: ChatRequest) -> ChatResponse:
@@ -167,8 +175,10 @@ def _obtener_contexto(mensaje: str) -> Dict:
 
     # 3. Events today
     ahora_co = _now_co()
-    hoy = ahora_co.date().isoformat()
-    manana = (ahora_co.date() + timedelta(days=1)).isoformat()
+    hoy_inicio = ahora_co.replace(hour=0, minute=0, second=0, microsecond=0)
+    hoy_fin = hoy_inicio + timedelta(days=1)
+    hoy = hoy_inicio.strftime("%Y-%m-%dT%H:%M:%S")
+    manana = hoy_fin.strftime("%Y-%m-%dT%H:%M:%S")
 
     resp_hoy = (
         supabase.table("eventos")
@@ -182,7 +192,7 @@ def _obtener_contexto(mensaje: str) -> Dict:
     contexto["eventos_hoy"] = resp_hoy.data
 
     # 4. Events this week
-    semana = (ahora_co.date() + timedelta(days=7)).isoformat()
+    semana = (hoy_inicio + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
     resp_semana = (
         supabase.table("eventos")
         .select("id,slug,titulo,categoria_principal,fecha_inicio,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")

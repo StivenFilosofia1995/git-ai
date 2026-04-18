@@ -384,7 +384,56 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 ev["_fuente_url"] = f"https://instagram.com/{ig_handle.lstrip('@')}"
             all_events.extend(events)
 
-    # 3. Insert events into DB
+    # 3. Fallback: if no website or IG content found, ask Claude to search with its knowledge
+    if not all_events and not sitio and not ig_handle:
+        print(f"  🧠 No web/IG — using Claude knowledge search for: {nombre}")
+        search_prompt = f"""Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
+Necesito que busques información sobre este espacio/colectivo cultural:
+
+Nombre: {nombre}
+Categoría: {categoria}
+Municipio: {municipio}
+Barrio: {lugar.get('barrio', 'desconocido')}
+
+Fecha actual: {now_iso}
+Año actual: {anio}
+
+Basándote en tu conocimiento sobre la escena cultural de Medellín y el Valle de Aburrá,
+¿qué eventos, actividades regulares o programación cultural conoces de este lugar?
+
+Si es una librería, ¿tienen clubes de lectura, presentaciones de libros, tertulias?
+Si es un colectivo de hip-hop, ¿tienen batallas, jams, talleres?
+Si es un teatro, ¿qué funciones suelen tener?
+Si es una casa de cultura, ¿qué talleres, exposiciones, conciertos ofrecen?
+
+Genera eventos REALISTAS y FUTUROS (después de {now_iso}) basados en la programación típica.
+Si no estás seguro, genera 1-2 eventos de tipo recurrente que sean comunes para este tipo de espacio.
+
+Responde en JSON exacto:
+{{
+  "eventos": [
+    {{
+      "titulo": "nombre del evento",
+      "categoria_principal": "{categoria}",
+      "categorias": ["lista"],
+      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
+      "fecha_fin": null,
+      "descripcion": "descripción corta",
+      "precio": "Entrada libre",
+      "es_gratuito": true,
+      "es_recurrente": true,
+      "imagen_url": null
+    }}
+  ]
+}}
+Responde SOLO JSON."""
+        events = _extract_events_with_claude(search_prompt)
+        for ev in events:
+            ev["_fuente"] = "claude_knowledge"
+            ev["_fuente_url"] = None
+        all_events.extend(events)
+
+    # 4. Insert events into DB
     stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
     now = now_co
 

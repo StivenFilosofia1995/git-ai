@@ -9,6 +9,7 @@ export interface Espacio {
   id: string
   slug: string
   nombre: string
+  tipo?: string | null
   categoria_principal: string
   categorias?: string[]
   barrio?: string | null
@@ -20,6 +21,7 @@ export interface Espacio {
   sitio_web?: string | null
   imagen_url?: string | null
   nivel_actividad: string
+  es_underground?: boolean | null
   coordenadas?: Coordenadas | null
   lat?: number | null
   lng?: number | null
@@ -142,6 +144,10 @@ export async function getEspacio(slug: string): Promise<Espacio> {
 
 export async function getEventosHoy(): Promise<Evento[]> {
   return apiGet<Evento[]>('/eventos/hoy')
+}
+
+export async function getEventosFeed(limit = 20): Promise<Evento[]> {
+  return apiGet<Evento[]>(`/eventos/feed?limit=${limit}`)
 }
 
 export async function getEventosSemana(): Promise<Evento[]> {

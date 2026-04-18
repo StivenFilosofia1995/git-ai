@@ -27,6 +27,12 @@ def get_eventos_hoy():
     return evento_service.get_eventos_hoy()
 
 
+@router.get("/feed")
+def get_eventos_feed(limit: Annotated[int, Query(ge=1, le=50)] = 20):
+    """Smart diverse feed for the home page."""
+    return evento_service.get_eventos_feed(limit)
+
+
 @router.get("/semana")
 def get_eventos_semana():
     return evento_service.get_eventos_semana()

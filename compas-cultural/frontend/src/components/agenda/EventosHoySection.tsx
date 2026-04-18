@@ -1,23 +1,24 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getEventosHoy, getEventos, type Evento } from '../../lib/api'
+import { getEventosHoy, getEventosFeed, type Evento } from '../../lib/api'
 
 export default function EventosHoySection() {
   const [eventos, setEventos] = useState<Evento[]>([])
   const [loading, setLoading] = useState(true)
-  const [label, setLabel] = useState<'HOY' | 'ESTA SEMANA'>('HOY')
+  const [label, setLabel] = useState<'HOY' | 'DESCUBRÍ'>('HOY')
 
   useEffect(() => {
     const load = async () => {
       try {
         const hoy = await getEventosHoy()
         if (hoy.length > 0) {
-          setEventos(hoy.slice(0, 8))
+          setEventos(hoy.slice(0, 12))
           setLabel('HOY')
         } else {
-          const proximos = await getEventos({ limit: 8 })
-          setEventos(proximos)
-          setLabel('ESTA SEMANA')
+          // Use smart feed for diverse recommendations
+          const feed = await getEventosFeed(12)
+          setEventos(feed)
+          setLabel('DESCUBRÍ')
         }
       } catch {
         /* silent */
@@ -51,7 +52,7 @@ export default function EventosHoySection() {
             <span className="text-[10px] font-mono font-bold tracking-[0.3em] uppercase">{label}</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-heading font-black uppercase tracking-tighter">
-            {label === 'HOY' ? '\u00bfQu\u00e9 hay hoy?' : 'Pr\u00f3ximos'}
+            {label === 'HOY' ? '\u00bfQu\u00e9 hay hoy?' : 'Cultura viva'}
           </h2>
         </div>
         <Link

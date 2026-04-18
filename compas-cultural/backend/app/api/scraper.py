@@ -39,15 +39,16 @@ async def trigger_lugar_scraper(lugar_id: str):
 
 
 @router.post("/lugar/{lugar_id}/publico")
-async def trigger_lugar_scraper_publico(lugar_id: str, background_tasks: BackgroundTasks):
-    """Dispara el scraping de un lugar en background (acceso público, sin API key).
-    Útil para que el frontend pida buscar eventos de un colectivo/espacio específico.
+async def trigger_lugar_scraper_publico(lugar_id: str):
+    """Scrape un lugar en vivo (acceso público, síncrono).
+    Intenta scraping directo; si no tiene web/IG, usa búsqueda con Claude.
     """
-    background_tasks.add_task(scrape_single_lugar, lugar_id)
+    result = await scrape_single_lugar(lugar_id)
     return {
-        "status": "started",
-        "message": "Buscando eventos para este espacio. En unos segundos aparecerán aquí.",
+        "status": "completed",
+        "message": f"Búsqueda completada: {result.get('nuevos', 0)} eventos encontrados.",
         "lugar_id": lugar_id,
+        "result": result,
     }
 
 

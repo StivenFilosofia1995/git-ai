@@ -136,15 +136,14 @@ export default function EspacioDetalle() {
               <button
                 onClick={async () => {
                   setScrapingEventos(true)
-                  setScrapeMsg(null)
+                  setScrapeMsg('Buscando eventos en redes y sitios web...')
                   try {
                     const res = await scrapeLugar(espacio.id)
                     setScrapeMsg(res.message)
-                    setTimeout(() => {
-                      getEventosByEspacio(espacio.id).then(setEventos).catch(() => {})
-                    }, 8000)
+                    // Re-fetch events immediately since scrape is now synchronous
+                    getEventosByEspacio(espacio.id).then(setEventos).catch(() => {})
                   } catch {
-                    setScrapeMsg('No se pudo iniciar la búsqueda.')
+                    setScrapeMsg('No se pudo iniciar la búsqueda. Intenta de nuevo.')
                   } finally {
                     setScrapingEventos(false)
                   }
