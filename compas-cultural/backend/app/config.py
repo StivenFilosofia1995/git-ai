@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Union
+import json
 import secrets
 
 
@@ -23,8 +24,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str
     anthropic_model: str = "claude-sonnet-4-20250514"
 
-    # CORS — base list; FRONTEND_URL is always added automatically
-    cors_origins: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:5174"]
+    # CORS — accepts JSON array string or comma-separated list
+    cors_origins: Union[List[str], str] = "http://localhost:3000,http://localhost:5173,http://localhost:5174"
 
     # Rate limiting
     rate_limit_per_minute: int = 60
@@ -49,8 +50,23 @@ class Settings(BaseSettings):
 
     @property
     def effective_cors_origins(self) -> List[str]:
-        """CORS origins including FRONTEND_URL and production domains."""
-        origins = list(self.cors_origins)
+        """CORS origins including FRONTEND_URL and production domains.
+        Handles cors_origins as JSON array string, comma-separated string, or list.
+        """
+        # Parse cors_origins robustly
+        raw = self.cors_origins
+        if isinstance(raw, str):
+            raw = raw.strip()
+            if raw.startswith("["):
+                try:
+                    origins = json.loads(raw)
+                except json.JSONDecodeError:
+                    origins = [s.strip().strip('"').strip("'") for s in raw.strip("[]").split(",")]
+            else:
+                origins = [s.strip() for s in raw.split(",") if s.strip()]
+        else:
+            origins = list(raw)
+
         # Always include production domains
         for domain in [
             self.frontend_url,

@@ -18,6 +18,10 @@ limiter = Limiter(key_func=get_remote_address)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.scheduler import start_scheduler, stop_scheduler
+    print(f"🚀 Starting Cultura ETÉREA API")
+    print(f"   CORS origins: {settings.effective_cors_origins}")
+    print(f"   Frontend URL: {settings.frontend_url}")
+    print(f"   Supabase URL: {settings.supabase_url[:40]}...")
     try:
         from app.database import supabase
         result = supabase.table("lugares").select("id", count="exact").limit(1).execute()
