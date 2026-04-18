@@ -48,14 +48,7 @@ export default function Header() {
                     Salir
                   </button>
                 </div>
-              ) : (
-                <Link
-                  to="/login"
-                  className="btn-primary text-[11px] !py-2 !px-5"
-                >
-                  Entrar
-                </Link>
-              )
+              ) : null
             )}
           </div>
         </div>

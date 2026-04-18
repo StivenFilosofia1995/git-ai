@@ -62,8 +62,9 @@ function App() {
           <Route path="registrar" element={<Registrar />} />
           <Route path="colectivos" element={<Colectivos />} />
           <Route path="zona/:slug" element={<ZonaDetalle />} />
-          <Route path="login" element={<Login />} />
-          <Route path="completar-perfil" element={<CompletarPerfil />} />
+          {/* Login deshabilitado en producción por seguridad */}
+          {/* <Route path="login" element={<Login />} /> */}
+          {/* <Route path="completar-perfil" element={<CompletarPerfil />} /> */}
         </Route>
         <Route path="/chat" element={<Chat />} />
         <Route path="*" element={<NotFound />} />
