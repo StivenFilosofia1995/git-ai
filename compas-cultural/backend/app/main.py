@@ -28,8 +28,12 @@ except Exception as e:
 
 try:
     from app.config import settings
-    print(f"✅ Config loaded — supabase_url={settings.supabase_url[:30]}...")
+    print(f"✅ Config loaded — supabase_url={settings.supabase_url[:30] if settings.supabase_url else '(empty)'}...")
     print(f"   CORS origins: {settings.effective_cors_origins}")
+    if not settings.supabase_url:
+        print("⚠️  SUPABASE_URL not set — data endpoints will fail")
+    if not settings.anthropic_api_key:
+        print("⚠️  ANTHROPIC_API_KEY not set — chat will use fallback")
 except Exception as e:
     print(f"❌ Config FAILED: {e}")
     traceback.print_exc()

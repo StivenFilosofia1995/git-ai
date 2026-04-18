@@ -16,12 +16,12 @@ class Settings(BaseSettings):
     # In Railway: set FRONTEND_URL=https://your-frontend.up.railway.app
     frontend_url: str = "http://localhost:5173"
 
-    # Supabase
-    supabase_url: str
-    supabase_key: str
+    # Supabase (required for data, but defaults allow app to start)
+    supabase_url: str = ""
+    supabase_key: str = ""
 
-    # Anthropic (Claude)
-    anthropic_api_key: str
+    # Anthropic (Claude) — only used for chat, app works without it
+    anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
 
     # CORS — accepts JSON array string or comma-separated list
