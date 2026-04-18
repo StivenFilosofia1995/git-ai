@@ -270,6 +270,9 @@ export async function crearPerfil(
     body: JSON.stringify(data),
   })
   if (!response.ok) {
+    if (response.status === 409) {
+      return obtenerPerfil(userId)
+    }
     const text = await response.text()
     throw new Error(`Error API (${response.status}): ${text}`)
   }

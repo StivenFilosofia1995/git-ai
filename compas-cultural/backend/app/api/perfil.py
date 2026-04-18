@@ -25,10 +25,10 @@ def crear_perfil(
 ):
     user_id = _get_user_id(authorization)
 
-    # Verificar si ya existe
+    # Si ya existe, actualizamos el perfil en lugar de fallar con 409.
     existente = perfil_service.obtener_perfil(user_id)
     if existente:
-        raise HTTPException(status_code=409, detail="El perfil ya existe")
+        return perfil_service.actualizar_perfil(user_id, body.model_dump())
 
     return perfil_service.crear_perfil(user_id, body.model_dump())
 

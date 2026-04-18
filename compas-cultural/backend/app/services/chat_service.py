@@ -60,16 +60,20 @@ def chat(request: ChatRequest) -> ChatResponse:
         fecha_actual_co=_now_co().strftime("%Y-%m-%d %H:%M"),
     )
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=1024,
-        temperature=0.7,
-        system=prompt,
-        messages=historial_msgs,
-    )
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        response = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=1024,
+            temperature=0.7,
+            system=prompt,
+            messages=historial_msgs,
+        )
+        respuesta = response.content[0].text
+    except Exception as exc:
+        print(f"[chat_service] Claude no disponible, usando fallback local: {exc}")
+        respuesta = _respuesta_fallback(contexto)
 
-    respuesta = response.content[0].text
     fuentes = _extraer_fuentes(respuesta, contexto)
 
     # Guardar en memoria_consultas
@@ -80,6 +84,44 @@ def chat(request: ChatRequest) -> ChatResponse:
     }).execute()
 
     return ChatResponse(respuesta=respuesta, fuentes=fuentes)
+
+
+def _respuesta_fallback(contexto: Dict) -> str:
+    """Fallback para mantener el chat funcional cuando Claude falla."""
+    eventos_hoy = contexto.get("eventos_hoy", [])[:5]
+    eventos_semana = contexto.get("eventos_semana", [])[:5]
+    espacios = (contexto.get("espacios_relevantes", []) or contexto.get("espacios", []))[:5]
+
+    bloques = [
+        "Tuve un problema temporal con el motor de IA, pero igual te comparto datos en vivo del sistema:",
+    ]
+
+    if eventos_hoy:
+        lineas = ["Eventos de hoy:"]
+        for ev in eventos_hoy:
+            lineas.append(
+                f"- {ev.get('titulo', 'Evento')} · {ev.get('fecha_inicio', '')} · {ev.get('nombre_lugar') or ev.get('barrio') or ev.get('municipio') or 'Medellín'}"
+            )
+        bloques.append("\n".join(lineas))
+
+    if eventos_semana:
+        lineas = ["Próximos eventos:"]
+        for ev in eventos_semana:
+            lineas.append(
+                f"- {ev.get('titulo', 'Evento')} · {ev.get('fecha_inicio', '')} · {ev.get('nombre_lugar') or ev.get('barrio') or ev.get('municipio') or 'Medellín'}"
+            )
+        bloques.append("\n".join(lineas))
+
+    if espacios:
+        lineas = ["Espacios recomendados:"]
+        for esp in espacios:
+            lineas.append(
+                f"- {esp.get('nombre', 'Espacio')} · {esp.get('categoria_principal', 'cultura')} · {esp.get('barrio') or esp.get('municipio') or 'Medellín'}"
+            )
+        bloques.append("\n".join(lineas))
+
+    bloques.append("Si querés, preguntame por un barrio, zona o categoría y te filtro resultados exactos.")
+    return "\n\n".join(bloques)
 
 
 def _obtener_contexto(mensaje: str) -> Dict:
