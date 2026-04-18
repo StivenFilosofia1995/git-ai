@@ -102,19 +102,19 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Scrape inicial 30 segundos después de arrancar
+    # Scrape inicial 5 minutos después de arrancar (da tiempo al healthcheck)
     scheduler.add_job(
         _run_scraper_job,
-        trigger=DateTrigger(run_date=datetime.now() + timedelta(seconds=30)),
+        trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=5)),
         id="auto_scraper_startup",
         name="Scrape inicial al arrancar",
         replace_existing=True,
     )
 
-    # Social Listener inicial: 2 minutos después de arrancar
+    # Social Listener inicial: 7 minutos después de arrancar
     scheduler.add_job(
         _run_social_listener,
-        trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=2)),
+        trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=7)),
         id="social_listener_startup",
         name="Social Listener inicial",
         replace_existing=True,

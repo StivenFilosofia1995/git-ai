@@ -259,7 +259,7 @@ async def _extract_events_from_posts(posts: list[dict]) -> list[dict]:
         posts_content=posts_text[:6000],
     )
 
-    try:
+    def _call_claude():
         response = _CLIENT.messages.create(
             model=settings.anthropic_model,
             max_tokens=3000,
@@ -274,6 +274,10 @@ async def _extract_events_from_posts(posts: list[dict]) -> list[dict]:
         raw = re.sub(r",\s*([}\]])", r"\1", raw)
         events = json.loads(raw)
         return events if isinstance(events, list) else []
+
+    try:
+        import asyncio
+        return await asyncio.to_thread(_call_claude)
     except Exception as e:
         logger.error(f"Claude extraction error: {e}")
         return []

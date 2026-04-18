@@ -356,7 +356,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 fuente_url=sitio,
                 contenido=content,
             )
-            events = _extract_events_with_claude(prompt)
+            events = await asyncio.to_thread(_extract_events_with_claude, prompt)
             for ev in events:
                 ev["_fuente"] = "sitio_web"
                 ev["_fuente_url"] = sitio
@@ -378,7 +378,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 municipio=municipio,
                 contenido=content,
             )
-            events = _extract_events_with_claude(prompt)
+            events = await asyncio.to_thread(_extract_events_with_claude, prompt)
             for ev in events:
                 ev["_fuente"] = "instagram"
                 ev["_fuente_url"] = f"https://instagram.com/{ig_handle.lstrip('@')}"
@@ -440,7 +440,7 @@ Responde en JSON exacto:
   ]
 }}
 Responde SOLO JSON."""
-        events = _extract_events_with_claude(search_prompt)
+        events = await asyncio.to_thread(_extract_events_with_claude, search_prompt)
         for ev in events:
             ev["_fuente"] = "claude_knowledge"
             ev["_fuente_url"] = sitio or (f"https://instagram.com/{ig_handle.lstrip('@')}" if ig_handle else None)
@@ -851,7 +851,7 @@ async def scrape_agenda_sources() -> dict:
                 municipio=src["municipio"],
                 contenido=content[:12000],
             )
-            events = _extract_events_with_claude(prompt)
+            events = await asyncio.to_thread(_extract_events_with_claude, prompt)
             total["fuentes"] += 1
 
             for ev in events:

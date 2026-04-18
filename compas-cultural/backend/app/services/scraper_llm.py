@@ -4,6 +4,7 @@ Extrae información cultural de URLs usando httpx + BeautifulSoup + Claude.
 """
 import json
 import re
+import asyncio
 import traceback
 from datetime import datetime
 
@@ -189,7 +190,7 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
         }).eq("id", solicitud_id).execute()
 
         # Analyze with Claude
-        data = _extract_with_claude(solicitud["url"], page_text)
+        data = await asyncio.to_thread(_extract_with_claude, solicitud["url"], page_text)
 
         if data.get("tipo") == "ninguno":
             supabase.table("solicitudes_registro").update({
