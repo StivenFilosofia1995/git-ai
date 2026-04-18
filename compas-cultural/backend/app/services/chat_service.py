@@ -9,6 +9,10 @@ from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
 
 CO_TZ = ZoneInfo("America/Bogota")
 
+# -- Daily usage tracking (in-memory, resets on restart) --
+_daily_api_calls = {"date": "", "count": 0}
+MAX_DAILY_CALLS = 50  # Max Claude API calls per day (~$0.50/day max)
+
 SYSTEM_PROMPT = """Eres ETÉREA, una guía cultural viva del Valle de Aburrá (Medellín y sus 9 municipios vecinos).
 Eres cálida, curiosa y hablas como una amiga que conoce cada rincón cultural de la ciudad.
 
@@ -69,15 +73,27 @@ def chat(request: ChatRequest) -> ChatResponse:
     )
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=1024,
-            temperature=0.7,
-            system=prompt,
-            messages=historial_msgs,
-        )
-        respuesta = response.content[0].text
+        # Check daily budget
+        today = _now_co().strftime("%Y-%m-%d")
+        if _daily_api_calls["date"] != today:
+            _daily_api_calls["date"] = today
+            _daily_api_calls["count"] = 0
+        
+        if _daily_api_calls["count"] >= MAX_DAILY_CALLS:
+            print(f"[chat_service] Daily API limit reached ({MAX_DAILY_CALLS} calls)")
+            respuesta = _respuesta_fallback(contexto)
+        else:
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            response = client.messages.create(
+                model="claude-haiku-4-20250414",
+                max_tokens=700,
+                temperature=0.7,
+                system=prompt,
+                messages=historial_msgs,
+            )
+            _daily_api_calls["count"] += 1
+            respuesta = response.content[0].text
+            print(f"[chat] API call #{_daily_api_calls['count']}/{MAX_DAILY_CALLS} today")
     except Exception as exc:
         print(f"[chat_service] Claude no disponible, usando fallback local: {exc}")
         respuesta = _respuesta_fallback(contexto)

@@ -152,8 +152,8 @@ def _extract_with_claude(url: str, page_text: str) -> dict:
     )
 
     response = _CLIENT.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=2048,
+        model="claude-haiku-4-20250414",
+        max_tokens=1500,
         temperature=0.1,
         messages=[{"role": "user", "content": prompt}],
     )
