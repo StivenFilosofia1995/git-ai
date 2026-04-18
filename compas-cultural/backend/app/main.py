@@ -13,13 +13,26 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.database import supabase
     from app.scheduler import start_scheduler, stop_scheduler
-    result = supabase.table("lugares").select("id", count="exact").limit(1).execute()
-    print(f"✅ Conectado a Supabase — {result.count} lugares en BD")
-    start_scheduler()
+    try:
+        from app.database import supabase
+        result = supabase.table("lugares").select("id", count="exact").limit(1).execute()
+        print(f"✅ Conectado a Supabase — {result.count} lugares en BD")
+    except Exception as e:
+        print(f"⚠️  Supabase check failed (app continues): {e}")
+    try:
+        import os
+        if os.getenv("DISABLE_SCHEDULER", "").lower() not in ("1", "true"):
+            start_scheduler()
+        else:
+            print("⏸  Scheduler disabled via DISABLE_SCHEDULER env var")
+    except Exception as e:
+        print(f"⚠️  Scheduler failed to start (app continues): {e}")
     yield
-    stop_scheduler()
+    try:
+        stop_scheduler()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -49,16 +62,6 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
-
-
-@app.get("/")
-async def root():
-    return {
-        "title": app.title,
-        "description": app.description,
-        "version": app.version,
-        "docs": "/docs",
-    }
 
 if __name__ == "__main__":
     import uvicorn
