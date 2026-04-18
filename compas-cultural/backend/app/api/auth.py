@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter
 import logging
 from pydantic import BaseModel, EmailStr
 from app.services.email_service import send_welcome_email
