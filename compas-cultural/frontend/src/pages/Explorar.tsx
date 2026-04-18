@@ -41,6 +41,7 @@ export default function Explorar() {
   const [catFilter, setCatFilter] = useState('')
   const [muniFilter, setMuniFilter] = useState('')
   const [tipoFilter, setTipoFilter] = useState('')
+  const [textFilter, setTextFilter] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('todo')
   const [error, setError] = useState<string | null>(null)
 
@@ -77,8 +78,18 @@ export default function Explorar() {
     let result = eventos
     if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || e.categorias?.includes(catFilter))
     if (muniFilter) result = result.filter(e => e.municipio?.toLowerCase().includes(muniFilter.toLowerCase()))
+    if (textFilter.trim()) {
+      const q = textFilter.trim().toLowerCase()
+      result = result.filter(e =>
+        e.titulo?.toLowerCase().includes(q) ||
+        e.nombre_lugar?.toLowerCase().includes(q) ||
+        e.barrio?.toLowerCase().includes(q) ||
+        e.municipio?.toLowerCase().includes(q) ||
+        e.categoria_principal?.toLowerCase().includes(q)
+      )
+    }
     return result
-  }, [eventos, catFilter, muniFilter])
+  }, [eventos, catFilter, muniFilter, textFilter])
 
   const reloadExplorar = () => {
     Promise.all([
@@ -97,15 +108,34 @@ export default function Explorar() {
     if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || e.categorias?.includes(catFilter))
     if (muniFilter) result = result.filter(e => e.municipio?.toLowerCase().includes(muniFilter.toLowerCase()))
     if (tipoFilter) result = result.filter(e => e.tipo === tipoFilter)
+    if (textFilter.trim()) {
+      const q = textFilter.trim().toLowerCase()
+      result = result.filter(e =>
+        e.nombre?.toLowerCase().includes(q) ||
+        e.descripcion_corta?.toLowerCase().includes(q) ||
+        e.barrio?.toLowerCase().includes(q) ||
+        e.municipio?.toLowerCase().includes(q) ||
+        e.categoria_principal?.toLowerCase().includes(q) ||
+        e.instagram_handle?.toLowerCase().includes(q)
+      )
+    }
     return result
-  }, [espacios, catFilter, muniFilter, tipoFilter])
+  }, [espacios, catFilter, muniFilter, tipoFilter, textFilter])
 
   const filteredHoy = useMemo(() => {
     let result = eventosHoy
     if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || e.categorias?.includes(catFilter))
     if (muniFilter) result = result.filter(e => e.municipio?.toLowerCase().includes(muniFilter.toLowerCase()))
+    if (textFilter.trim()) {
+      const q = textFilter.trim().toLowerCase()
+      result = result.filter(e =>
+        e.titulo?.toLowerCase().includes(q) ||
+        e.nombre_lugar?.toLowerCase().includes(q) ||
+        e.barrio?.toLowerCase().includes(q)
+      )
+    }
     return result
-  }, [eventosHoy, catFilter, muniFilter])
+  }, [eventosHoy, catFilter, muniFilter, textFilter])
 
   const municipios = useMemo(() => {
     const set = new Set<string>()
@@ -175,7 +205,28 @@ export default function Explorar() {
               <p className="text-sm font-mono leading-relaxed max-w-lg">
                 Toda la cultura viva del Valle de Aburrá. Eventos, espacios, colectivos y agenda alternativa — actualizado cada 6 horas desde Instagram, webs y medios independientes.
               </p>
-              <div className="mt-4">
+              {/* Text search */}
+              <div className="mt-4 max-w-md">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">🔍</span>
+                  <input
+                    type="text"
+                    value={textFilter}
+                    onChange={e => setTextFilter(e.target.value)}
+                    placeholder="Filtrar por nombre, lugar, barrio..."
+                    className="w-full pl-9 pr-4 py-2.5 text-xs font-mono border-2 border-black focus:outline-none focus:ring-0 placeholder:text-neutral-400"
+                  />
+                  {textFilter && (
+                    <button
+                      onClick={() => setTextFilter('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold hover:opacity-70"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="mt-3">
                 <BuscarConAI
                   label="Buscar eventos con AI"
                   onSearch={async () => {
@@ -257,9 +308,9 @@ export default function Explorar() {
               <option value="plataforma_digital">Plataformas digitales</option>
               <option value="publicacion">Publicaciones</option>
             </select>
-            {(muniFilter || tipoFilter || catFilter) && (
+            {(muniFilter || tipoFilter || catFilter || textFilter) && (
               <button
-                onClick={() => { setMuniFilter(''); setTipoFilter(''); setCatFilter('') }}
+                onClick={() => { setMuniFilter(''); setTipoFilter(''); setCatFilter(''); setTextFilter('') }}
                 className="text-[9px] font-mono font-bold uppercase tracking-wider underline hover:no-underline"
               >
                 Limpiar filtros

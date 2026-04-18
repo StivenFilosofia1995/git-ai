@@ -155,14 +155,25 @@ def send_welcome_email(to_email: str, user_name: str | None = None) -> bool:
     msg.attach(html_part)
 
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+        logger.info(
+            "Attempting SMTP connection: host=%s, port=%s, user=%s, from=%s, to=%s",
+            settings.smtp_host, settings.smtp_port, settings.smtp_user,
+            settings.smtp_from_email, to_email,
+        )
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
             server.starttls()
             server.login(settings.smtp_user, settings.smtp_password)
             server.send_message(msg)
         logger.info("Welcome email sent to %s via SMTP", to_email)
         return True
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error("SMTP auth failed for %s: %s (check App Password)", settings.smtp_user, e)
+        return False
+    except smtplib.SMTPConnectError as e:
+        logger.error("SMTP connection failed to %s:%s: %s", settings.smtp_host, settings.smtp_port, e)
+        return False
     except Exception as e:
-        logger.error("Failed to send email to %s via SMTP: %s", to_email, e)
+        logger.error("Failed to send email to %s via SMTP: %s (%s)", to_email, type(e).__name__, e)
         return False
 
 

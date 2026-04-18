@@ -49,10 +49,17 @@ class Settings(BaseSettings):
 
     @property
     def effective_cors_origins(self) -> List[str]:
-        """CORS origins including FRONTEND_URL if set."""
+        """CORS origins including FRONTEND_URL and production domains."""
         origins = list(self.cors_origins)
-        if self.frontend_url and self.frontend_url not in origins:
-            origins.append(self.frontend_url)
+        # Always include production domains
+        for domain in [
+            self.frontend_url,
+            "https://culturaetereamed.com",
+            "https://www.culturaetereamed.com",
+            "https://culturaeterea.up.railway.app",
+        ]:
+            if domain and domain not in origins:
+                origins.append(domain)
         return origins
 
     class Config:

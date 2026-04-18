@@ -4,6 +4,26 @@ import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import { getEventos, getEventosHoy, getEventosSemana, getZonas, scrapeZona, type Evento, type Zona } from '../lib/api'
 
+const CO_TZ = 'America/Bogota'
+
+/** Current date/time string in Colombia timezone */
+function useColombiaClock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+  return now.toLocaleDateString('es-CO', {
+    timeZone: CO_TZ,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 
 type TimeFilter = 'hoy' | 'semana' | 'todos'
 
@@ -37,6 +57,8 @@ export default function Agenda() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('todos')
   const [catFilter, setCatFilter] = useState('')
   const [zonaFilter, setZonaFilter] = useState('')
+  const [textFilter, setTextFilter] = useState('')
+  const fechaActual = useColombiaClock()
 
   const reloadEventos = () => {
     const cargar = async () => {
@@ -92,12 +114,24 @@ export default function Agenda() {
         )
       }
     }
+    if (textFilter.trim()) {
+      const q = textFilter.trim().toLowerCase()
+      result = result.filter(e =>
+        e.titulo?.toLowerCase().includes(q) ||
+        e.nombre_lugar?.toLowerCase().includes(q) ||
+        e.barrio?.toLowerCase().includes(q) ||
+        e.municipio?.toLowerCase().includes(q) ||
+        e.descripcion?.toLowerCase().includes(q) ||
+        e.categoria_principal?.toLowerCase().includes(q)
+      )
+    }
     return result
-  }, [eventos, catFilter, zonaFilter, zonas])
+  }, [eventos, catFilter, zonaFilter, zonas, textFilter])
 
-  // Group events by date
+  // Group events by date — force Colombia timezone
   const grouped = filtered.reduce<Record<string, Evento[]>>((acc, ev) => {
     const dateKey = new Date(ev.fecha_inicio).toLocaleDateString('es-CO', {
+      timeZone: CO_TZ,
       weekday: 'long', day: 'numeric', month: 'long'
     })
     if (!acc[dateKey]) acc[dateKey] = []
@@ -113,13 +147,16 @@ export default function Agenda() {
 
       <div className="max-w-5xl mx-auto px-4 py-10">
         {/* Header */}
-        <div className="flex items-end justify-between mb-10">
+        <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
           <div>
             <h1 className="text-4xl md:text-5xl font-heading font-black tracking-tight mb-2 uppercase">
               Agenda Cultural
             </h1>
             <p className="text-sm font-mono uppercase tracking-wider">
               Eventos en Medellín y el Valle de Aburrá
+            </p>
+            <p className="text-[10px] font-mono uppercase tracking-wider mt-1 opacity-60">
+              {fechaActual}
             </p>
           </div>
           <BuscarConAI
@@ -130,6 +167,28 @@ export default function Agenda() {
             }}
             onComplete={reloadEventos}
           />
+        </div>
+
+        {/* Text search */}
+        <div className="mb-6">
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">🔍</span>
+            <input
+              type="text"
+              value={textFilter}
+              onChange={e => setTextFilter(e.target.value)}
+              placeholder="Filtrar por nombre, lugar, barrio, categoría..."
+              className="w-full pl-9 pr-4 py-2.5 text-xs font-mono border-2 border-black focus:outline-none focus:ring-0 placeholder:text-neutral-400"
+            />
+            {textFilter && (
+              <button
+                onClick={() => setTextFilter('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold hover:opacity-70"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filters row */}
@@ -178,9 +237,9 @@ export default function Agenda() {
             </select>
           )}
 
-          {(catFilter || zonaFilter) && (
+          {(catFilter || zonaFilter || textFilter) && (
             <button
-              onClick={() => { setCatFilter(''); setZonaFilter('') }}
+              onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter('') }}
               className="text-xs font-mono font-bold uppercase tracking-wider ml-4 hover:text-black transition-colors underline"
             >
               Limpiar filtros
