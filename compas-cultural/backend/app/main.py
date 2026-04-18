@@ -59,6 +59,11 @@ from app.api.router import api_router  # noqa: E402
 app.include_router(api_router, prefix="/api/v1")
 
 
+@app.get("/")
+async def root():
+    return {"service": "Cultura ETÉREA API", "version": "1.0.0", "docs": "/docs", "health": "/health"}
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
