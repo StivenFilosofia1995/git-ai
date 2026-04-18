@@ -144,6 +144,10 @@ export async function getEventosHoy(): Promise<Evento[]> {
   return apiGet<Evento[]>('/eventos/hoy')
 }
 
+export async function getEventosSemana(): Promise<Evento[]> {
+  return apiGet<Evento[]>('/eventos/semana')
+}
+
 export async function getEvento(slug: string): Promise<Evento> {
   return apiGet<Evento>(`/eventos/${encodeURIComponent(slug)}`)
 }

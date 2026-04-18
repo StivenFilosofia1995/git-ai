@@ -12,6 +12,8 @@ const CAT_TABS = [
   { value: 'jazz', label: 'Jazz' },
   { value: 'electronica', label: 'Electrónica' },
   { value: 'galeria', label: 'Galerías' },
+  { value: 'libreria', label: 'Librerías' },
+  { value: 'casa_cultura', label: 'Casas de Cultura' },
   { value: 'danza', label: 'Danza' },
   { value: 'musica_en_vivo', label: 'Música' },
   { value: 'poesia', label: 'Poesía' },
@@ -19,6 +21,8 @@ const CAT_TABS = [
   { value: 'cine', label: 'Cine' },
   { value: 'filosofia', label: 'Filosofía' },
   { value: 'festival', label: 'Festivales' },
+  { value: 'fotografia', label: 'Fotografía' },
+  { value: 'muralismo', label: 'Muralismo' },
 ]
 
 type ViewMode = 'todo' | 'agenda' | 'espacios'
@@ -34,6 +38,8 @@ export default function Explorar() {
   const [eventosHoy, setEventosHoy] = useState<Evento[]>([])
   const [zonas, setZonas] = useState<Zona[]>([])
   const [catFilter, setCatFilter] = useState('')
+  const [muniFilter, setMuniFilter] = useState('')
+  const [tipoFilter, setTipoFilter] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('todo')
   const [error, setError] = useState<string | null>(null)
 
@@ -67,25 +73,33 @@ export default function Explorar() {
   }, [query])
 
   const filteredEventos = useMemo(() => {
-    if (!catFilter) return eventos
-    return eventos.filter(e =>
-      e.categoria_principal === catFilter || e.categorias?.includes(catFilter)
-    )
-  }, [eventos, catFilter])
+    let result = eventos
+    if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || e.categorias?.includes(catFilter))
+    if (muniFilter) result = result.filter(e => e.municipio?.toLowerCase().includes(muniFilter.toLowerCase()))
+    return result
+  }, [eventos, catFilter, muniFilter])
 
   const filteredEspacios = useMemo(() => {
-    if (!catFilter) return espacios
-    return espacios.filter(e =>
-      e.categoria_principal === catFilter || e.categorias?.includes(catFilter)
-    )
-  }, [espacios, catFilter])
+    let result = espacios
+    if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || e.categorias?.includes(catFilter))
+    if (muniFilter) result = result.filter(e => e.municipio?.toLowerCase().includes(muniFilter.toLowerCase()))
+    if (tipoFilter) result = result.filter(e => (e as any).tipo === tipoFilter)
+    return result
+  }, [espacios, catFilter, muniFilter, tipoFilter])
 
   const filteredHoy = useMemo(() => {
-    if (!catFilter) return eventosHoy
-    return eventosHoy.filter(e =>
-      e.categoria_principal === catFilter || e.categorias?.includes(catFilter)
-    )
-  }, [eventosHoy, catFilter])
+    let result = eventosHoy
+    if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || e.categorias?.includes(catFilter))
+    if (muniFilter) result = result.filter(e => e.municipio?.toLowerCase().includes(muniFilter.toLowerCase()))
+    return result
+  }, [eventosHoy, catFilter, muniFilter])
+
+  const municipios = useMemo(() => {
+    const set = new Set<string>()
+    espacios.forEach(e => { if (e.municipio) set.add(e.municipio) })
+    eventos.forEach(e => { if ((e as any).municipio) set.add((e as any).municipio) })
+    return Array.from(set).sort()
+  }, [espacios, eventos])
 
   if (query) {
     return (
@@ -116,7 +130,7 @@ export default function Explorar() {
               <div className="flex items-center gap-3 mb-4">
                 <span className="w-3 h-3 bg-black animate-pulse" />
                 <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
-                  Agenda underground + oficial · Medellín
+                  Agenda underground + oficial · Valle de Aburrá
                 </span>
               </div>
               <h1 className="text-4xl md:text-6xl font-heading font-black tracking-tighter uppercase leading-[0.9] mb-4">
@@ -164,6 +178,39 @@ export default function Explorar() {
             ))}
           </div>
 
+          {/* Municipio + Tipo filters */}
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <select
+              value={muniFilter}
+              onChange={(e) => setMuniFilter(e.target.value)}
+              className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black px-2 py-1 bg-white"
+            >
+              <option value="">Todo el Valle de Aburrá</option>
+              {municipios.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <select
+              value={tipoFilter}
+              onChange={(e) => setTipoFilter(e.target.value)}
+              className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black px-2 py-1 bg-white"
+            >
+              <option value="">Todos los tipos</option>
+              <option value="espacio_fisico">Espacios físicos</option>
+              <option value="colectivo">Colectivos</option>
+              <option value="festival">Festivales</option>
+              <option value="plataforma_digital">Plataformas digitales</option>
+            </select>
+            {(muniFilter || tipoFilter || catFilter) && (
+              <button
+                onClick={() => { setMuniFilter(''); setTipoFilter(''); setCatFilter('') }}
+                className="text-[9px] font-mono font-bold uppercase tracking-wider underline hover:no-underline"
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+
           {/* Categories */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
             {CAT_TABS.map(t => (
@@ -200,7 +247,7 @@ export default function Explorar() {
                 <div className="flex items-center gap-3 mb-4">
                   <span className="w-4 h-4 bg-red-600 animate-pulse" />
                   <h2 className="text-lg font-heading font-black uppercase tracking-wider">
-                    Hoy en Medellín
+                    Hoy en el Valle de Aburrá
                   </h2>
                   <span className="text-[10px] font-mono font-bold">{filteredHoy.length} evento{filteredHoy.length > 1 ? 's' : ''}</span>
                 </div>

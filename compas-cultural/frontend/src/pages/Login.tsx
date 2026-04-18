@@ -255,7 +255,7 @@ export default function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full border-2 border-black focus:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] px-4 py-3 text-sm font-mono
                              outline-none transition-all duration-200"
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="Contraseña"
                 />
               </div>
             </>

@@ -1,7 +1,7 @@
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState, useMemo } from 'react'
 import EventCard from '../components/agenda/EventCard'
-import { getEventos, getEventosHoy, getZonas, type Evento, type Zona } from '../lib/api'
+import { getEventos, getEventosHoy, getEventosSemana, getZonas, type Evento, type Zona } from '../lib/api'
 
 
 type TimeFilter = 'hoy' | 'semana' | 'todos'
@@ -48,6 +48,8 @@ export default function Agenda() {
       try {
         if (timeFilter === 'hoy') {
           setEventos(await getEventosHoy())
+        } else if (timeFilter === 'semana') {
+          setEventos(await getEventosSemana())
         } else {
           setEventos(await getEventos({ limit: 60 }))
         }
