@@ -1,6 +1,10 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+import os
+from pathlib import Path
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -61,12 +65,23 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
+    """Serve frontend index.html if available, otherwise API info."""
+    static_dir = Path(__file__).parent.parent / "static"
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
     return {"service": "Cultura ETÉREA API", "version": "1.0.0", "docs": "/docs", "health": "/health"}
 
 
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+# Serve frontend static assets (JS, CSS, images, fonts)
+static_dir = Path(__file__).parent.parent / "static"
+if static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

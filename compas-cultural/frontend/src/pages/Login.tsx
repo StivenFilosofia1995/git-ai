@@ -104,7 +104,7 @@ export default function Login() {
 
       // Send welcome email immediately after signup
       try {
-        const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1'
+        const apiBase = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
         fetch(`${apiBase}/auth/welcome-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

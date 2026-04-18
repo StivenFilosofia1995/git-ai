@@ -80,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isNewUser) {
           const email = s.user.email
           if (email) {
-            fetch(`${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1'}/auth/welcome-email`, {
+            fetch(`${import.meta.env.VITE_API_BASE_URL ?? '/api/v1'}/auth/welcome-email`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ email, nombre: s.user.user_metadata?.full_name }),
