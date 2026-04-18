@@ -3,7 +3,7 @@ Endpoints para el sistema de auto-scraping, descubrimiento y social listener.
 """
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from app.config import settings
-from app.services.auto_scraper import run_auto_scraper, scrape_single_lugar, enrich_event_images, scrape_agenda_sources
+from app.services.auto_scraper import run_auto_scraper, scrape_single_lugar, scrape_zona, enrich_event_images, scrape_agenda_sources
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
 
@@ -48,6 +48,22 @@ async def trigger_lugar_scraper_publico(lugar_id: str):
         "status": "completed",
         "message": f"Búsqueda completada: {result.get('nuevos', 0)} eventos encontrados.",
         "lugar_id": lugar_id,
+        "result": result,
+    }
+
+
+@router.post("/zona/{municipio}/publico")
+async def trigger_zona_scraper_publico(
+    municipio: str,
+    limit: int = Query(default=10, le=30, description="Máx lugares a scrapear en la zona"),
+):
+    """Scrape todos los espacios de un municipio/zona (acceso público, síncrono).
+    Busca eventos en las redes y sitios web de los espacios de esa zona.
+    """
+    result = await scrape_zona(municipio, limit=limit)
+    return {
+        "status": "completed",
+        "message": f"Búsqueda completada: {result.get('eventos_nuevos', 0)} eventos nuevos en {municipio}.",
         "result": result,
     }
 

@@ -166,6 +166,10 @@ export async function scrapeLugar(lugarId: string): Promise<{ status: string; me
   return apiPost<{ status: string; message: string }>(`/scraper/lugar/${lugarId}/publico`, {})
 }
 
+export async function scrapeZona(municipio: string, limit = 10): Promise<{ status: string; message: string; result: Record<string, unknown> }> {
+  return apiPost<{ status: string; message: string; result: Record<string, unknown> }>(`/scraper/zona/${encodeURIComponent(municipio)}/publico?limit=${limit}`, {})
+}
+
 export async function getEventos(params?: {
   limit?: number
   offset?: number

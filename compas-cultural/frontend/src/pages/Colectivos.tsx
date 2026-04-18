@@ -1,8 +1,9 @@
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getEspacios, type Espacio } from '../lib/api'
+import { getEspacios, scrapeZona, type Espacio } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import BuscarConAI from '../components/ui/BuscarConAI'
 
 const TIPOS_COLECTIVO = [
   { value: '', label: 'Todos' },
@@ -83,6 +84,19 @@ export default function Colectivos() {
               <span className="inline-flex items-center px-4 py-3 border-2 border-black font-mono text-xs font-bold uppercase tracking-wider">
                 {colectivos.length} activos
               </span>
+            </div>
+            <div className="mt-6">
+              <BuscarConAI
+                label="Buscar eventos de colectivos"
+                onSearch={async () => {
+                  const res = await scrapeZona('medellin', 15)
+                  return res.message
+                }}
+                onComplete={() => {
+                  getEspacios({ limit: 300, categoria: filtro || undefined, tipo: 'colectivo' })
+                    .then(setColectivos).catch(() => {})
+                }}
+              />
             </div>
           </div>
         </div>

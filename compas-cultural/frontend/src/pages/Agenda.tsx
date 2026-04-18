@@ -1,7 +1,8 @@
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState, useMemo } from 'react'
 import EventCard from '../components/agenda/EventCard'
-import { getEventos, getEventosHoy, getEventosSemana, getZonas, type Evento, type Zona } from '../lib/api'
+import BuscarConAI from '../components/ui/BuscarConAI'
+import { getEventos, getEventosHoy, getEventosSemana, getZonas, scrapeZona, type Evento, type Zona } from '../lib/api'
 
 
 type TimeFilter = 'hoy' | 'semana' | 'todos'
@@ -36,6 +37,21 @@ export default function Agenda() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('todos')
   const [catFilter, setCatFilter] = useState('')
   const [zonaFilter, setZonaFilter] = useState('')
+
+  const reloadEventos = () => {
+    const cargar = async () => {
+      try {
+        if (timeFilter === 'hoy') {
+          setEventos(await getEventosHoy())
+        } else if (timeFilter === 'semana') {
+          setEventos(await getEventosSemana())
+        } else {
+          setEventos(await getEventos({ limit: 60 }))
+        }
+      } catch { /* silent */ }
+    }
+    void cargar()
+  }
 
   useEffect(() => {
     getZonas().then(setZonas).catch(console.error)
@@ -97,13 +113,23 @@ export default function Agenda() {
 
       <div className="max-w-5xl mx-auto px-4 py-10">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-4xl md:text-5xl font-heading font-black tracking-tight mb-2 uppercase">
-            Agenda Cultural
-          </h1>
-          <p className="text-sm font-mono uppercase tracking-wider">
-            Eventos en Medellín y el Valle de Aburrá
-          </p>
+        <div className="flex items-end justify-between mb-10">
+          <div>
+            <h1 className="text-4xl md:text-5xl font-heading font-black tracking-tight mb-2 uppercase">
+              Agenda Cultural
+            </h1>
+            <p className="text-sm font-mono uppercase tracking-wider">
+              Eventos en Medellín y el Valle de Aburrá
+            </p>
+          </div>
+          <BuscarConAI
+            label="Buscar eventos con AI"
+            onSearch={async () => {
+              const res = await scrapeZona('medellin', 15)
+              return res.message
+            }}
+            onComplete={reloadEventos}
+          />
         </div>
 
         {/* Filters row */}
@@ -173,13 +199,23 @@ export default function Agenda() {
         {error && <p className="text-black text-sm font-mono border-2 border-black p-4">{error}</p>}
 
         {!loading && !error && filtered.length === 0 && (
-          <div className="text-center py-16 border-2 border-dashed border-black">
+          <div className="text-center py-16 border-2 border-dashed border-black space-y-4">
             <p className="font-mono text-sm uppercase tracking-wider">
               {catFilter || zonaFilter
                 ? 'No hay eventos con esos filtros.'
                 : 'No hay eventos próximos.'
               }
             </p>
+            <div className="flex justify-center">
+              <BuscarConAI
+                label="Buscar eventos con AI"
+                onSearch={async () => {
+                  const res = await scrapeZona('medellin', 20)
+                  return res.message
+                }}
+                onComplete={reloadEventos}
+              />
+            </div>
           </div>
         )}
 

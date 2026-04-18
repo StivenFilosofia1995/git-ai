@@ -1,7 +1,8 @@
 import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
-import { getZona, getZonaCulturaHoy, type Zona, type Evento, type Espacio } from '../lib/api'
+import { getZona, getZonaCulturaHoy, scrapeZona, type Zona, type Evento, type Espacio } from '../lib/api'
+import BuscarConAI from '../components/ui/BuscarConAI'
 
 export default function ZonaDetalle() {
   const { slug } = useParams()
@@ -10,6 +11,14 @@ export default function ZonaDetalle() {
   const [espacios, setEspacios] = useState<Espacio[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const reloadCultura = () => {
+    if (!slug) return
+    getZonaCulturaHoy(slug).then(c => {
+      setEventos(c.eventos ?? [])
+      setEspacios(c.espacios ?? [])
+    }).catch(() => {})
+  }
 
   useEffect(() => {
     const cargarZona = async () => {
@@ -64,6 +73,16 @@ export default function ZonaDetalle() {
               {zona.descripcion && (
                 <p className="mt-4 font-mono text-sm leading-relaxed max-w-2xl opacity-70">{zona.descripcion}</p>
               )}
+              <div className="mt-6">
+                <BuscarConAI
+                  label="Buscar eventos en esta zona"
+                  onSearch={async () => {
+                    const res = await scrapeZona(zona.municipio, 10)
+                    return res.message
+                  }}
+                  onComplete={reloadCultura}
+                />
+              </div>
             </div>
 
             {/* Eventos hoy / próximos en esta zona */}
@@ -159,10 +178,20 @@ export default function ZonaDetalle() {
             )}
 
             {eventos.length === 0 && espacios.length === 0 && !loading && (
-              <div className="border-2 border-black p-8 text-center">
+              <div className="border-2 border-black p-8 text-center space-y-4">
                 <p className="font-mono text-sm uppercase tracking-wider">
                   No hay eventos activos en esta zona por ahora.
                 </p>
+                <div className="flex justify-center">
+                  <BuscarConAI
+                    label="Buscar eventos con AI"
+                    onSearch={async () => {
+                      const res = await scrapeZona(zona.municipio, 15)
+                      return res.message
+                    }}
+                    onComplete={reloadCultura}
+                  />
+                </div>
               </div>
             )}
           </>

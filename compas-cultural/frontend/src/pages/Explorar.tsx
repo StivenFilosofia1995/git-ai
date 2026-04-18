@@ -3,7 +3,8 @@ import { useEffect, useState, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import SearchResults from '../components/search/SearchResults'
 import EventCard from '../components/agenda/EventCard'
-import { buscar, getEspacios, getEventos, getEventosHoy, getZonas, type Espacio, type Evento, type Zona, type ResultadoBusqueda } from '../lib/api'
+import BuscarConAI from '../components/ui/BuscarConAI'
+import { buscar, getEspacios, getEventos, getEventosHoy, getZonas, scrapeZona, type Espacio, type Evento, type Zona, type ResultadoBusqueda } from '../lib/api'
 
 const CAT_TABS = [
   { value: '', label: 'Todo' },
@@ -53,8 +54,8 @@ export default function Explorar() {
           setResultados(response.resultados)
         } else {
           const [esp, ev, hoy, z] = await Promise.all([
-            getEspacios({ limit: 100 }),
-            getEventos({ limit: 60 }),
+            getEspacios({ limit: 500 }),
+            getEventos({ limit: 200 }),
             getEventosHoy(),
             getZonas(),
           ])
@@ -79,11 +80,23 @@ export default function Explorar() {
     return result
   }, [eventos, catFilter, muniFilter])
 
+  const reloadExplorar = () => {
+    Promise.all([
+      getEspacios({ limit: 500 }),
+      getEventos({ limit: 200 }),
+      getEventosHoy(),
+    ]).then(([esp, ev, hoy]) => {
+      setEspacios(esp)
+      setEventos(ev)
+      setEventosHoy(hoy)
+    }).catch(() => {})
+  }
+
   const filteredEspacios = useMemo(() => {
     let result = espacios
     if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || e.categorias?.includes(catFilter))
     if (muniFilter) result = result.filter(e => e.municipio?.toLowerCase().includes(muniFilter.toLowerCase()))
-    if (tipoFilter) result = result.filter(e => (e as any).tipo === tipoFilter)
+    if (tipoFilter) result = result.filter(e => e.tipo === tipoFilter)
     return result
   }, [espacios, catFilter, muniFilter, tipoFilter])
 
@@ -97,9 +110,32 @@ export default function Explorar() {
   const municipios = useMemo(() => {
     const set = new Set<string>()
     espacios.forEach(e => { if (e.municipio) set.add(e.municipio) })
-    eventos.forEach(e => { if ((e as any).municipio) set.add((e as any).municipio) })
-    return Array.from(set).sort()
+    eventos.forEach(e => { if (e.municipio) set.add(e.municipio) })
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [espacios, eventos])
+
+  // Group spaces by tipo for the "Red Cultural" section
+  const TIPO_LABELS: Record<string, { label: string; icon: string }> = {
+    colectivo: { label: 'Colectivos', icon: '◆' },
+    espacio_fisico: { label: 'Espacios Físicos', icon: '■' },
+    festival: { label: 'Festivales', icon: '★' },
+    editorial: { label: 'Editoriales', icon: '◈' },
+    plataforma_digital: { label: 'Plataformas Digitales', icon: '◎' },
+    red_articuladora: { label: 'Redes Articuladoras', icon: '◇' },
+    sello_discografico: { label: 'Sellos Discográficos', icon: '♫' },
+    programa_institucional: { label: 'Programas Institucionales', icon: '▣' },
+    publicacion: { label: 'Publicaciones', icon: '▤' },
+  }
+
+  const espaciosByTipo = useMemo(() => {
+    const groups: Record<string, Espacio[]> = {}
+    filteredEspacios.forEach(e => {
+      const t = e.tipo || 'espacio_fisico'
+      if (!groups[t]) groups[t] = []
+      groups[t].push(e)
+    })
+    return groups
+  }, [filteredEspacios])
 
   if (query) {
     return (
@@ -139,8 +175,19 @@ export default function Explorar() {
               <p className="text-sm font-mono leading-relaxed max-w-lg">
                 Toda la cultura viva del Valle de Aburrá. Eventos, espacios, colectivos y agenda alternativa — actualizado cada 6 horas desde Instagram, webs y medios independientes.
               </p>
+              <div className="mt-4">
+                <BuscarConAI
+                  label="Buscar eventos con AI"
+                  onSearch={async () => {
+                    const muni = muniFilter || 'medellin'
+                    const res = await scrapeZona(muni, 15)
+                    return res.message
+                  }}
+                  onComplete={reloadExplorar}
+                />
+              </div>
             </div>
-            <div className="flex gap-6 text-center">
+            <div className="flex gap-6 text-center flex-wrap">
               <div>
                 <div className="text-3xl font-heading font-black">{eventos.length}</div>
                 <div className="text-[9px] font-mono font-bold tracking-[0.2em]">EVENTOS</div>
@@ -152,6 +199,10 @@ export default function Explorar() {
               <div>
                 <div className="text-3xl font-heading font-black">{zonas.length}</div>
                 <div className="text-[9px] font-mono font-bold tracking-[0.2em]">ZONAS</div>
+              </div>
+              <div>
+                <div className="text-3xl font-heading font-black">{Object.keys(espaciosByTipo).length}</div>
+                <div className="text-[9px] font-mono font-bold tracking-[0.2em]">TIPOS</div>
               </div>
             </div>
           </div>
@@ -199,7 +250,12 @@ export default function Explorar() {
               <option value="espacio_fisico">Espacios físicos</option>
               <option value="colectivo">Colectivos</option>
               <option value="festival">Festivales</option>
+              <option value="editorial">Editoriales</option>
+              <option value="red_articuladora">Redes articuladoras</option>
+              <option value="sello_discografico">Sellos discográficos</option>
+              <option value="programa_institucional">Programas institucionales</option>
               <option value="plataforma_digital">Plataformas digitales</option>
+              <option value="publicacion">Publicaciones</option>
             </select>
             {(muniFilter || tipoFilter || catFilter) && (
               <button
@@ -291,90 +347,125 @@ export default function Explorar() {
               </section>
             )}
 
-            {/* ESPACIOS SECTION */}
+            {/* RED CULTURAL — Spaces grouped by tipo */}
             {(viewMode === 'todo' || viewMode === 'espacios') && filteredEspacios.length > 0 && (
-              <section className="mb-10">
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="w-4 h-4 bg-black" />
-                  <h2 className="text-lg font-heading font-black uppercase tracking-wider">
-                    Espacios Culturales
-                  </h2>
-                  <span className="text-[10px] font-mono font-bold">{filteredEspacios.length} activos</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-0 border-2 border-black">
-                  {filteredEspacios.slice(0, viewMode === 'espacios' ? 100 : 16).map((esp, i) => (
-                    <div
-                      key={esp.id}
-                      className="group border-b border-r border-black p-5 hover:bg-black hover:text-white transition-all duration-300 relative"
-                    >
-                      <Link to={`/espacio/${esp.slug}`} className="absolute inset-0 z-10" />
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="text-[9px] font-mono font-bold opacity-30 group-hover:opacity-100 tracking-wider">
-                          {String(i + 1).padStart(2, '0')}
-                        </span>
-                        <span className="text-[9px] font-mono font-bold uppercase tracking-wider border border-current px-1.5 py-0.5">
-                          {esp.categoria_principal.replaceAll('_', ' ')}
-                        </span>
-                      </div>
-                      <h3 className="font-heading font-black text-sm uppercase tracking-wide leading-tight mb-2">
-                        {esp.nombre}
-                      </h3>
-                      {esp.descripcion_corta && (
-                        <p className="text-[10px] font-mono leading-relaxed opacity-50 group-hover:opacity-80 line-clamp-2 mb-2">
-                          {esp.descripcion_corta}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-2 text-[10px] font-mono opacity-50 group-hover:opacity-100 flex-wrap">
-                        {esp.barrio && <span>◉ {esp.barrio}</span>}
-                        <span>{esp.municipio}</span>
-                      </div>
-                      {/* External links — above the overlay link */}
-                      <div className="flex items-center gap-3 mt-2 relative z-20">
-                        {esp.instagram_handle && (
-                          <a
-                            href={`https://instagram.com/${esp.instagram_handle.replace(/^@/, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[9px] font-mono font-bold opacity-40 hover:opacity-100 transition-opacity"
-                          >
-                            📸 @{esp.instagram_handle.replace(/^@/, '')}
-                          </a>
-                        )}
-                        {esp.sitio_web && (
-                          <a
-                            href={esp.sitio_web}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[9px] font-mono font-bold opacity-40 hover:opacity-100 transition-opacity"
-                          >
-                            🌐 Web
-                          </a>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className={`w-2 h-2 rounded-full ${
-                          esp.nivel_actividad === 'muy_activo' ? 'bg-green-500 animate-pulse' :
-                          esp.nivel_actividad === 'activo' ? 'bg-green-400' :
-                          esp.nivel_actividad === 'moderado' ? 'bg-yellow-400' : 'bg-gray-400'
-                        }`} />
-                        <span className="text-[8px] font-mono font-bold uppercase tracking-wider opacity-40 group-hover:opacity-80">
-                          {esp.nivel_actividad?.replaceAll('_', ' ')}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {viewMode === 'todo' && filteredEspacios.length > 16 && (
-                  <div className="text-center mt-6">
-                    <button
-                      onClick={() => setViewMode('espacios')}
-                      className="px-6 py-2.5 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black hover:bg-black hover:text-white transition-all"
-                    >
-                      Ver {filteredEspacios.length - 16} espacios más →
-                    </button>
+              <>
+                {/* Summary bar */}
+                <section className="mb-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="w-4 h-4 bg-black" />
+                    <h2 className="text-lg font-heading font-black uppercase tracking-wider">
+                      Red Cultural
+                    </h2>
+                    <span className="text-[10px] font-mono font-bold">{filteredEspacios.length} activos · scraping cada 6h</span>
                   </div>
-                )}
-              </section>
+                  <div className="flex items-center gap-2 flex-wrap mb-4">
+                    {Object.entries(espaciosByTipo).map(([tipo, list]) => (
+                      <button
+                        key={tipo}
+                        onClick={() => setTipoFilter(tipoFilter === tipo ? '' : tipo)}
+                        className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider border border-black transition-all ${
+                          tipoFilter === tipo ? 'bg-black text-white' : 'hover:bg-black/5'
+                        }`}
+                      >
+                        {TIPO_LABELS[tipo]?.icon || '●'} {TIPO_LABELS[tipo]?.label || tipo.replaceAll('_', ' ')} ({list.length})
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {/* Grouped sections */}
+                {Object.entries(espaciosByTipo)
+                  .sort(([, a], [, b]) => b.length - a.length)
+                  .map(([tipo, list]) => {
+                    const tipoInfo = TIPO_LABELS[tipo] || { label: tipo.replaceAll('_', ' '), icon: '●' }
+                    const showLimit = viewMode === 'espacios' ? 100 : 8
+                    return (
+                      <section key={tipo} className="mb-8">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-sm">{tipoInfo.icon}</span>
+                          <h3 className="text-sm font-heading font-black uppercase tracking-wider">
+                            {tipoInfo.label}
+                          </h3>
+                          <span className="text-[9px] font-mono font-bold opacity-50">{list.length}</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-0 border-2 border-black">
+                          {list.slice(0, showLimit).map((esp, i) => (
+                            <div
+                              key={esp.id}
+                              className="group border-b border-r border-black p-5 hover:bg-black hover:text-white transition-all duration-300 relative"
+                            >
+                              <Link to={`/espacio/${esp.slug}`} className="absolute inset-0 z-10" />
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="text-[9px] font-mono font-bold opacity-30 group-hover:opacity-100 tracking-wider">
+                                  {String(i + 1).padStart(2, '0')}
+                                </span>
+                                <span className="text-[9px] font-mono font-bold uppercase tracking-wider border border-current px-1.5 py-0.5">
+                                  {esp.categoria_principal.replaceAll('_', ' ')}
+                                </span>
+                              </div>
+                              <h3 className="font-heading font-black text-sm uppercase tracking-wide leading-tight mb-2">
+                                {esp.nombre}
+                              </h3>
+                              {esp.descripcion_corta && (
+                                <p className="text-[10px] font-mono leading-relaxed opacity-50 group-hover:opacity-80 line-clamp-2 mb-2">
+                                  {esp.descripcion_corta}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-2 text-[10px] font-mono opacity-50 group-hover:opacity-100 flex-wrap">
+                                {esp.barrio && <span>◉ {esp.barrio}</span>}
+                                <span>{esp.municipio}</span>
+                              </div>
+                              <div className="flex items-center gap-3 mt-2 relative z-20">
+                                {esp.instagram_handle && (
+                                  <a
+                                    href={`https://instagram.com/${esp.instagram_handle.replace(/^@/, '')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[9px] font-mono font-bold opacity-40 hover:opacity-100 transition-opacity"
+                                  >
+                                    📸 @{esp.instagram_handle.replace(/^@/, '')}
+                                  </a>
+                                )}
+                                {esp.sitio_web && (
+                                  <a
+                                    href={esp.sitio_web}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[9px] font-mono font-bold opacity-40 hover:opacity-100 transition-opacity"
+                                  >
+                                    🌐 Web
+                                  </a>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className={`w-2 h-2 rounded-full ${
+                                  esp.nivel_actividad === 'muy_activo' ? 'bg-green-500 animate-pulse' :
+                                  esp.nivel_actividad === 'activo' ? 'bg-green-400' :
+                                  esp.nivel_actividad === 'moderado' ? 'bg-yellow-400' : 'bg-gray-400'
+                                }`} />
+                                <span className="text-[8px] font-mono font-bold uppercase tracking-wider opacity-40 group-hover:opacity-80">
+                                  {esp.nivel_actividad?.replaceAll('_', ' ')}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {list.length > showLimit && viewMode === 'todo' && (
+                          <div className="text-center mt-3">
+                            <button
+                              onClick={() => { setTipoFilter(tipo); setViewMode('espacios') }}
+                              className="px-4 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black hover:bg-black hover:text-white transition-all"
+                            >
+                              Ver {list.length - showLimit} más →
+                            </button>
+                          </div>
+                        )}
+                      </section>
+                    )
+                  })}
+                <div className="border-t-2 border-black mt-4 mb-8" />
+              </>
             )}
 
             {/* ZONAS */}

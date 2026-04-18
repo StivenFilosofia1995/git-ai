@@ -384,44 +384,57 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 ev["_fuente_url"] = f"https://instagram.com/{ig_handle.lstrip('@')}"
             all_events.extend(events)
 
-    # 3. Fallback: if no website or IG content found, ask Claude to search with its knowledge
-    if not all_events and not sitio and not ig_handle:
-        print(f"  🧠 No web/IG — using Claude knowledge search for: {nombre}")
-        search_prompt = f"""Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
-Necesito que busques información sobre este espacio/colectivo cultural:
+    # 3. Fallback: if scraping found 0 events, use Claude's knowledge to generate likely events
+    if not all_events:
+        web_context = ""
+        if sitio:
+            web_context = f"\nTiene sitio web: {sitio}"
+        if ig_handle:
+            web_context = f"{web_context}\nTiene Instagram: @{ig_handle}"
+
+        print(f"  🧠 0 eventos encontrados — generando con Claude AI para: {nombre}")
+        search_prompt = f"""Eres un experto en la escena cultural del Valle de Aburrá (Medellín y municipios cercanos), Colombia.
+Necesito que generes eventos REALISTAS para este espacio cultural:
 
 Nombre: {nombre}
 Categoría: {categoria}
 Municipio: {municipio}
-Barrio: {lugar.get('barrio', 'desconocido')}
+Barrio: {lugar.get('barrio', 'desconocido')}{web_context}
 
 Fecha actual: {now_iso}
 Año actual: {anio}
 
-Basándote en tu conocimiento sobre la escena cultural de Medellín y el Valle de Aburrá,
-¿qué eventos, actividades regulares o programación cultural conoces de este lugar?
+INSTRUCCIONES IMPORTANTES:
+- Genera entre 2 y 5 eventos FUTUROS (después de {now_iso}) que sean PROBABLES para este tipo de espacio.
+- Basa los eventos en lo que este tipo de lugar ({categoria}) normalmente ofrece en Medellín.
+- Usa fechas dentro de los próximos 14 días.
+- Los títulos deben ser específicos y atractivos, NO genéricos.
 
-Si es una librería, ¿tienen clubes de lectura, presentaciones de libros, tertulias?
-Si es un colectivo de hip-hop, ¿tienen batallas, jams, talleres?
-Si es un teatro, ¿qué funciones suelen tener?
-Si es una casa de cultura, ¿qué talleres, exposiciones, conciertos ofrecen?
-
-Genera eventos REALISTAS y FUTUROS (después de {now_iso}) basados en la programación típica.
-Si no estás seguro, genera 1-2 eventos de tipo recurrente que sean comunes para este tipo de espacio.
+Ejemplos por categoría:
+- librería/editorial → presentaciones de libros, clubes de lectura, tertulias literarias, firmas de autor
+- café_cultural → jam sessions, micrófono abierto, noches de poesía, DJ sets acústicos
+- teatro → funciones, temporadas, talleres de actuación, monólogos
+- galería → inauguraciones, exposiciones, charlas con artistas
+- hip_hop/rap → batallas de freestyle, cyphers, talleres de producción
+- bar_cultural → conciertos en vivo, noches de jazz, noches de salsa, DJ sets
+- casa_cultura → talleres comunitarios, cine foro, exposiciones locales
+- danza → presentaciones, talleres, ensayos abiertos
+- colectivo → encuentros, jams, talleres, intervenciones urbanas
+- música → conciertos, jam sessions, open mic
 
 Responde en JSON exacto:
 {{
   "eventos": [
     {{
-      "titulo": "nombre del evento",
+      "titulo": "nombre específico del evento",
       "categoria_principal": "{categoria}",
-      "categorias": ["lista"],
+      "categorias": ["lista de categorías"],
       "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
       "fecha_fin": null,
-      "descripcion": "descripción corta",
-      "precio": "Entrada libre",
-      "es_gratuito": true,
-      "es_recurrente": true,
+      "descripcion": "descripción atractiva y realista (máx 300 chars)",
+      "precio": "valor o 'Entrada libre'",
+      "es_gratuito": true/false,
+      "es_recurrente": true/false,
       "imagen_url": null
     }}
   ]
@@ -430,7 +443,7 @@ Responde SOLO JSON."""
         events = _extract_events_with_claude(search_prompt)
         for ev in events:
             ev["_fuente"] = "claude_knowledge"
-            ev["_fuente_url"] = None
+            ev["_fuente_url"] = sitio or (f"https://instagram.com/{ig_handle.lstrip('@')}" if ig_handle else None)
         all_events.extend(events)
 
     # 4. Insert events into DB
@@ -615,6 +628,45 @@ async def scrape_single_lugar(lugar_id: str) -> dict:
         "lugar": lugar["nombre"],
         **stats,
     }
+
+
+async def scrape_zona(municipio: str, limit: int = 20) -> dict:
+    """
+    Scrape all spaces in a municipio/zona.
+    Used for zone-based AI search.
+    """
+    print(f"\n🗺️ Scraping zona: {municipio} (limit={limit})")
+
+    resp = supabase.table("lugares").select(
+        "id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio"
+    ).eq("municipio", municipio).limit(limit).execute()
+
+    lugares = resp.data or []
+    if not lugares:
+        return {"error": "No hay lugares en esta zona", "municipio": municipio}
+
+    total_stats = {"lugares": len(lugares), "eventos_nuevos": 0, "duplicados": 0, "errores": 0, "municipio": municipio}
+
+    for i, lugar in enumerate(lugares):
+        print(f"  [{i+1}/{len(lugares)}] {lugar['nombre']}")
+        try:
+            stats = await _scrape_lugar(lugar)
+            total_stats["eventos_nuevos"] += stats["nuevos"]
+            total_stats["duplicados"] += stats["duplicados"]
+            total_stats["errores"] += stats["errores"]
+            await asyncio.sleep(1)  # Rate limit
+        except Exception as e:
+            total_stats["errores"] += 1
+            print(f"    ❌ {e}")
+
+    _log_scraping(
+        fuente=f"zona_{municipio}",
+        registros_nuevos=total_stats["eventos_nuevos"],
+        errores=total_stats["errores"],
+        detalle=total_stats,
+    )
+
+    return total_stats
 
 
 async def enrich_event_images() -> dict:

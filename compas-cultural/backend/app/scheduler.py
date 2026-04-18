@@ -57,46 +57,46 @@ async def _run_agenda_alternativa():
 
 def start_scheduler():
     """Start the periodic scraper. Called from FastAPI lifespan."""
-    # Auto-scraper: cada 6 horas
+    # Auto-scraper: cada 4 horas (más frecuente para acumular datos)
     scheduler.add_job(
         _run_scraper_job,
-        trigger=IntervalTrigger(hours=6),
+        trigger=IntervalTrigger(hours=4),
         id="auto_scraper",
         name="Auto-scraper cultural",
         replace_existing=True,
     )
 
-    # Social Listener: cada 3 horas (escucha IG/FB por nuevos eventos)
+    # Social Listener: cada 2 horas (escucha IG/FB por nuevos eventos)
     scheduler.add_job(
         _run_social_listener,
-        trigger=IntervalTrigger(hours=3),
+        trigger=IntervalTrigger(hours=2),
         id="social_listener",
         name="Social Listener — redes sociales",
         replace_existing=True,
     )
 
-    # Discovery: cada 24 horas (descubre nuevos colectivos)
+    # Discovery: cada 12 horas (descubre nuevos colectivos — más frecuente)
     scheduler.add_job(
         _run_discovery,
-        trigger=IntervalTrigger(hours=24),
+        trigger=IntervalTrigger(hours=12),
         id="discovery",
         name="Discovery — nuevos colectivos",
         replace_existing=True,
     )
 
-    # Enriquecer imágenes: cada 8 horas
+    # Enriquecer imágenes: cada 6 horas
     scheduler.add_job(
         _run_image_enrichment,
-        trigger=IntervalTrigger(hours=8),
+        trigger=IntervalTrigger(hours=6),
         id="image_enrichment",
         name="Enriquecimiento de imágenes",
         replace_existing=True,
     )
 
-    # Agenda alternativa: cada 12 horas
+    # Agenda alternativa: cada 8 horas
     scheduler.add_job(
         _run_agenda_alternativa,
-        trigger=IntervalTrigger(hours=12),
+        trigger=IntervalTrigger(hours=8),
         id="agenda_alternativa",
         name="Agenda alternativa — medios independientes",
         replace_existing=True,
@@ -122,10 +122,11 @@ def start_scheduler():
 
     scheduler.start()
     print("⏰ Scheduler iniciado:")
-    print("   • Auto-scraper: cada 6h (inicio en 30s)")
-    print("   • Social Listener: cada 3h (inicio en 2min)")
-    print("   • Discovery: cada 24h")
-    print("   • Imágenes: cada 8h")
+    print("   • Auto-scraper: cada 4h (inicio en 30s)")
+    print("   • Social Listener: cada 2h (inicio en 2min)")
+    print("   • Discovery: cada 12h")
+    print("   • Imágenes: cada 6h")
+    print("   • Agenda alternativa: cada 8h")
 
 
 def stop_scheduler():
