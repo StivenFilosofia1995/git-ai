@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
 
     # Frontend URL (for emails, CORS, etc.)
+    # In Railway: set FRONTEND_URL=https://your-frontend.up.railway.app
     frontend_url: str = "http://localhost:5173"
 
     # Supabase
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str
     anthropic_model: str = "claude-sonnet-4-20250514"
 
-    # CORS
+    # CORS — base list; FRONTEND_URL is always added automatically
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:5174"]
 
     # Rate limiting
@@ -45,6 +46,14 @@ class Settings(BaseSettings):
     # Meta (Instagram/Facebook) Graph API
     meta_access_token: str = ""
     meta_ig_business_account_id: str = ""
+
+    @property
+    def effective_cors_origins(self) -> List[str]:
+        """CORS origins including FRONTEND_URL if set."""
+        origins = list(self.cors_origins)
+        if self.frontend_url and self.frontend_url not in origins:
+            origins.append(self.frontend_url)
+        return origins
 
     class Config:
         env_file = ".env"
