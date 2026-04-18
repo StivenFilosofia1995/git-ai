@@ -1,4 +1,5 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+import { supabase } from './supabase'
 
 export interface Coordenadas {
   lat: number
@@ -127,39 +128,88 @@ export async function getEspacios(params?: {
   categoria?: string
   tipo?: string
 }): Promise<Espacio[]> {
-  const query = new URLSearchParams()
-  if (params?.limit !== undefined) query.set('limit', String(params.limit))
-  if (params?.offset !== undefined) query.set('offset', String(params.offset))
-  if (params?.municipio) query.set('municipio', params.municipio)
-  if (params?.categoria) query.set('categoria', params.categoria)
-  if (params?.tipo) query.set('tipo', params.tipo)
+  let query = supabase
+    .from('lugares')
+    .select('*')
+    .neq('nivel_actividad', 'cerrado')
+    .order('nombre')
+    .range(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 500) - 1)
 
-  const suffix = query.toString() ? `?${query.toString()}` : ''
-  return apiGet<Espacio[]>(`/espacios/${suffix}`)
+  if (params?.municipio) query = query.ilike('municipio', `%${params.municipio}%`)
+  if (params?.categoria) query = query.eq('categoria_principal', params.categoria)
+  if (params?.tipo) query = query.eq('tipo', params.tipo)
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Espacio[]
 }
 
 export async function getEspacio(slug: string): Promise<Espacio> {
-  return apiGet<Espacio>(`/espacios/${encodeURIComponent(slug)}`)
+  const { data, error } = await supabase
+    .from('lugares')
+    .select('*')
+    .eq('slug', slug)
+    .single()
+  if (error) throw new Error(error.message)
+  return data as Espacio
 }
 
 export async function getEventosHoy(): Promise<Evento[]> {
-  return apiGet<Evento[]>('/eventos/hoy')
+  const today = new Date().toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', today)
+    .lte('fecha_inicio', today + 'T23:59:59')
+    .order('fecha_inicio')
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function getEventosFeed(limit = 20): Promise<Evento[]> {
-  return apiGet<Evento[]>(`/eventos/feed?limit=${limit}`)
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', now)
+    .order('fecha_inicio')
+    .limit(limit)
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function getEventosSemana(): Promise<Evento[]> {
-  return apiGet<Evento[]>('/eventos/semana')
+  const now = new Date()
+  const endOfWeek = new Date(now)
+  endOfWeek.setDate(endOfWeek.getDate() + 7)
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', now.toISOString().slice(0, 10))
+    .lte('fecha_inicio', endOfWeek.toISOString().slice(0, 10) + 'T23:59:59')
+    .order('fecha_inicio')
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function getEvento(slug: string): Promise<Evento> {
-  return apiGet<Evento>(`/eventos/${encodeURIComponent(slug)}`)
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .eq('slug', slug)
+    .single()
+  if (error) throw new Error(error.message)
+  return data as Evento
 }
 
 export async function getEventosByEspacio(espacioId: string): Promise<Evento[]> {
-  return apiGet<Evento[]>(`/eventos/espacio/${espacioId}`)
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .eq('espacio_id', espacioId)
+    .order('fecha_inicio', { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function scrapeLugar(lugarId: string): Promise<{ status: string; message: string }> {
@@ -175,22 +225,39 @@ export async function getEventos(params?: {
   offset?: number
   categoria?: string
 }): Promise<Evento[]> {
-  const query = new URLSearchParams()
-  if (params?.limit !== undefined) query.set('limit', String(params.limit))
-  if (params?.offset !== undefined) query.set('offset', String(params.offset))
-  if (params?.categoria) query.set('categoria', params.categoria)
+  let query = supabase
+    .from('eventos')
+    .select('*')
+    .order('fecha_inicio', { ascending: false })
+    .range(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 200) - 1)
 
-  const suffix = query.toString() ? `?${query.toString()}` : ''
-  return apiGet<Evento[]>(`/eventos/${suffix}`)
+  if (params?.categoria) query = query.eq('categoria_principal', params.categoria)
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function buscar(q: string): Promise<BusquedaResponse> {
-  const query = new URLSearchParams({ q })
-  return apiGet<BusquedaResponse>(`/busqueda/?${query.toString()}`)
+  const term = `%${q}%`
+  const [espaciosRes, eventosRes] = await Promise.all([
+    supabase.from('lugares').select('*').or(`nombre.ilike.${term},descripcion_corta.ilike.${term},barrio.ilike.${term},municipio.ilike.${term}`).limit(50),
+    supabase.from('eventos').select('*').or(`titulo.ilike.${term},descripcion.ilike.${term},nombre_lugar.ilike.${term},municipio.ilike.${term}`).limit(50),
+  ])
+  const resultados: ResultadoBusqueda[] = [
+    ...((espaciosRes.data ?? []) as Espacio[]).map(item => ({ tipo: 'espacio' as const, item })),
+    ...((eventosRes.data ?? []) as Evento[]).map(item => ({ tipo: 'evento' as const, item })),
+  ]
+  return { resultados, total: resultados.length, query: q }
 }
 
 export async function getZonas(): Promise<Zona[]> {
-  return apiGet<Zona[]>('/zonas/')
+  const { data, error } = await supabase
+    .from('zonas_culturales')
+    .select('*')
+    .order('nombre')
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Zona[]
 }
 
 export interface StatsResponse {
@@ -200,11 +267,26 @@ export interface StatsResponse {
 }
 
 export async function getStats(): Promise<StatsResponse> {
-  return apiGet<StatsResponse>('/health/stats')
+  const [esp, ev, z] = await Promise.all([
+    supabase.from('lugares').select('id', { count: 'exact', head: true }),
+    supabase.from('eventos').select('id', { count: 'exact', head: true }),
+    supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
+  ])
+  return {
+    espacios: esp.count ?? 0,
+    eventos: ev.count ?? 0,
+    zonas: z.count ?? 0,
+  }
 }
 
 export async function getZona(slug: string): Promise<Zona> {
-  return apiGet<Zona>(`/zonas/${encodeURIComponent(slug)}`)
+  const { data, error } = await supabase
+    .from('zonas_culturales')
+    .select('*')
+    .eq('slug', slug)
+    .single()
+  if (error) throw new Error(error.message)
+  return data as Zona
 }
 
 export async function enviarMensajeChat(mensaje: string, historial: ChatMessage[]): Promise<ChatResponse> {
@@ -363,7 +445,23 @@ export interface ZonaCulturaHoy {
 }
 
 export async function getZonaCulturaHoy(slug: string): Promise<ZonaCulturaHoy> {
-  return apiGet<ZonaCulturaHoy>(`/zonas/${encodeURIComponent(slug)}/cultura-hoy`)
+  const { data: zona, error: zonaErr } = await supabase
+    .from('zonas_culturales')
+    .select('*')
+    .eq('slug', slug)
+    .single()
+  if (zonaErr || !zona) throw new Error('Zona no encontrada')
+
+  const today = new Date().toISOString().slice(0, 10)
+  const [eventosRes, espaciosRes] = await Promise.all([
+    supabase.from('eventos').select('*').eq('municipio', zona.municipio).gte('fecha_inicio', today).order('fecha_inicio').limit(50),
+    supabase.from('lugares').select('*').eq('municipio', zona.municipio).neq('nivel_actividad', 'cerrado').limit(100),
+  ])
+  return {
+    zona: zona as Zona,
+    eventos: (eventosRes.data ?? []) as Evento[],
+    espacios: (espaciosRes.data ?? []) as Espacio[],
+  }
 }
 
 export const CATEGORIAS_CULTURALES = [
@@ -406,11 +504,29 @@ export interface ResenaStats {
 }
 
 export async function getResenas(tipo: string, itemId: string, limit = 20, offset = 0): Promise<Resena[]> {
-  return apiGet<Resena[]>(`/resenas/${tipo}/${itemId}?limit=${limit}&offset=${offset}`)
+  const { data, error } = await supabase
+    .from('resenas')
+    .select('*')
+    .eq('tipo', tipo)
+    .eq('item_id', itemId)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1)
+  if (error) return []
+  return (data ?? []) as Resena[]
 }
 
 export async function getResenaStats(tipo: string, itemId: string): Promise<ResenaStats> {
-  return apiGet<ResenaStats>(`/resenas/${tipo}/${itemId}/stats`)
+  const { data, error } = await supabase
+    .from('resenas')
+    .select('puntuacion')
+    .eq('tipo', tipo)
+    .eq('item_id', itemId)
+  if (error || !data) return { promedio: 0, total: 0, distribucion: {} }
+  const total = data.length
+  const promedio = total > 0 ? data.reduce((s, r) => s + r.puntuacion, 0) / total : 0
+  const distribucion: Record<string, number> = {}
+  data.forEach(r => { distribucion[String(r.puntuacion)] = (distribucion[String(r.puntuacion)] || 0) + 1 })
+  return { promedio, total, distribucion }
 }
 
 export async function crearResena(
