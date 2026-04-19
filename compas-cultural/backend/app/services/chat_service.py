@@ -85,14 +85,16 @@ def chat(request: ChatRequest) -> ChatResponse:
         else:
             client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
             response = client.messages.create(
-                model="claude-haiku-4-20250414",
+                model="claude-3-5-haiku-20241022",
                 max_tokens=700,
                 temperature=0.7,
                 system=prompt,
                 messages=historial_msgs,
             )
             _daily_api_calls["count"] += 1
-            respuesta = response.content[0].text
+            respuesta = response.content[0].text if response.content else ""
+            if not respuesta:
+                respuesta = _respuesta_fallback(contexto)
             print(f"[chat] API call #{_daily_api_calls['count']}/{MAX_DAILY_CALLS} today")
     except Exception as exc:
         print(f"[chat_service] Claude no disponible, usando fallback local: {exc}")
@@ -100,12 +102,14 @@ def chat(request: ChatRequest) -> ChatResponse:
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
-    # Guardar en memoria_consultas
-    supabase.table("memoria_consultas").insert({
-        "pregunta": request.mensaje,
-        "respuesta": respuesta,
-        "contexto": contexto,
-    }).execute()
+    # Guardar en memoria_consultas (non-blocking — errors should not affect the response)
+    try:
+        supabase.table("memoria_consultas").insert({
+            "pregunta": request.mensaje,
+            "respuesta": respuesta[:2000],
+        }).execute()
+    except Exception as db_exc:
+        print(f"[chat_service] memoria_consultas insert failed (non-fatal): {db_exc}")
 
     return ChatResponse(respuesta=respuesta, fuentes=fuentes)
 

@@ -204,43 +204,114 @@ async def _fetch_website_soup(url: str) -> Optional[BeautifulSoup]:
         return None
 
 
-async def _fetch_instagram_profile(handle: str) -> Optional[str]:
-    """Fetch Instagram profile via public scrapers."""
+async def _fetch_instagram_meta_api(handle: str) -> Optional[str]:
+    """Fetch Instagram posts via Meta Graph API Business Discovery (primary method)."""
+    if not settings.meta_access_token or not settings.meta_ig_business_account_id:
+        return None
+    clean = handle.lstrip("@").strip().split("/")[0]
+    url = f"https://graph.facebook.com/v19.0/{settings.meta_ig_business_account_id}"
+    params = {
+        "fields": (
+            f"business_discovery.fields(username,biography,"
+            f"media.limit(20){{caption,timestamp,media_url,permalink,media_type}})"
+            f"(username={clean})"
+        ),
+        "access_token": settings.meta_access_token,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url, params=params)
+            if resp.status_code != 200:
+                print(f"  [IG Meta API] {resp.status_code} for @{clean}: {resp.text[:200]}")
+                return None
+            data = resp.json()
+            bd = data.get("business_discovery", {})
+            bio = bd.get("biography", "")
+            media = bd.get("media", {}).get("data", [])
+            if not media:
+                return None
+            parts = []
+            if bio:
+                parts.append(f"BIO: {bio}")
+            for m in media:
+                caption = m.get("caption", "").strip()
+                permalink = m.get("permalink", "")
+                img = m.get("media_url", "")
+                if caption:
+                    block = caption
+                    if img:
+                        block += f"\n[IMAGE_URL: {img}]"
+                    if permalink:
+                        block += f"\n[PERMALINK: {permalink}]"
+                    parts.append(block)
+            content = "\n---\n".join(parts)
+            if len(content) > 200:
+                print(f"  [IG Meta API] ✓ {len(media)} posts para @{clean}")
+                return content[:8000]
+    except Exception as e:
+        print(f"  [IG Meta API] Error para @{clean}: {e}")
+    return None
+
+
+async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
+    """Fetch Instagram profile via public third-party scrapers (fallback)."""
     clean = handle.lstrip("@").strip().split("/")[0]
 
-    urls_to_try = [
-        f"https://www.picuki.com/profile/{clean}",
-        f"https://imginn.com/{clean}/",
+    scrapers = [
+        ("picuki",  f"https://www.picuki.com/profile/{clean}"),
+        ("imginn",  f"https://imginn.com/{clean}/"),
+        ("gramhir", f"https://gramhir.com/profile/{clean}/0"),
     ]
 
-    for url in urls_to_try:
+    for name, url in scrapers:
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
                 resp = await client.get(url, headers=HEADERS)
-                if resp.status_code == 200:
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    for tag in soup(["script", "style", "nav", "footer", "noscript", "svg"]):
-                        tag.decompose()
+                if resp.status_code != 200:
+                    continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for tag in soup(["script", "style", "nav", "footer", "noscript", "svg"]):
+                tag.decompose()
 
-                    text_parts = []
-                    bio = soup.find("div", class_=re.compile(r"bio|description|profile-desc", re.I))
-                    if bio:
-                        text_parts.append(f"BIO: {bio.get_text(strip=True)}")
+            text_parts = []
+            bio = soup.find(class_=re.compile(r"bio|description|profile-desc|profile-info", re.I))
+            if bio:
+                text_parts.append(f"BIO: {bio.get_text(strip=True)}")
 
-                    captions = soup.find_all(class_=re.compile(r"caption|photo-description|post-text", re.I))
-                    for cap in captions[:15]:
-                        text_parts.append(cap.get_text(strip=True))
+            # Captions / post descriptions
+            captions = soup.find_all(class_=re.compile(
+                r"caption|photo-description|post-text|post-caption|item-description", re.I
+            ))
+            for cap in captions[:20]:
+                text = cap.get_text(strip=True)
+                if text and len(text) > 10:
+                    text_parts.append(text)
 
-                    if not text_parts:
-                        text_parts.append(soup.get_text(separator="\n", strip=True))
+            if not text_parts:
+                raw = soup.get_text(separator="\n", strip=True)
+                if raw:
+                    text_parts.append(raw)
 
-                    content = "\n---\n".join(text_parts)
-                    if len(content) > 200:
-                        return content[:8000]
+            content = "\n---\n".join(text_parts)
+            if len(content) > 200:
+                print(f"  [IG {name}] ✓ contenido de @{clean}")
+                return content[:8000]
         except Exception:
             continue
 
     return None
+
+
+async def _fetch_instagram_profile(handle: str) -> Optional[str]:
+    """Fetch Instagram profile: Meta Graph API first, then public scrapers."""
+    # 1. Meta Graph API (most reliable, requires META_ACCESS_TOKEN configured)
+    content = await _fetch_instagram_meta_api(handle)
+    if content:
+        return content
+
+    # 2. Public scrapers (fallback when Meta API not configured or fails)
+    content = await _fetch_instagram_public_scraper(handle)
+    return content
 
 
 # -- Code-based event extraction (NO Claude) -----------------------------------

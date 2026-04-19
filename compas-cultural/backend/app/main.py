@@ -124,6 +124,21 @@ async def health_check():
     return {"status": "healthy"}
 
 
+# SPA fallback: serve index.html for any 404 that is not an API route
+from fastapi.responses import JSONResponse as _JSONResponse
+
+@app.exception_handler(404)
+async def spa_404_handler(request: Request, exc):
+    # Keep JSON 404 for API paths
+    if request.url.path.startswith("/api/"):
+        return _JSONResponse({"detail": "Not Found"}, status_code=404)
+    # Serve SPA index.html for all other 404s (React Router routes)
+    _static = Path(__file__).parent.parent / "static"
+    _index = _static / "index.html"
+    if _index.exists():
+        return FileResponse(_index)
+    return _JSONResponse({"detail": "Not Found"}, status_code=404)
+
 # Serve frontend static assets (JS, CSS, images, fonts)
 static_dir = Path(__file__).parent.parent / "static"
 if static_dir.exists():
