@@ -15,6 +15,7 @@ import Colectivos from './pages/Colectivos'
 import Mapa from './pages/Mapa'
 import EventoDetalle from './pages/EventoDetalle'
 import CompletarPerfil from './pages/CompletarPerfil'
+import PublicarEvento from './pages/PublicarEvento'
 import NotFound from './pages/NotFound'
 
 /** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
@@ -64,6 +65,7 @@ function App() {
           <Route path="zona/:slug" element={<ZonaDetalle />} />
           <Route path="login" element={<Login />} />
           <Route path="completar-perfil" element={<CompletarPerfil />} />
+          <Route path="publicar" element={<PublicarEvento />} />
         </Route>
         <Route path="/chat" element={<Chat />} />
         <Route path="*" element={<NotFound />} />

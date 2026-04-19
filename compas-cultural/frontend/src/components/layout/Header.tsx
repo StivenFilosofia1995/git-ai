@@ -89,6 +89,13 @@ function RegisterDropdown() {
       {open && (
         <div className="absolute right-0 top-full mt-1 w-52 bg-white border-2 border-black z-50 shadow-lg">
           <Link
+            to="/publicar"
+            onClick={() => setOpen(false)}
+            className="block px-4 py-3 text-xs font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all border-b border-black"
+          >
+            📤 Publicar evento
+          </Link>
+          <Link
             to="/registrar"
             onClick={() => setOpen(false)}
             className="block px-4 py-3 text-xs font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all border-b border-black"

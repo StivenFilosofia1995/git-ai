@@ -1,4 +1,6 @@
+import hashlib
 import json
+from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Dict
@@ -12,6 +14,16 @@ CO_TZ = ZoneInfo("America/Bogota")
 # -- Daily usage tracking (in-memory, resets on restart) --
 _daily_api_calls = {"date": "", "count": 0}
 MAX_DAILY_CALLS = 200  # Max Claude API calls per day
+
+# -- Response cache (in-memory, TTL 10 min) --
+# Key: hash of normalized message → (timestamp, ChatResponse)
+_response_cache: Dict[str, tuple] = {}
+_CACHE_TTL_SECONDS = 600  # 10 minutes
+
+# -- Per-user rate limit (in-memory) --
+# Key: user_id → list of timestamps
+_user_calls: Dict[str, list] = defaultdict(list)
+_USER_MAX_PER_HOUR = 20  # Max messages per user per hour
 
 SYSTEM_PROMPT = """Eres ETÉREA, una guía cultural viva del Valle de Aburrá (Medellín y sus 9 municipios vecinos).
 Eres cálida, curiosa y hablas como una amiga que conoce cada rincón cultural de la ciudad.
@@ -55,7 +67,52 @@ def _now_co() -> datetime:
     return datetime.now(CO_TZ)
 
 
-def chat(request: ChatRequest) -> ChatResponse:
+def _cache_key(mensaje: str) -> str:
+    """Normalize message and return hash for cache lookup."""
+    normalized = mensaje.lower().strip()
+    # Remove zone/location metadata
+    import re as _re
+    normalized = _re.sub(r'\[(?:Zona|Ubicación):[^\]]+\]', '', normalized).strip()
+    return hashlib.md5(normalized.encode()).hexdigest()
+
+
+def _check_user_rate_limit(user_id: str) -> bool:
+    """Return True if user is within rate limit, False if exceeded."""
+    now = _now_co()
+    cutoff = now - timedelta(hours=1)
+    # Clean old entries
+    _user_calls[user_id] = [t for t in _user_calls[user_id] if t > cutoff]
+    if len(_user_calls[user_id]) >= _USER_MAX_PER_HOUR:
+        return False
+    _user_calls[user_id].append(now)
+    return True
+
+
+def _clean_cache():
+    """Remove expired cache entries."""
+    now = _now_co()
+    expired = [k for k, (ts, _) in _response_cache.items()
+               if (now - ts).total_seconds() > _CACHE_TTL_SECONDS]
+    for k in expired:
+        del _response_cache[k]
+
+
+def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
+    # Per-user rate limit
+    if not _check_user_rate_limit(user_id):
+        return ChatResponse(
+            respuesta="¡Hey! Estás preguntando demasiado rápido. Esperá unos minutos y volvé a intentar. Máximo 20 mensajes por hora.",
+            fuentes=[],
+        )
+
+    # Check cache for identical/very similar questions (saves API calls)
+    _clean_cache()
+    ckey = _cache_key(request.mensaje)
+    if ckey in _response_cache and not request.historial:
+        cached_ts, cached_response = _response_cache[ckey]
+        print(f"[chat] Cache hit for '{request.mensaje[:50]}...'")
+        return cached_response
+
     contexto = _obtener_contexto(request.mensaje)
 
     historial_msgs = [
@@ -140,7 +197,13 @@ def chat(request: ChatRequest) -> ChatResponse:
     except Exception as db_exc:
         print(f"[chat_service] memoria_consultas insert failed (non-fatal): {db_exc}")
 
-    return ChatResponse(respuesta=respuesta, fuentes=fuentes)
+    result = ChatResponse(respuesta=respuesta, fuentes=fuentes)
+
+    # Cache the response (only for first messages without history)
+    if not request.historial:
+        _response_cache[ckey] = (_now_co(), result)
+
+    return result
 
 
 def _respuesta_fallback(contexto: Dict) -> str:

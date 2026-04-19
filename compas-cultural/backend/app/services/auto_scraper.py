@@ -411,6 +411,60 @@ async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
     return None
 
 
+async def _search_google_events(nombre: str, municipio: str) -> Optional[str]:
+    """Search Google for events when Instagram fails (personal accounts, etc.).
+    Scrapes Google search results page for event info."""
+    queries = [
+        f"{nombre} eventos {municipio} 2026",
+        f"{nombre} agenda cultural {municipio}",
+    ]
+    all_text = []
+    for q in queries:
+        url = f"https://www.google.com/search?q={urllib.parse.quote(q)}&hl=es&gl=co&num=5"
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+                resp = await client.get(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept-Language": "es-CO,es;q=0.9",
+                })
+                if resp.status_code != 200:
+                    continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for tag in soup(["script", "style", "svg", "noscript"]):
+                tag.decompose()
+            text = soup.get_text(separator="\n", strip=True)
+            if text:
+                all_text.append(text[:3000])
+        except Exception as e:
+            print(f"  [Google] Error buscando '{q}': {e}")
+            continue
+
+    # Also try scraping event listing sites directly
+    event_sites = [
+        f"https://www.meetup.com/find/?keywords={urllib.parse.quote(nombre)}&location=co--medell%C3%ADn",
+    ]
+    for url in event_sites:
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+                resp = await client.get(url, headers=HEADERS)
+                if resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    for tag in soup(["script", "style", "svg", "noscript"]):
+                        tag.decompose()
+                    text = soup.get_text(separator="\n", strip=True)
+                    if text and len(text) > 100:
+                        all_text.append(text[:3000])
+        except Exception:
+            continue
+
+    combined = "\n---\n".join(all_text)
+    if len(combined) > 200:
+        print(f"  [Google] ✓ Contenido encontrado para '{nombre}'")
+        return combined[:8000]
+    return None
+
+
 async def _fetch_instagram_profile(handle: str) -> Optional[str]:
     """Fetch Instagram profile using multiple methods in priority order:
     1. Meta Graph API   (best, requires META_ACCESS_TOKEN in Railway env)
@@ -810,10 +864,20 @@ async def _scrape_lugar(lugar: dict) -> dict:
             if events:
                 print(f"    [OK] {len(events)} evento(s) de Instagram")
 
-    # NO fallback to Claude -- if no events found, that is OK
-    # The database already has seeded events
+    # 3. Google search fallback (when IG fails or isn't available)
+    if not all_events:
+        print(f"  [Google] Buscando eventos en Google para '{nombre}'...")
+        google_text = await _search_google_events(nombre, lugar.get("municipio", "medellin"))
+        if google_text and len(google_text) > 200:
+            events = _extract_events_from_text(google_text, lugar, "https://google.com")
+            if not events and settings.anthropic_api_key:
+                # Use Claude to parse Google results
+                events = await _extract_events_from_ig_with_claude(google_text, lugar)
+            all_events.extend(events)
+            if events:
+                print(f"    [OK] {len(events)} evento(s) via Google")
 
-    # 3. Insert events into DB
+    # 4. Insert events into DB
     stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
     now_co = datetime.utcnow() - timedelta(hours=5)
 

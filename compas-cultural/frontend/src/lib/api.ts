@@ -321,6 +321,29 @@ export async function consultarEstadoRegistro(solicitudId: number): Promise<Regi
   return apiGet<RegistroEstadoResponse>(`/registro/${solicitudId}`)
 }
 
+// ---------- Publicar evento (colectivos/público) ----------
+
+export interface PublicarEventoData {
+  titulo: string
+  fecha_inicio: string // ISO
+  fecha_fin?: string
+  descripcion?: string
+  categoria_principal?: string
+  municipio?: string
+  barrio?: string
+  nombre_lugar?: string
+  espacio_id?: string
+  precio?: string
+  es_gratuito?: boolean
+  imagen_url?: string
+  contacto_instagram?: string
+  contacto_email?: string
+}
+
+export async function publicarEvento(data: PublicarEventoData): Promise<{ ok: boolean; mensaje: string; evento?: Record<string, unknown> }> {
+  return apiPost<{ ok: boolean; mensaje: string; evento?: Record<string, unknown> }>('/eventos/publicar', data)
+}
+
 // ---------- Perfil de usuario ----------
 
 export interface PerfilUsuario {

@@ -57,6 +57,24 @@ class EventoUpdate(BaseModel):
     verificado: Optional[bool] = None
 
 
+class EventoPublicoCreate(BaseModel):
+    """Schema for public event submission by collectives/users."""
+    titulo: str
+    fecha_inicio: datetime
+    fecha_fin: Optional[datetime] = None
+    descripcion: Optional[str] = None
+    categoria_principal: str = "otro"
+    municipio: str = "medellin"
+    barrio: Optional[str] = None
+    nombre_lugar: Optional[str] = None
+    espacio_id: Optional[str] = None
+    precio: Optional[str] = None
+    es_gratuito: bool = False
+    imagen_url: Optional[str] = None
+    contacto_instagram: Optional[str] = None
+    contacto_email: Optional[str] = None
+
+
 class Evento(EventoBase):
     id: str
     slug: str

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Request
 from typing import Annotated, List, Optional
 from datetime import datetime
 from app.services import evento_service
@@ -20,6 +20,73 @@ def get_eventos(
     return evento_service.get_eventos(
         fecha_desde, fecha_hasta, municipio, barrio, categoria, es_gratuito, limit, offset
     )
+
+
+@router.post("/publicar")
+async def publicar_evento(body: dict, request: Request):
+    """Endpoint público para que colectivos/usuarios publiquen eventos.
+    No requiere auth — cualquiera puede proponer un evento (queda sin verificar).
+    """
+    from app.schemas.evento import EventoPublicoCreate
+    import re
+    import unicodedata
+
+    try:
+        evento = EventoPublicoCreate(**body)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Datos inválidos: {e}")
+
+    # Validate future date
+    from zoneinfo import ZoneInfo
+    now_co = datetime.now(ZoneInfo("America/Bogota"))
+    if evento.fecha_inicio < now_co:
+        raise HTTPException(status_code=400, detail="La fecha del evento debe ser futura")
+
+    # Generate slug
+    text = unicodedata.normalize("NFD", evento.titulo.lower().strip())
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    slug = re.sub(r"[^a-z0-9]+", "-", text).strip("-")[:250]
+
+    # Check duplicate
+    from app.database import supabase
+    existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
+    if existing.data:
+        raise HTTPException(status_code=409, detail="Ya existe un evento con ese nombre")
+
+    ip = (
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else None)
+    )
+
+    evento_data = {
+        "titulo": evento.titulo[:200],
+        "slug": slug,
+        "espacio_id": evento.espacio_id,
+        "fecha_inicio": evento.fecha_inicio.isoformat(),
+        "fecha_fin": evento.fecha_fin.isoformat() if evento.fecha_fin else None,
+        "categorias": [evento.categoria_principal],
+        "categoria_principal": evento.categoria_principal,
+        "municipio": evento.municipio,
+        "barrio": evento.barrio,
+        "nombre_lugar": evento.nombre_lugar,
+        "descripcion": (evento.descripcion or "")[:1000],
+        "precio": evento.precio,
+        "es_gratuito": evento.es_gratuito,
+        "imagen_url": evento.imagen_url,
+        "fuente": "colectivo_directo",
+        "fuente_url": evento.contacto_instagram or evento.contacto_email,
+        "verificado": False,
+    }
+
+    try:
+        resp = supabase.table("eventos").insert(evento_data).execute()
+        return {
+            "ok": True,
+            "mensaje": "Evento publicado. Será visible en la agenda inmediatamente.",
+            "evento": resp.data[0] if resp.data else None,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error guardando evento: {e}")
 
 
 @router.get("/hoy")
