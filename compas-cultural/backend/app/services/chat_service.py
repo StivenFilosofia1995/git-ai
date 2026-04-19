@@ -11,7 +11,7 @@ CO_TZ = ZoneInfo("America/Bogota")
 
 # -- Daily usage tracking (in-memory, resets on restart) --
 _daily_api_calls = {"date": "", "count": 0}
-MAX_DAILY_CALLS = 50  # Max Claude API calls per day (~$0.50/day max)
+MAX_DAILY_CALLS = 200  # Max Claude API calls per day
 
 SYSTEM_PROMPT = """Eres ETÉREA, una guía cultural viva del Valle de Aburrá (Medellín y sus 9 municipios vecinos).
 Eres cálida, curiosa y hablas como una amiga que conoce cada rincón cultural de la ciudad.

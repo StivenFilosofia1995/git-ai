@@ -1,6 +1,7 @@
 """
 Endpoints para el sistema de auto-scraping, descubrimiento y social listener.
 """
+import asyncio
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from app.config import settings
 from app.services.auto_scraper import run_auto_scraper, scrape_single_lugar, scrape_zona, enrich_event_images, scrape_agenda_sources
@@ -40,10 +41,18 @@ async def trigger_lugar_scraper(lugar_id: str):
 
 @router.post("/lugar/{lugar_id}/publico")
 async def trigger_lugar_scraper_publico(lugar_id: str):
-    """Scrape un lugar en vivo (acceso público, síncrono).
+    """Scrape un lugar en vivo (acceso público, síncrono, timeout 90s).
     Intenta scraping directo; si no tiene web/IG, usa búsqueda con Claude.
     """
-    result = await scrape_single_lugar(lugar_id)
+    try:
+        result = await asyncio.wait_for(scrape_single_lugar(lugar_id), timeout=90.0)
+    except asyncio.TimeoutError:
+        return {
+            "status": "timeout",
+            "message": "La búsqueda tardó demasiado. Puede que Instagram esté lento. Intenta de nuevo.",
+            "lugar_id": lugar_id,
+            "result": {},
+        }
     return {
         "status": "completed",
         "message": f"Búsqueda completada: {result.get('nuevos', 0)} eventos encontrados.",

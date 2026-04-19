@@ -7,6 +7,7 @@ import json
 import re
 import traceback
 import asyncio
+import unicodedata
 import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional
@@ -22,10 +23,9 @@ from app.database import supabase
 # -- Helpers -------------------------------------------------------------------
 
 def _slugify(text: str) -> str:
-    text = text.lower().strip()
-    for a, b in [("aaaa", "a"), ("eeee", "e"), ("iiii", "i"), ("oooo", "o"), ("uuuu", "u"), ("n", "n")]:
-        for ch in a:
-            text = text.replace(ch, b)
+    # Normalize unicode: decompose accented chars then strip combining marks
+    text = unicodedata.normalize("NFD", text.lower().strip())
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
     text = re.sub(r"[^a-z0-9]+", "-", text)
     return text.strip("-")[:250]
 

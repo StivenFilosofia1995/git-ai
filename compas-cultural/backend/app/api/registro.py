@@ -24,7 +24,10 @@ def registrar_por_url(
         "tipo_url": tipo_url,
         "estado": "pendiente",
         "mensaje": "Solicitud recibida. Iniciando extracción de datos…",
-        "ip_solicitante": request.client.host if request.client else None,
+        "ip_solicitante": (
+            request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else None)
+        ),
     }
     resp = supabase.table("solicitudes_registro").insert(row).execute()
     solicitud = resp.data[0]
