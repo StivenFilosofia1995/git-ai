@@ -88,12 +88,10 @@ def chat(request: ChatRequest) -> ChatResponse:
                 print(f"[chat_service] Daily API limit reached ({MAX_DAILY_CALLS} calls)")
                 respuesta = _respuesta_fallback(contexto)
             else:
-                # Use claude-3-haiku-20240307 (most stable/available model)
-                # Can override via ANTHROPIC_MODEL env var in Railway
-                model = (settings.anthropic_model or "claude-3-haiku-20240307").strip()
-                # Fallback to known-good model if default config model is unknown
-                if model in ("claude-sonnet-4-20250514", ""):
-                    model = "claude-3-haiku-20240307"
+                # Use model from env var, default to claude-3-5-haiku-20241022
+                model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip()
+                if not model:
+                    model = "claude-3-5-haiku-20241022"
                 print(f"[chat] Usando modelo: {model}")
                 client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
                 response = client.messages.create(
