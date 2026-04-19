@@ -1,5 +1,5 @@
 import asyncio
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
 from app.schemas import ChatRequest, ChatResponse
 from app.services import chat_service
 
@@ -13,6 +13,13 @@ async def chat_cultural(request: ChatRequest, req: Request):
         req.headers.get("x-forwarded-for", "").split(",")[0].strip()
         or (req.client.host if req.client else "anonymous")
     )
-    # Ejecutar en thread pool para no bloquear el event loop de FastAPI
-    # (anthropic.Anthropic es síncrono y puede tardar varios segundos)
-    return await asyncio.to_thread(chat_service.chat, request, user_id)
+    try:
+        # Ejecutar en thread pool para no bloquear el event loop de FastAPI
+        # (anthropic.Anthropic es síncrono y puede tardar varios segundos)
+        return await asyncio.to_thread(chat_service.chat, request, user_id)
+    except Exception as e:
+        print(f"[ERROR] Chat failed for {user_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="No pudimos procesar tu pregunta. Intenta de nuevo en unos momentos."
+        )

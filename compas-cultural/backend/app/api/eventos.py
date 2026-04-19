@@ -36,11 +36,19 @@ async def publicar_evento(body: dict, request: Request):
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Datos inválidos: {e}")
 
-    # Validate future date
+    # Validate future date (timezone-aware)
     from zoneinfo import ZoneInfo
     now_co = datetime.now(ZoneInfo("America/Bogota"))
-    if evento.fecha_inicio < now_co:
+    fecha = evento.fecha_inicio
+    # Make naive datetimes timezone-aware (assume Bogotá)
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=ZoneInfo("America/Bogota"))
+    if fecha < now_co:
         raise HTTPException(status_code=400, detail="La fecha del evento debe ser futura")
+    # Reject dates more than 1 year in the future (likely errors)
+    from datetime import timedelta
+    if fecha > now_co + timedelta(days=365):
+        raise HTTPException(status_code=400, detail="La fecha no puede ser mayor a 1 año en el futuro")
 
     # Generate slug
     text = unicodedata.normalize("NFD", evento.titulo.lower().strip())

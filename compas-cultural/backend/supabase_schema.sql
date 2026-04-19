@@ -176,6 +176,8 @@ CREATE TABLE interacciones_usuario (
 CREATE INDEX idx_eventos_fecha ON eventos(fecha_inicio);
 CREATE INDEX idx_eventos_municipio ON eventos(municipio);
 CREATE INDEX idx_eventos_categoria ON eventos(categoria_principal);
+CREATE INDEX idx_eventos_espacio_id ON eventos(espacio_id);
+CREATE INDEX idx_eventos_municipio_cat_fecha ON eventos(municipio, categoria_principal, fecha_inicio DESC);
 CREATE INDEX idx_lugares_municipio ON lugares(municipio);
 CREATE INDEX idx_lugares_slug ON lugares(slug);
 CREATE INDEX idx_eventos_slug ON eventos(slug);
@@ -183,5 +185,47 @@ CREATE INDEX idx_lugares_actividad ON lugares(nivel_actividad);
 CREATE INDEX idx_perfiles_user_id ON perfiles_usuario(user_id);
 CREATE INDEX idx_historial_user_id ON historial_busqueda(user_id);
 CREATE INDEX idx_historial_created ON historial_busqueda(created_at);
+CREATE INDEX idx_historial_user_created ON historial_busqueda(user_id, created_at DESC);
 CREATE INDEX idx_interacciones_user_id ON interacciones_usuario(user_id);
 CREATE INDEX idx_interacciones_created ON interacciones_usuario(created_at);
+CREATE INDEX idx_interacciones_user_tipo ON interacciones_usuario(user_id, tipo, created_at DESC);
+
+-- 13. Row Level Security (RLS)
+-- Tablas de usuario: solo el dueño puede ver/editar sus datos
+ALTER TABLE perfiles_usuario ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can view own profile" ON perfiles_usuario FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own profile" ON perfiles_usuario FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own profile" ON perfiles_usuario FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Service role full access on perfiles" ON perfiles_usuario FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE historial_busqueda ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can view own search history" ON historial_busqueda FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own search history" ON historial_busqueda FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Service role full access on historial" ON historial_busqueda FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE interacciones_usuario ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can view own interactions" ON interacciones_usuario FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own interactions" ON interacciones_usuario FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Service role full access on interacciones" ON interacciones_usuario FOR ALL USING (auth.role() = 'service_role');
+
+-- Tablas públicas: lectura abierta, escritura solo service_role
+ALTER TABLE lugares ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read access on lugares" ON lugares FOR SELECT USING (true);
+CREATE POLICY "Service role full access on lugares" ON lugares FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE eventos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read access on eventos" ON eventos FOR SELECT USING (true);
+CREATE POLICY "Service role full access on eventos" ON eventos FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE zonas_culturales ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read access on zonas" ON zonas_culturales FOR SELECT USING (true);
+CREATE POLICY "Service role full access on zonas" ON zonas_culturales FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE memoria_consultas ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role full access on memoria" ON memoria_consultas FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE scraping_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role full access on scraping_log" ON scraping_log FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE solicitudes_registro ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role full access on solicitudes" ON solicitudes_registro FOR ALL USING (auth.role() = 'service_role');
