@@ -207,23 +207,24 @@ async def _fetch_website_soup(url: str) -> Optional[BeautifulSoup]:
 
 
 async def _fetch_instagram_meta_api(handle: str) -> Optional[str]:
-    """Fetch Instagram posts via Meta Graph API Business Discovery (primary method)."""
+    """Fetch Instagram posts via Meta Graph API Business Discovery (primary method).
+    
+    IMPORTANT: The username MUST be embedded inside the fields parameter using
+    .username(target) syntax — NOT as a separate query parameter.
+    Meta changed this circa 2025; the old &username=X format returns error #100.
+    """
     if not settings.meta_access_token or not settings.meta_ig_business_account_id:
         return None
     clean = handle.lstrip("@").strip().split("/")[0]
-    # Build URL with fields unencoded — Meta's API requires literal parentheses in 'fields'
-    # Using params= in httpx encodes them as %28/%29 which breaks Meta's parser
+    # Username is embedded in the fields expansion — this is the ONLY format that works
     fields = (
         "business_discovery.fields(username,biography,"
         "media.limit(20){caption,timestamp,media_url,permalink,media_type})"
+        f".username({clean})"
     )
-    qs = urllib.parse.urlencode({
-        "username": clean,
-        "access_token": settings.meta_access_token,
-    })
     url = (
-        f"https://graph.facebook.com/v19.0/{settings.meta_ig_business_account_id}"
-        f"?fields={fields}&{qs}"
+        f"https://graph.facebook.com/v21.0/{settings.meta_ig_business_account_id}"
+        f"?fields={fields}&access_token={settings.meta_access_token}"
     )
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -367,6 +368,8 @@ async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
         ("imginn",    f"https://imginn.com/{clean}/"),
         ("gramhir",   f"https://gramhir.com/profile/{clean}/0"),
         ("instanavigation", f"https://instanavigation.com/profile/{clean}"),
+        ("pixwox",    f"https://www.pixwox.com/profile/{clean}/"),
+        ("bibliogram", f"https://bibliogram.art/u/{clean}"),
     ]
 
     for name, url in scrapers:
@@ -411,15 +414,20 @@ async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
     return None
 
 
-async def _search_google_events(nombre: str, municipio: str) -> Optional[str]:
+async def _search_google_events(nombre: str, municipio: str, ig_handle: str = "") -> Optional[str]:
     """Search Google for events when Instagram fails (personal accounts, etc.).
-    Scrapes Google search results page for event info."""
+    Includes IG-specific searches and cultural event platforms."""
+    clean_handle = ig_handle.lstrip("@").strip().split("/")[0] if ig_handle else ""
     queries = [
         f"{nombre} eventos {municipio} 2026",
         f"{nombre} agenda cultural {municipio}",
     ]
+    # If we have an IG handle, search for their posts via Google cache
+    if clean_handle:
+        queries.insert(0, f"site:instagram.com {clean_handle} evento")
+        queries.append(f'"{clean_handle}" eventos medellin')
     all_text = []
-    for q in queries:
+    for q in queries[:4]:  # Limit to 4 queries to avoid rate limiting
         url = f"https://www.google.com/search?q={urllib.parse.quote(q)}&hl=es&gl=co&num=5"
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
@@ -750,7 +758,14 @@ async def _extract_events_from_ig_with_claude(ig_text: str, lugar: dict) -> list
 
     prompt = f"""Hoy es {fecha_hoy}. Analiza los siguientes posts de Instagram del colectivo/espacio cultural "{nombre}" (municipio: {municipio}).
 
-Extrae SOLO los eventos o actividades culturales con fecha futura o de hoy. Ignora posts sin fecha clara o que sean antiguos.
+Extrae TODOS los eventos, actividades culturales, presentaciones, tocadas, conciertos, exposiciones, talleres, foros, charlas, jams, open mics, fiestas, lanzamientos, proyecciones, o cualquier actividad con fecha futura o de hoy.
+
+IMPORTANTE:
+- "Este sábado", "mañana", "este viernes" = calcula la fecha real desde hoy {fecha_hoy}
+- "Todos los jueves" = próximo jueves desde hoy
+- Si un post menciona una actividad cultural con alguna referencia temporal, inclúyelo
+- Si ves precios como "$20.000", "20k", "entrada libre", extráelos
+- Ignora posts que claramente son solo fotos del pasado sin fecha futura
 
 Para cada evento encontrado, devuelve un JSON array con objetos de este formato exacto:
 {{
@@ -758,23 +773,31 @@ Para cada evento encontrado, devuelve un JSON array con objetos de este formato 
   "fecha_iso": "YYYY-MM-DDTHH:MM:SS (si no hay hora usa 19:00:00)",
   "descripcion": "breve descripción (máx 300 chars)",
   "es_gratuito": true/false,
+  "precio": "precio si se menciona, o null",
   "imagen_url": "URL de imagen si aparece [IMAGE_URL:...], si no null",
   "permalink": "URL del post si aparece [PERMALINK:...], si no null"
 }}
 
 Responde ÚNICAMENTE con el JSON array (puede ser [] si no hay eventos futuros). Sin texto adicional.
 
-POSTS DE INSTAGRAM:
+POSTS:
 ---
 {ig_text[:6000]}
 """
+
+    # Strip very long image URLs to save tokens and prevent JSON truncation
+    prompt = re.sub(
+        r"\[IMAGE_URL: https?://[^\]]{200,}\]",
+        "[IMAGE_URL: (url removed for brevity)]",
+        prompt,
+    )
 
     try:
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip() or "claude-3-5-haiku-20241022"
         response = client.messages.create(
             model=model,
-            max_tokens=1500,
+            max_tokens=2500,
             temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -803,12 +826,15 @@ POSTS DE INSTAGRAM:
             continue
 
         es_gratuito = bool(item.get("es_gratuito", False))
+        precio_raw = item.get("precio") or ""
+        if not precio_raw and es_gratuito:
+            precio_raw = "Entrada libre"
         events.append({
             "titulo": titulo,
             "fecha_inicio": fecha.isoformat(),
             "fecha_fin": None,
             "descripcion": (item.get("descripcion") or "")[:500],
-            "precio": "Entrada libre" if es_gratuito else "",
+            "precio": precio_raw or ("Entrada libre" if es_gratuito else ""),
             "es_gratuito": es_gratuito,
             "imagen_url": item.get("imagen_url"),
             "nombre_lugar": nombre,
@@ -851,23 +877,27 @@ async def _scrape_lugar(lugar: dict) -> dict:
 
     # 2. Scrape Instagram
     ig_handle = lugar.get("instagram_handle")
+    ig_content = None  # Save raw content for Claude fallback
     if ig_handle:
         print(f"  [IG] {ig_handle}")
-        content = await _fetch_instagram_profile(ig_handle)
-        if content and len(content) > 100:
-            events = _extract_events_from_ig_text(content, lugar)
-            if not events:
+        ig_content = await _fetch_instagram_profile(ig_handle)
+        if ig_content and len(ig_content) > 100:
+            events = _extract_events_from_ig_text(ig_content, lugar)
+            if events:
+                all_events.extend(events)
+                print(f"    [OK] {len(events)} evento(s) de Instagram (regex)")
+            else:
                 # Fallback: use Claude to parse informal dates ("este sábado", "mañana", etc.)
                 print(f"  [IG] Regex no encontró fechas, intentando con Claude...")
-                events = await _extract_events_from_ig_with_claude(content, lugar)
-            all_events.extend(events)
-            if events:
-                print(f"    [OK] {len(events)} evento(s) de Instagram")
+                events = await _extract_events_from_ig_with_claude(ig_content, lugar)
+                all_events.extend(events)
+                if events:
+                    print(f"    [OK] {len(events)} evento(s) de Instagram (Claude)")
 
     # 3. Google search fallback (when IG fails or isn't available)
     if not all_events:
         print(f"  [Google] Buscando eventos en Google para '{nombre}'...")
-        google_text = await _search_google_events(nombre, lugar.get("municipio", "medellin"))
+        google_text = await _search_google_events(nombre, lugar.get("municipio", "medellin"), ig_handle or "")
         if google_text and len(google_text) > 200:
             events = _extract_events_from_text(google_text, lugar, "https://google.com")
             if not events and settings.anthropic_api_key:
@@ -957,7 +987,7 @@ def _log_scraping(fuente: str, registros_nuevos: int, errores: int, detalle: dic
 async def run_auto_scraper(limit: Optional[int] = None) -> dict:
     """Scrape all active lugares with code-based extraction (NO Claude)."""
     print("\n[SCRAPER] ================================================")
-    print("   AUTO-SCRAPER iniciando (code-based, sin Claude)...")
+    print("   AUTO-SCRAPER iniciando (Meta API + scrapers + Claude fallback)")
     print("==========================================================")
 
     query = supabase.table("lugares").select(
