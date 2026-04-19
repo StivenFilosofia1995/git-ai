@@ -7,6 +7,7 @@ import json
 import re
 import traceback
 import asyncio
+import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -209,18 +210,23 @@ async def _fetch_instagram_meta_api(handle: str) -> Optional[str]:
     if not settings.meta_access_token or not settings.meta_ig_business_account_id:
         return None
     clean = handle.lstrip("@").strip().split("/")[0]
-    url = f"https://graph.facebook.com/v19.0/{settings.meta_ig_business_account_id}"
-    params = {
-        "fields": (
-            f"business_discovery.fields(username,biography,"
-            f"media.limit(20){{caption,timestamp,media_url,permalink,media_type}})"
-            f"(username={clean})"
-        ),
+    # Build URL with fields unencoded — Meta's API requires literal parentheses in 'fields'
+    # Using params= in httpx encodes them as %28/%29 which breaks Meta's parser
+    fields = (
+        "business_discovery.fields(username,biography,"
+        "media.limit(20){caption,timestamp,media_url,permalink,media_type})"
+    )
+    qs = urllib.parse.urlencode({
+        "username": clean,
         "access_token": settings.meta_access_token,
-    }
+    })
+    url = (
+        f"https://graph.facebook.com/v19.0/{settings.meta_ig_business_account_id}"
+        f"?fields={fields}&{qs}"
+    )
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url, params=params)
+            resp = await client.get(url)
             if resp.status_code != 200:
                 print(f"  [IG Meta API] {resp.status_code} for @{clean}: {resp.text[:200]}")
                 return None
