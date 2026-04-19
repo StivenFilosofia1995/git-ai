@@ -253,14 +253,113 @@ async def _fetch_instagram_meta_api(handle: str) -> Optional[str]:
     return None
 
 
-async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
-    """Fetch Instagram profile via public third-party scrapers (fallback)."""
+IG_MOBILE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                  "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+IG_JSON_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "*/*",
+    "Accept-Language": "es-CO,es;q=0.9",
+    "X-IG-App-ID": "936619743392459",
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer": "https://www.instagram.com/",
+    "Origin": "https://www.instagram.com",
+}
+
+
+async def _fetch_instagram_direct(handle: str) -> Optional[str]:
+    """Try to scrape Instagram directly using their internal JSON API."""
     clean = handle.lstrip("@").strip().split("/")[0]
 
+    # Method 1: Instagram internal JSON endpoint (works without login sometimes)
+    json_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={clean}"
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+            resp = await client.get(json_url, headers=IG_JSON_HEADERS)
+            if resp.status_code == 200:
+                data = resp.json()
+                user = data.get("data", {}).get("user", {})
+                bio = user.get("biography", "")
+                edges = user.get("edge_owner_to_timeline_media", {}).get("edges", [])
+                parts = []
+                if bio:
+                    parts.append(f"BIO: {bio}")
+                for edge in edges[:20]:
+                    node = edge.get("node", {})
+                    caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
+                    caption = " ".join(e.get("node", {}).get("text", "") for e in caption_edges).strip()
+                    shortcode = node.get("shortcode", "")
+                    img = node.get("display_url", "")
+                    if caption:
+                        block = caption
+                        if img:
+                            block += f"\n[IMAGE_URL: {img}]"
+                        if shortcode:
+                            block += f"\n[PERMALINK: https://www.instagram.com/p/{shortcode}/]"
+                        parts.append(block)
+                content = "\n---\n".join(parts)
+                if len(content) > 200:
+                    print(f"  [IG direct JSON] ✓ {len(edges)} posts para @{clean}")
+                    return content[:8000]
+    except Exception as e:
+        print(f"  [IG direct JSON] error @{clean}: {e}")
+
+    # Method 2: Mobile page scrape (returns more readable HTML)
+    profile_url = f"https://www.instagram.com/{clean}/"
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+            resp = await client.get(profile_url, headers=IG_MOBILE_HEADERS)
+            if resp.status_code == 200 and "window._sharedData" in resp.text:
+                # Extract shared data JSON embedded in page
+                match = re.search(r"window\._sharedData\s*=\s*(\{.+?\});</script>", resp.text, re.S)
+                if match:
+                    shared = json.loads(match.group(1))
+                    try:
+                        edges = (
+                            shared["entry_data"]["ProfilePage"][0]
+                            ["graphql"]["user"]["edge_owner_to_timeline_media"]["edges"]
+                        )
+                        parts = []
+                        for edge in edges[:20]:
+                            node = edge.get("node", {})
+                            caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
+                            caption = " ".join(e.get("node", {}).get("text", "") for e in caption_edges).strip()
+                            shortcode = node.get("shortcode", "")
+                            if caption:
+                                block = caption
+                                if shortcode:
+                                    block += f"\n[PERMALINK: https://www.instagram.com/p/{shortcode}/]"
+                                parts.append(block)
+                        content = "\n---\n".join(parts)
+                        if len(content) > 200:
+                            print(f"  [IG mobile sharedData] ✓ {len(edges)} posts para @{clean}")
+                            return content[:8000]
+                    except (KeyError, IndexError, json.JSONDecodeError):
+                        pass
+    except Exception as e:
+        print(f"  [IG mobile] error @{clean}: {e}")
+
+    return None
+
+
+async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
+    """Fetch Instagram profile via public third-party scrapers (last resort)."""
+    clean = handle.lstrip("@").strip().split("/")[0]
+
+    # Try working mirrors/proxies — these change frequently
     scrapers = [
-        ("picuki",  f"https://www.picuki.com/profile/{clean}"),
-        ("imginn",  f"https://imginn.com/{clean}/"),
-        ("gramhir", f"https://gramhir.com/profile/{clean}/0"),
+        ("picuki",    f"https://www.picuki.com/profile/{clean}"),
+        ("imginn",    f"https://imginn.com/{clean}/"),
+        ("gramhir",   f"https://gramhir.com/profile/{clean}/0"),
+        ("instanavigation", f"https://instanavigation.com/profile/{clean}"),
     ]
 
     for name, url in scrapers:
@@ -278,7 +377,6 @@ async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
             if bio:
                 text_parts.append(f"BIO: {bio.get_text(strip=True)}")
 
-            # Captions / post descriptions
             captions = soup.find_all(class_=re.compile(
                 r"caption|photo-description|post-text|post-caption|item-description", re.I
             ))
@@ -289,6 +387,10 @@ async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
 
             if not text_parts:
                 raw = soup.get_text(separator="\n", strip=True)
+                # Skip if it's a login/block page
+                raw_lower = raw.lower()
+                if any(kw in raw_lower for kw in ["log in", "sign up", "blocked", "not found"]):
+                    continue
                 if raw:
                     text_parts.append(raw)
 
@@ -303,13 +405,22 @@ async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
 
 
 async def _fetch_instagram_profile(handle: str) -> Optional[str]:
-    """Fetch Instagram profile: Meta Graph API first, then public scrapers."""
-    # 1. Meta Graph API (most reliable, requires META_ACCESS_TOKEN configured)
+    """Fetch Instagram profile using multiple methods in priority order:
+    1. Meta Graph API   (best, requires META_ACCESS_TOKEN in Railway env)
+    2. Direct IG JSON   (works without credentials, often succeeds)
+    3. Public scrapers  (last resort, frequently blocked)
+    """
+    # 1. Meta Graph API
     content = await _fetch_instagram_meta_api(handle)
     if content:
         return content
 
-    # 2. Public scrapers (fallback when Meta API not configured or fails)
+    # 2. Direct Instagram JSON/mobile endpoint
+    content = await _fetch_instagram_direct(handle)
+    if content:
+        return content
+
+    # 3. Public third-party scrapers
     content = await _fetch_instagram_public_scraper(handle)
     return content
 

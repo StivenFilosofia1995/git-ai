@@ -72,33 +72,64 @@ def chat(request: ChatRequest) -> ChatResponse:
         fecha_actual_co=_now_co().strftime("%Y-%m-%d %H:%M"),
     )
 
-    try:
-        # Check daily budget
-        today = _now_co().strftime("%Y-%m-%d")
-        if _daily_api_calls["date"] != today:
-            _daily_api_calls["date"] = today
-            _daily_api_calls["count"] = 0
-        
-        if _daily_api_calls["count"] >= MAX_DAILY_CALLS:
-            print(f"[chat_service] Daily API limit reached ({MAX_DAILY_CALLS} calls)")
-            respuesta = _respuesta_fallback(contexto)
-        else:
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-            response = client.messages.create(
-                model="claude-3-5-haiku-20241022",
-                max_tokens=700,
-                temperature=0.7,
-                system=prompt,
-                messages=historial_msgs,
-            )
-            _daily_api_calls["count"] += 1
-            respuesta = response.content[0].text if response.content else ""
-            if not respuesta:
-                respuesta = _respuesta_fallback(contexto)
-            print(f"[chat] API call #{_daily_api_calls['count']}/{MAX_DAILY_CALLS} today")
-    except Exception as exc:
-        print(f"[chat_service] Claude no disponible, usando fallback local: {exc}")
+    # Validate API key before even trying
+    if not settings.anthropic_api_key or settings.anthropic_api_key.strip() == "":
+        print("[chat_service] ANTHROPIC_API_KEY no configurada — usando fallback")
         respuesta = _respuesta_fallback(contexto)
+    else:
+        try:
+            # Check daily budget
+            today = _now_co().strftime("%Y-%m-%d")
+            if _daily_api_calls["date"] != today:
+                _daily_api_calls["date"] = today
+                _daily_api_calls["count"] = 0
+
+            if _daily_api_calls["count"] >= MAX_DAILY_CALLS:
+                print(f"[chat_service] Daily API limit reached ({MAX_DAILY_CALLS} calls)")
+                respuesta = _respuesta_fallback(contexto)
+            else:
+                # Use claude-3-haiku-20240307 (most stable/available model)
+                # Can override via ANTHROPIC_MODEL env var in Railway
+                model = (settings.anthropic_model or "claude-3-haiku-20240307").strip()
+                # Fallback to known-good model if default config model is unknown
+                if model in ("claude-sonnet-4-20250514", ""):
+                    model = "claude-3-haiku-20240307"
+                print(f"[chat] Usando modelo: {model}")
+                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=700,
+                    temperature=0.7,
+                    system=prompt,
+                    messages=historial_msgs,
+                )
+                _daily_api_calls["count"] += 1
+                respuesta = response.content[0].text if response.content else ""
+                if not respuesta:
+                    respuesta = _respuesta_fallback(contexto)
+                print(f"[chat] OK — API call #{_daily_api_calls['count']}/{MAX_DAILY_CALLS} today")
+        except anthropic.AuthenticationError as exc:
+            print(f"[chat_service] ANTHROPIC_API_KEY inválida o expirada: {exc}")
+            respuesta = _respuesta_fallback(contexto)
+        except anthropic.NotFoundError as exc:
+            print(f"[chat_service] Modelo no encontrado: {exc}")
+            # Retry with guaranteed fallback model
+            try:
+                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                response = client.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=700,
+                    system=prompt,
+                    messages=historial_msgs,
+                )
+                respuesta = response.content[0].text if response.content else ""
+                if not respuesta:
+                    respuesta = _respuesta_fallback(contexto)
+            except Exception:
+                respuesta = _respuesta_fallback(contexto)
+        except Exception as exc:
+            print(f"[chat_service] Claude error: {type(exc).__name__}: {exc}")
+            respuesta = _respuesta_fallback(contexto)
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
