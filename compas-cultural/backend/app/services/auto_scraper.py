@@ -1,7 +1,7 @@
 """
 Auto-scraper: sistema automatico de scraping para todos los lugares registrados.
-Usa CODIGO PURO (BeautifulSoup + regex) para extraer eventos.
-Claude NO se usa aqui -- solo en el chat del usuario.
+Extraccion por regex/HTML. Claude se usa como fallback para parsear captions de Instagram
+cuando las fechas son informales ("este sabado", "mañana", etc.).
 """
 import json
 import re
@@ -11,6 +11,7 @@ import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional
 
+import anthropic
 import httpx
 from bs4 import BeautifulSoup
 
@@ -680,7 +681,97 @@ def _extract_events_from_ig_text(text: str, lugar: dict) -> list[dict]:
     return events
 
 
-# -- Core: scrape a single lugar (code-based, NO Claude) ----------------------
+async def _extract_events_from_ig_with_claude(ig_text: str, lugar: dict) -> list[dict]:
+    """Fallback: usa Claude para parsear captions de Instagram cuando el regex no encuentra fechas.
+    Solo se invoca si _extract_events_from_ig_text retorna 0 eventos.
+    """
+    if not settings.anthropic_api_key:
+        return []
+
+    now_co = datetime.utcnow() - timedelta(hours=5)
+    fecha_hoy = now_co.strftime("%Y-%m-%d")
+    nombre = lugar["nombre"]
+    municipio = lugar.get("municipio", "medellin")
+    ig_handle = lugar.get("instagram_handle", "")
+
+    prompt = f"""Hoy es {fecha_hoy}. Analiza los siguientes posts de Instagram del colectivo/espacio cultural "{nombre}" (municipio: {municipio}).
+
+Extrae SOLO los eventos o actividades culturales con fecha futura o de hoy. Ignora posts sin fecha clara o que sean antiguos.
+
+Para cada evento encontrado, devuelve un JSON array con objetos de este formato exacto:
+{{
+  "titulo": "nombre del evento (máx 200 chars)",
+  "fecha_iso": "YYYY-MM-DDTHH:MM:SS (si no hay hora usa 19:00:00)",
+  "descripcion": "breve descripción (máx 300 chars)",
+  "es_gratuito": true/false,
+  "imagen_url": "URL de imagen si aparece [IMAGE_URL:...], si no null",
+  "permalink": "URL del post si aparece [PERMALINK:...], si no null"
+}}
+
+Responde ÚNICAMENTE con el JSON array (puede ser [] si no hay eventos futuros). Sin texto adicional.
+
+POSTS DE INSTAGRAM:
+---
+{ig_text[:6000]}
+"""
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip() or "claude-3-5-haiku-20241022"
+        response = client.messages.create(
+            model=model,
+            max_tokens=1500,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip() if response.content else "[]"
+        # Strip markdown code fences if present
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            return []
+    except Exception as e:
+        print(f"  [IG Claude] Error parseando IG con Claude: {e}")
+        return []
+
+    events = []
+    for item in parsed:
+        titulo = (item.get("titulo") or "").strip()[:200]
+        if not titulo:
+            continue
+        fecha_str = item.get("fecha_iso", "")
+        try:
+            fecha = datetime.fromisoformat(fecha_str)
+            if fecha < now_co:
+                continue
+        except (ValueError, TypeError):
+            continue
+
+        es_gratuito = bool(item.get("es_gratuito", False))
+        events.append({
+            "titulo": titulo,
+            "fecha_inicio": fecha.isoformat(),
+            "fecha_fin": None,
+            "descripcion": (item.get("descripcion") or "")[:500],
+            "precio": "Entrada libre" if es_gratuito else "",
+            "es_gratuito": es_gratuito,
+            "imagen_url": item.get("imagen_url"),
+            "nombre_lugar": nombre,
+            "categoria_principal": _detect_category(titulo + " " + (item.get("descripcion") or "")),
+            "categorias": [_detect_category(titulo + " " + (item.get("descripcion") or ""))],
+            "municipio": municipio,
+            "barrio": lugar.get("barrio"),
+            "fuente": "auto_scraper_ig_claude",
+            "fuente_url": item.get("permalink") or f"https://instagram.com/{ig_handle.lstrip('@')}",
+        })
+
+    if events:
+        print(f"  [IG Claude] ✓ {len(events)} evento(s) extraídos por Claude")
+    return events
+
+
+# -- Core: scrape a single lugar -----------------------------------------------
 
 async def _scrape_lugar(lugar: dict) -> dict:
     """Scrape website + Instagram for a single lugar using CODE (no AI)."""
@@ -711,6 +802,10 @@ async def _scrape_lugar(lugar: dict) -> dict:
         content = await _fetch_instagram_profile(ig_handle)
         if content and len(content) > 100:
             events = _extract_events_from_ig_text(content, lugar)
+            if not events:
+                # Fallback: use Claude to parse informal dates ("este sábado", "mañana", etc.)
+                print(f"  [IG] Regex no encontró fechas, intentando con Claude...")
+                events = await _extract_events_from_ig_with_claude(content, lugar)
             all_events.extend(events)
             if events:
                 print(f"    [OK] {len(events)} evento(s) de Instagram")
