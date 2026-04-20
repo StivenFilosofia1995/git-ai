@@ -14,22 +14,41 @@ from datetime import datetime, timedelta
 scheduler = AsyncIOScheduler()
 
 
+def _log_job(fuente: str, ok: bool, detalle: dict = None):
+    """Persiste resultado de un job en scraping_log para visibilidad en /health/status."""
+    try:
+        from app.database import supabase
+        supabase.table("scraping_log").insert({
+            "fuente": fuente,
+            "registros_nuevos": detalle.get("eventos_nuevos", 0) if detalle else 0,
+            "registros_actualizados": 0,
+            "errores": 0 if ok else 1,
+            "detalle": detalle or {"status": "ok" if ok else "error"},
+        }).execute()
+    except Exception:
+        pass  # No fallar el scheduler por fallo de log
+
+
 async def _run_scraper_job():
     """Job wrapper for the smart scraper."""
     from app.services.auto_scraper import run_auto_scraper
     try:
-        await run_auto_scraper()
+        result = await run_auto_scraper()
+        _log_job("scheduler_auto_scraper", ok=True, detalle=result)
     except Exception as e:
         print(f"[ERR] Scheduler error: {e}")
+        _log_job("scheduler_auto_scraper", ok=False, detalle={"error": str(e)})
 
 
 async def _run_image_enrichment():
     """Job wrapper for image enrichment."""
     from app.services.auto_scraper import enrich_event_images
     try:
-        await enrich_event_images()
+        result = await enrich_event_images()
+        _log_job("scheduler_image_enrichment", ok=True, detalle=result or {})
     except Exception as e:
         print(f"[ERR] Image enrichment error: {e}")
+        _log_job("scheduler_image_enrichment", ok=False, detalle={"error": str(e)})
 
 
 async def _run_agenda_alternativa():
@@ -37,10 +56,19 @@ async def _run_agenda_alternativa():
     from app.services.auto_scraper import scrape_agenda_sources
     from app.services.compas_urbano_scraper import scrape_compas_urbano
     try:
-        await scrape_compas_urbano()   # highest priority — verified events
-        await scrape_agenda_sources()  # secondary web sources
+        r1 = await scrape_compas_urbano()   # highest priority — verified events
+        r2 = await scrape_agenda_sources()  # secondary web sources
+        combined = {
+            "eventos_nuevos": r1.get("eventos_nuevos", 0) + r2.get("eventos_nuevos", 0),
+            "duplicados": r1.get("duplicados", 0) + r2.get("duplicados", 0),
+            "errores": r1.get("errores", 0) + r2.get("errores", 0),
+            "compas": r1,
+            "agenda": r2,
+        }
+        _log_job("scheduler_agenda_alternativa", ok=True, detalle=combined)
     except Exception as e:
         print(f"[ERR] Agenda alternativa error: {e}")
+        _log_job("scheduler_agenda_alternativa", ok=False, detalle={"error": str(e)})
 
 
 async def _renew_meta_token():
@@ -61,15 +89,35 @@ async def _renew_meta_token():
 
 
 async def _cleanup_old_events():
-    """Remove events that are more than 7 days past their end date."""
+    """Remove events that are fully past (>7 days after end, or >7 days after start if no end date)."""
     try:
         from app.database import supabase
         from datetime import datetime, timedelta
         cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
-        resp = supabase.table("eventos").delete().lt("fecha_inicio", cutoff).execute()
-        deleted = len(resp.data) if resp.data else 0
+
+        # 1. Eventos con fecha_fin definida: borrar si fecha_fin < cutoff
+        resp_fin = (
+            supabase.table("eventos")
+            .delete()
+            .not_.is_("fecha_fin", "null")
+            .lt("fecha_fin", cutoff)
+            .execute()
+        )
+        deleted_fin = len(resp_fin.data) if resp_fin.data else 0
+
+        # 2. Eventos sin fecha_fin: borrar si fecha_inicio < cutoff
+        resp_inicio = (
+            supabase.table("eventos")
+            .delete()
+            .is_("fecha_fin", "null")
+            .lt("fecha_inicio", cutoff)
+            .execute()
+        )
+        deleted_inicio = len(resp_inicio.data) if resp_inicio.data else 0
+
+        deleted = deleted_fin + deleted_inicio
         if deleted > 0:
-            print(f"[CLEANUP] Removed {deleted} expired events")
+            print(f"[CLEANUP] Removed {deleted} expired events ({deleted_fin} with end date, {deleted_inicio} without)")
     except Exception as e:
         print(f"[ERR] Cleanup error: {e}")
 

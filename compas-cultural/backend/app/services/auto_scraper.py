@@ -1171,7 +1171,8 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
         try:
             # Yield control to event loop so Uvicorn can serve HTTP requests
             await asyncio.sleep(0)
-            stats = await _scrape_lugar(lugar)
+            # Hard timeout: un venue colgado no puede bloquear el ciclo completo
+            stats = await asyncio.wait_for(_scrape_lugar(lugar), timeout=120)
             total_stats["lugares_procesados"] += 1
             total_stats["eventos_nuevos"] += stats["nuevos"]
             total_stats["duplicados"] += stats["duplicados"]
@@ -1186,6 +1187,16 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
 
             await asyncio.sleep(2)  # Yield event loop between places
 
+        except asyncio.TimeoutError:
+            total_stats["errores"] += 1
+            print(f"  [TIMEOUT] {lugar['nombre']} superó 120s — saltando")
+            _log_scraping(
+                fuente=lugar.get("sitio_web") or lugar.get("instagram_handle", "timeout"),
+                registros_nuevos=0,
+                errores=1,
+                detalle={"lugar": lugar["nombre"], "error": "timeout_120s"},
+            )
+            await asyncio.sleep(2)
         except Exception as e:
             total_stats["errores"] += 1
             print(f"  [ERR] Error general: {e}")

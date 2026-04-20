@@ -63,28 +63,30 @@ async def es_duplicado_evento(titulo: str, fecha_inicio: str, espacio_id: str = 
     Verifica si un evento ya existe en BD.
     Duplicado si:
       - Mismo slug
-      - Mismo titulo + misma fecha + mismo espacio
+      - Mismo titulo (primeros 60 chars normalizados) + misma fecha (día)
     """
     slug = slugify(titulo)
     existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
     if existing.data:
         return True
 
-    # Check titulo + fecha + espacio
-    if espacio_id and fecha_inicio:
-        fecha_date = fecha_inicio[:10]  # solo YYYY-MM-DD
+    # Deduplicación cruzada: mismo título truncado + mismo día
+    if fecha_inicio:
+        fecha_date = fecha_inicio[:10]  # YYYY-MM-DD
+        titulo_prefix = slug[:60]  # slug de los primeros ~60 chars del título
         q = (
             supabase.table("eventos")
-            .select("id")
-            .eq("espacio_id", espacio_id)
+            .select("id, slug")
             .gte("fecha_inicio", f"{fecha_date}T00:00:00")
             .lte("fecha_inicio", f"{fecha_date}T23:59:59")
         )
         same_day = q.execute()
         if same_day.data:
             for ev in same_day.data:
-                # Could add fuzzy title match here in future
-                pass
+                ev_slug_prefix = (ev.get("slug") or "")[:60]
+                # Si comparten los primeros 60 chars del slug → duplicado
+                if ev_slug_prefix and titulo_prefix and ev_slug_prefix == titulo_prefix:
+                    return True
 
     return False
 

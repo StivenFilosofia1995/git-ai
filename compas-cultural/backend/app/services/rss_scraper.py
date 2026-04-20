@@ -300,19 +300,61 @@ async def parse_rss_events(feed_url: str, lugar: dict) -> list[dict]:
 
 # ─── Sitios con RSS confirmado ──────────────────────────────────────────────────
 
-# Cache de feeds ya descubiertos (en memoria, se resetea al reiniciar el worker)
+# Cache en memoria (primer nivel). Se precarga desde config_kv al primer uso.
 _feed_cache: dict[str, Optional[str]] = {
     "https://festivaldepoesiademedellin.org": "https://festivaldepoesiademedellin.org/feed",
     "https://platohedro.org": "https://platohedro.org/feed",
     "https://tragaluzeditores.com": None,  # No tiene feed
 }
+_cache_loaded = False
+
+
+def _load_cache_from_db() -> None:
+    """Carga el cache de feeds RSS desde config_kv (clave 'rss_feed_cache')."""
+    global _feed_cache, _cache_loaded
+    if _cache_loaded:
+        return
+    try:
+        import json
+        from app.database import supabase
+        resp = supabase.table("config_kv").select("value").eq("key", "rss_feed_cache").execute()
+        if resp.data:
+            stored = json.loads(resp.data[0]["value"])
+            # stored entries override defaults only if not already known
+            for url, feed in stored.items():
+                _feed_cache.setdefault(url, feed)
+    except Exception:
+        pass  # En caso de fallo, el cache en memoria sigue funcionando
+    _cache_loaded = True
+
+
+def _persist_cache_to_db() -> None:
+    """Guarda el cache actual en config_kv para sobrevivir reinicios."""
+    try:
+        import json
+        from app.database import supabase
+        # Solo persiste entradas donde ya se sabe el resultado (no None por fallo temporal)
+        to_save = {k: v for k, v in _feed_cache.items() if v is not None}
+        supabase.table("config_kv").upsert(
+            {"key": "rss_feed_cache", "value": json.dumps(to_save)},
+            on_conflict="key",
+        ).execute()
+    except Exception:
+        pass
 
 
 async def get_or_discover_feed(site_url: str) -> Optional[str]:
-    """Get cached feed URL or discover it for a site."""
+    """Get cached feed URL or discover it for a site. Persiste nuevos descubrimientos en BD."""
+    _load_cache_from_db()
+
     if site_url in _feed_cache:
         return _feed_cache[site_url]
 
     feed_url = await discover_rss_feed(site_url)
     _feed_cache[site_url] = feed_url  # cache result (even if None)
+
+    if feed_url:
+        # Solo persistimos si encontramos un feed real
+        _persist_cache_to_db()
+
     return feed_url
