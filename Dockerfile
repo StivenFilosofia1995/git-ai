@@ -31,6 +31,6 @@ COPY compas-cultural/backend/ .
 COPY --from=frontend-build /frontend/dist ./static
 
 ENV PORT=8000
-EXPOSE ${PORT}
+EXPOSE 8000
 
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
