@@ -140,9 +140,18 @@ async def spa_404_handler(request: Request, exc):
     return _JSONResponse({"detail": "Not Found"}, status_code=404)
 
 # Serve frontend static assets (JS, CSS, images, fonts)
+# NOTE: Mount at /assets to avoid intercepting /health and /api routes.
+# The SPA fallback (404 handler above) serves index.html for all other paths.
 static_dir = Path(__file__).parent.parent / "static"
 if static_dir.exists():
-    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="frontend")
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
+    # Also mount icons, fonts, etc.
+    for subdir in ["icons", "fonts", "images"]:
+        sub_path = static_dir / subdir
+        if sub_path.exists():
+            app.mount(f"/{subdir}", StaticFiles(directory=str(sub_path)), name=f"frontend-{subdir}")
 
 if __name__ == "__main__":
     import uvicorn

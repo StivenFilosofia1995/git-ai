@@ -95,7 +95,7 @@ def obtener_recomendaciones(user_id: str, limit: int = 10) -> List[dict]:
     hace_60d = (datetime.utcnow() - timedelta(days=60)).isoformat()
     resp_inter = (
         supabase.table("interacciones_usuario")
-        .select("categoria, tipo, created_at, metadata")
+        .select("categoria, tipo, created_at")
         .eq("user_id", user_id)
         .gte("created_at", hace_60d)
         .order("created_at", desc=True)

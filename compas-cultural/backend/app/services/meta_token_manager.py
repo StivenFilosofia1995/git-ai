@@ -4,9 +4,13 @@ Automatically renews the access token before it expires.
 Stores tokens in Supabase for persistence across deploys.
 """
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.config import settings
 from app.database import supabase
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 META_GRAPH_URL = "https://graph.facebook.com/v21.0"
@@ -22,8 +26,10 @@ async def get_valid_token() -> str | None:
             expires_at = resp.data.get("expires_at")
             if expires_at:
                 exp = datetime.fromisoformat(expires_at)
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
                 # If token expires in less than 7 days, renew it
-                if exp > datetime.utcnow() + timedelta(days=7):
+                if exp > _utcnow() + timedelta(days=7):
                     return token
                 else:
                     print("[META] Token expires soon, renewing...")
@@ -31,7 +37,7 @@ async def get_valid_token() -> str | None:
                     if new_token:
                         return new_token
                     # If renewal fails, use the old one if still valid
-                    if exp > datetime.utcnow():
+                    if exp > _utcnow():
                         return token
     except Exception as e:
         # Table might not exist yet — fall through to env token
@@ -88,14 +94,14 @@ async def _exchange_token(current_token: str) -> str | None:
                 new_token = data.get("access_token")
                 expires_in = data.get("expires_in", 5184000)  # default 60 days
                 if new_token:
-                    expires_at_dt = datetime.utcnow() + timedelta(seconds=expires_in)
+                    expires_at_dt = _utcnow() + timedelta(seconds=expires_in)
                     await _store_token(new_token, expires_at_dt)
                     print(f"[META] Token renewed, expires: {expires_at_dt.isoformat()}")
                     return new_token
             else:
                 # Token exchange failed — the current token might still work
                 # Store it anyway so we have it in DB
-                await _store_token(current_token, datetime.utcnow() + timedelta(days=30))
+                await _store_token(current_token, _utcnow() + timedelta(days=30))
                 print(f"[META] Token exchange failed ({resp.status_code}), using current token")
     except Exception as e:
         print(f"[META] Token exchange error: {e}")
@@ -110,7 +116,7 @@ async def _store_token(token: str, expires_at: datetime | None):
             "key": "meta_access_token",
             "value": token,
             "expires_at": expires_at.isoformat() if expires_at else None,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": _utcnow().isoformat(),
         }
         # Upsert: insert or update
         supabase.table("config_kv").upsert(row, on_conflict="key").execute()

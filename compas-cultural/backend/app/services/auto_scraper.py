@@ -21,6 +21,13 @@ from app.database import supabase
 
 # -- Helpers -------------------------------------------------------------------
 
+def _is_valid_event_date(fecha: datetime) -> bool:
+    """Validate that an event date is reasonable: not past, not > 1 year from now."""
+    now_co = datetime.utcnow() - timedelta(hours=5)
+    max_future = now_co + timedelta(days=365)
+    return now_co <= fecha <= max_future
+
+
 def _slugify(text: str) -> str:
     # Normalize unicode: decompose accented chars then strip combining marks
     text = unicodedata.normalize("NFD", text.lower().strip())
@@ -767,6 +774,9 @@ IMPORTANTE:
 - Si un post menciona una actividad cultural con alguna referencia temporal, inclúyelo
 - Si ves precios como "$20.000", "20k", "entrada libre", extráelos
 - Ignora posts que claramente son solo fotos del pasado sin fecha futura
+- SOLO genera fechas del año actual ({fecha_hoy[:4]}) o el próximo año. NUNCA uses años lejanos como 3000, 4000, 6000
+- Si NO hay eventos con fecha clara, devuelve un array vacío []
+- Un post que solo habla de un tema (café, libros, reflexiones) sin mencionar fecha NO es un evento
 
 Para cada evento encontrado, devuelve un JSON array con objetos de este formato exacto:
 {{
@@ -829,7 +839,8 @@ POSTS:
         fecha_str = item.get("fecha_iso", "")
         try:
             fecha = datetime.fromisoformat(fecha_str)
-            if fecha < now_co:
+            if not _is_valid_event_date(fecha):
+                print(f"    [SKIP] Fecha invalida LLM: {fecha_str} para '{titulo[:40]}'")
                 continue
         except (ValueError, TypeError):
             continue
@@ -961,7 +972,8 @@ async def _scrape_lugar(lugar: dict) -> dict:
 
             try:
                 fecha = datetime.fromisoformat(fecha_str)
-                if fecha < now_co:
+                if not _is_valid_event_date(fecha):
+                    print(f"    [SKIP] Fecha invalida: {fecha_str} para '{titulo[:40]}'")
                     continue
             except (ValueError, TypeError):
                 continue
@@ -1307,6 +1319,16 @@ async def scrape_agenda_sources() -> dict:
                     titulo = ev.get("titulo")
                     if not titulo:
                         continue
+
+                    # Validate date
+                    fecha_str = ev.get("fecha_inicio")
+                    if fecha_str:
+                        try:
+                            fecha_check = datetime.fromisoformat(fecha_str)
+                            if not _is_valid_event_date(fecha_check):
+                                continue
+                        except (ValueError, TypeError):
+                            continue
                     
                     slug = _slugify(titulo)
                     existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
