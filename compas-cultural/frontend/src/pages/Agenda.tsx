@@ -26,6 +26,18 @@ function useColombiaClock() {
 
 
 type TimeFilter = 'hoy' | 'semana' | 'todos'
+type PrecioFilter = '' | 'gratuito' | 'pago'
+
+const MUNICIPIOS = [
+  { value: '', label: 'Todos los municipios' },
+  { value: 'medellin', label: 'Medellín' },
+  { value: 'envigado', label: 'Envigado' },
+  { value: 'itagui', label: 'Itagüí' },
+  { value: 'bello', label: 'Bello' },
+  { value: 'sabaneta', label: 'Sabaneta' },
+  { value: 'la_estrella', label: 'La Estrella' },
+  { value: 'copacabana', label: 'Copacabana' },
+]
 
 const TIME_LABELS: Record<TimeFilter, string> = {
   hoy: 'HOY',
@@ -62,6 +74,8 @@ export default function Agenda() {
   const [catFilter, setCatFilter] = useState('')
   const [zonaFilter, setZonaFilter] = useState('')
   const [textFilter, setTextFilter] = useState('')
+  const [municipioFilter, setMunicipioFilter] = useState('')
+  const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('')
   const fechaActual = useColombiaClock()
 
   const reloadEventos = () => {
@@ -109,6 +123,14 @@ export default function Agenda() {
     if (catFilter) {
       result = result.filter(e => e.categoria_principal === catFilter)
     }
+    if (municipioFilter) {
+      result = result.filter(e => e.municipio === municipioFilter)
+    }
+    if (precioFilter === 'gratuito') {
+      result = result.filter(e => e.es_gratuito)
+    } else if (precioFilter === 'pago') {
+      result = result.filter(e => !e.es_gratuito)
+    }
     if (zonaFilter) {
       const zona = zonas.find(z => z.slug === zonaFilter)
       if (zona) {
@@ -130,7 +152,7 @@ export default function Agenda() {
       )
     }
     return result
-  }, [eventos, catFilter, zonaFilter, zonas, textFilter])
+  }, [eventos, catFilter, zonaFilter, zonas, textFilter, municipioFilter, precioFilter])
 
   // Group events by date — force Colombia timezone
   const grouped = filtered.reduce<Record<string, Evento[]>>((acc, ev) => {
@@ -227,7 +249,35 @@ export default function Agenda() {
             ))}
           </select>
 
-          {/* Zone filter */}
+          {/* Municipio filter */}
+          <select
+            value={municipioFilter}
+            onChange={e => setMunicipioFilter(e.target.value)}
+            className="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px]"
+          >
+            {MUNICIPIOS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+
+          {/* Precio filter */}
+          <div className="flex gap-0 -ml-[2px]">
+            {([ ['', 'PRECIO'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setPrecioFilter(val)}
+                className={`px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black transition-all duration-200 -ml-[2px] first:ml-0 ${
+                  precioFilter === val
+                    ? 'bg-black text-white'
+                    : 'bg-white text-black hover:bg-black hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Zone filter */}}
           {zonas.length > 0 && (
             <select
               value={zonaFilter}
@@ -241,9 +291,9 @@ export default function Agenda() {
             </select>
           )}
 
-          {(catFilter || zonaFilter || textFilter) && (
+          {(catFilter || zonaFilter || textFilter || municipioFilter || precioFilter) && (
             <button
-              onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter('') }}
+              onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setPrecioFilter('') }}
               className="text-xs font-mono font-bold uppercase tracking-wider ml-4 hover:text-black transition-colors underline"
             >
               Limpiar filtros
@@ -266,6 +316,10 @@ export default function Agenda() {
             <p className="font-mono text-sm uppercase tracking-wider">
               {catFilter || zonaFilter
                 ? 'No hay eventos con esos filtros.'
+                : municipioFilter
+                ? `No hay eventos en ${MUNICIPIOS.find(m => m.value === municipioFilter)?.label || municipioFilter}.`
+                : precioFilter === 'gratuito'
+                ? 'No hay eventos gratuitos próximos.'
                 : 'No hay eventos próximos.'
               }
             </p>

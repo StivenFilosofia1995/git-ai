@@ -1335,6 +1335,7 @@ async def enrich_event_images() -> dict:
 # -- Alternative agenda sources (code-based) -----------------------------------
 
 AGENDA_SOURCES = [
+    # ── Medios y agendas generales ──────────────────────────────────────────────
     {
         "nombre": "Vivir en el Poblado",
         "url": "https://vivirenelpoblado.com/agenda-cultural/",
@@ -1344,7 +1345,90 @@ AGENDA_SOURCES = [
     {
         "nombre": "Tu Cultura Medellin",
         "url": "https://tucultura.medellin.gov.co/",
-        "categoria_default": "casa_cultura",
+        "categoria_default": "conferencia",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "El Colombiano Cultura",
+        "url": "https://www.elcolombiano.com/cultura/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Universo Centro",
+        "url": "https://www.universocentro.com/agenda/",
+        "categoria_default": "teatro",
+        "municipio": "medellin",
+    },
+    # ── Museos y centros culturales ────────────────────────────────────────────
+    {
+        "nombre": "Parque Explora",
+        "url": "https://www.parqueexplora.org/agenda",
+        "categoria_default": "conferencia",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "MAMM Museo de Arte Moderno",
+        "url": "https://www.elmamm.org/exposiciones/",
+        "categoria_default": "arte_contemporaneo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Museo de Antioquia",
+        "url": "https://www.museodeantioquia.co/exposiciones/",
+        "categoria_default": "arte_contemporaneo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Jardín Botánico Medellín",
+        "url": "https://www.jardibotanicomedellin.org/eventos/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    # ── Teatros y artes escénicas ──────────────────────────────────────────────
+    {
+        "nombre": "Teatro Metropolitano",
+        "url": "https://www.teatrometropolitano.com/programacion/",
+        "categoria_default": "teatro",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Teatro Pablo Tobón Uribe",
+        "url": "https://www.pabloTobon.com/programacion",
+        "categoria_default": "teatro",
+        "municipio": "medellin",
+    },
+    # ── Bibliotecas ────────────────────────────────────────────────────────────
+    {
+        "nombre": "Biblioteca Pública Piloto",
+        "url": "https://www.bibliotecapiloto.gov.co/agenda/",
+        "categoria_default": "conferencia",
+        "municipio": "medellin",
+    },
+    # ── Cultura internacional ──────────────────────────────────────────────────
+    {
+        "nombre": "Alianza Francesa Medellín",
+        "url": "https://www.alianzafrancesamedellin.edu.co/agenda/",
+        "categoria_default": "cine",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Centro Cultural de España",
+        "url": "https://www.ccemedellin.org/agenda/",
+        "categoria_default": "arte_contemporaneo",
+        "municipio": "medellin",
+    },
+    # ── Espacios independientes ────────────────────────────────────────────────
+    {
+        "nombre": "Platohedro",
+        "url": "https://platohedro.org/actividades/",
+        "categoria_default": "taller",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Casa Tres Patios",
+        "url": "https://www.c3p.org.co/programacion/",
+        "categoria_default": "arte_contemporaneo",
         "municipio": "medellin",
     },
 ]

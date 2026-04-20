@@ -29,15 +29,65 @@ def _log_job(fuente: str, ok: bool, detalle: dict = None):
         pass  # No fallar el scheduler por fallo de log
 
 
+# Umbral de fallos consecutivos antes de enviar alerta
+ALERT_THRESHOLD = 3
+
+
+def _track_failure(job_name: str, error: str) -> None:
+    """
+    Registra un fallo consecutivo en config_kv y envía alerta al llegar al umbral.
+    Clave: 'job_failures_{job_name}' → JSON {count, last_error}
+    """
+    try:
+        import json
+        from app.database import supabase
+        key = f"job_failures_{job_name}"
+        resp = supabase.table("config_kv").select("value").eq("key", key).execute()
+        count = 1
+        if resp.data:
+            try:
+                stored = json.loads(resp.data[0]["value"])
+                count = stored.get("count", 0) + 1
+            except Exception:
+                count = 1
+        payload = json.dumps({"count": count, "last_error": error[:300]})
+        supabase.table("config_kv").upsert(
+            {"key": key, "value": payload}, on_conflict="key"
+        ).execute()
+
+        if count >= ALERT_THRESHOLD:
+            from app.services.email_service import send_scraper_alert
+            send_scraper_alert(job_name, error, count)
+            print(f"[ALERT] Enviada alerta para {job_name} (fallos={count})")
+    except Exception as e:
+        print(f"[WARN] No se pudo registrar fallo de {job_name}: {e}")
+
+
+def _reset_failure(job_name: str) -> None:
+    """Reinicia el contador de fallos tras una ejecución exitosa."""
+    try:
+        import json
+        from app.database import supabase
+        key = f"job_failures_{job_name}"
+        supabase.table("config_kv").upsert(
+            {"key": key, "value": json.dumps({"count": 0, "last_error": ""})},
+            on_conflict="key",
+        ).execute()
+    except Exception:
+        pass
+
+
 async def _run_scraper_job():
     """Job wrapper for the smart scraper."""
     from app.services.auto_scraper import run_auto_scraper
     try:
         result = await run_auto_scraper()
         _log_job("scheduler_auto_scraper", ok=True, detalle=result)
+        _reset_failure("auto_scraper")
     except Exception as e:
         print(f"[ERR] Scheduler error: {e}")
         _log_job("scheduler_auto_scraper", ok=False, detalle={"error": str(e)})
+        _track_failure("auto_scraper", str(e))
 
 
 async def _run_image_enrichment():
@@ -46,9 +96,11 @@ async def _run_image_enrichment():
     try:
         result = await enrich_event_images()
         _log_job("scheduler_image_enrichment", ok=True, detalle=result or {})
+        _reset_failure("image_enrichment")
     except Exception as e:
         print(f"[ERR] Image enrichment error: {e}")
         _log_job("scheduler_image_enrichment", ok=False, detalle={"error": str(e)})
+        _track_failure("image_enrichment", str(e))
 
 
 async def _run_agenda_alternativa():
@@ -66,9 +118,11 @@ async def _run_agenda_alternativa():
             "agenda": r2,
         }
         _log_job("scheduler_agenda_alternativa", ok=True, detalle=combined)
+        _reset_failure("agenda_alternativa")
     except Exception as e:
         print(f"[ERR] Agenda alternativa error: {e}")
         _log_job("scheduler_agenda_alternativa", ok=False, detalle={"error": str(e)})
+        _track_failure("agenda_alternativa", str(e))
 
 
 async def _renew_meta_token():

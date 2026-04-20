@@ -203,3 +203,95 @@ def _send_via_resend(to_email: str, user_name: str | None = None) -> bool:
     except Exception as e:
         logger.error("Failed to send email to %s via Resend: %s", to_email, e)
         return False
+
+
+# ─── Scraper alert emails ──────────────────────────────────────────────────────
+
+def send_scraper_alert(job_name: str, error: str, consecutive_failures: int) -> bool:
+    """
+    Envía alerta por email cuando un job del scheduler falla repetidamente.
+    Usa Resend si está configurado, si no SMTP. Si ninguno, retorna False silenciosamente.
+    """
+    alert_email = settings.smtp_from_email or settings.smtp_user
+    if not alert_email:
+        return False  # Sin email configurado, no hay a quién alertar
+
+    subject = f"[CULTURA ETÉREA] Alerta: {job_name} falló {consecutive_failures}x"
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"></head>
+<body style="font-family:monospace;background:#f5f5f5;padding:40px;">
+<div style="max-width:600px;margin:0 auto;background:#fff;border:2px solid #000;padding:32px;">
+  <h1 style="font-size:16px;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;">
+    ⚠ ALERTA DE SCRAPER
+  </h1>
+  <p style="font-size:11px;color:#666;margin-bottom:24px;letter-spacing:1px;">CULTURA ETÉREA · SISTEMA DE MONITOREO</p>
+
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <tr style="border-bottom:1px solid #e5e5e5;">
+      <td style="padding:8px 0;color:#666;width:40%;">Job</td>
+      <td style="padding:8px 0;font-weight:bold;">{job_name}</td>
+    </tr>
+    <tr style="border-bottom:1px solid #e5e5e5;">
+      <td style="padding:8px 0;color:#666;">Fallos consecutivos</td>
+      <td style="padding:8px 0;font-weight:bold;color:#cc0000;">{consecutive_failures}</td>
+    </tr>
+    <tr style="border-bottom:1px solid #e5e5e5;">
+      <td style="padding:8px 0;color:#666;">Último error</td>
+      <td style="padding:8px 0;font-family:monospace;font-size:11px;word-break:break-all;">{error[:300]}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 0;color:#666;">Hora (UTC)</td>
+      <td style="padding:8px 0;">{__import__('datetime').datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</td>
+    </tr>
+  </table>
+
+  <div style="margin-top:24px;padding:16px;background:#fff3f3;border:1px solid #ffcccc;">
+    <p style="margin:0;font-size:12px;color:#cc0000;">
+      El job <strong>{job_name}</strong> ha fallado {consecutive_failures} veces consecutivas.
+      Revisa los logs en Railway o en <code>/health/status</code>.
+    </p>
+  </div>
+</div>
+</body>
+</html>"""
+
+    try:
+        if settings.resend_api_key:
+            from_addr = alert_email
+            resp = httpx.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {settings.resend_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": f"Cultura ETÉREA Alerta <{from_addr}>",
+                    "to": [alert_email],
+                    "subject": subject,
+                    "html": html,
+                },
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                logger.info("Scraper alert sent for %s (failures=%d)", job_name, consecutive_failures)
+                return True
+            logger.error("Resend alert error (%s): %s", resp.status_code, resp.text)
+            return False
+
+        elif settings.smtp_user and settings.smtp_password:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email or settings.smtp_user}>"
+            msg["To"] = alert_email
+            msg.attach(MIMEText(html, "html"))
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+                server.starttls()
+                server.login(settings.smtp_user, settings.smtp_password)
+                server.sendmail(msg["From"], [alert_email], msg.as_string())
+            return True
+
+    except Exception as e:
+        logger.error("Failed to send scraper alert: %s", e)
+
+    return False
