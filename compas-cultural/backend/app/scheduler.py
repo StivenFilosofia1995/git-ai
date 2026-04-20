@@ -129,10 +129,10 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Initial scrape 5 minutes after startup
+    # Initial scrape 60 minutes after startup (avoid blocking event loop right away)
     scheduler.add_job(
         _run_scraper_job,
-        trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=5)),
+        trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=60)),
         id="auto_scraper_startup",
         name="Initial scrape at startup",
         replace_existing=True,

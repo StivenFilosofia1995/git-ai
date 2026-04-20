@@ -866,13 +866,15 @@ POSTS:
         # ── FALLBACK: Claude ──
         if not raw and settings.anthropic_api_key:
             import anthropic
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-            model = (settings.anthropic_model or "claude-haiku-4-20250414").strip()
-            response = client.messages.create(
-                model=model, max_tokens=2500, temperature=0,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = response.content[0].text.strip() if response.content else "[]"
+            def _claude_call():
+                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip()
+                response = client.messages.create(
+                    model=model, max_tokens=2500, temperature=0,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return response.content[0].text.strip() if response.content else "[]"
+            raw = await asyncio.to_thread(_claude_call)
             print(f"  [IG LLM] Fallback to Claude (costs tokens)")
 
         parsed = parse_json_response(raw)
@@ -1168,6 +1170,8 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
     for i, lugar in enumerate(lugares):
         print(f"\n[{i+1}/{len(lugares)}] {lugar['nombre']}")
         try:
+            # Yield control to event loop so Uvicorn can serve HTTP requests
+            await asyncio.sleep(0)
             stats = await _scrape_lugar(lugar)
             total_stats["lugares_procesados"] += 1
             total_stats["eventos_nuevos"] += stats["nuevos"]
@@ -1181,11 +1185,12 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
                 detalle={"lugar": lugar["nombre"], "duplicados": stats["duplicados"]},
             )
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)  # Yield event loop between places
 
         except Exception as e:
             total_stats["errores"] += 1
             print(f"  [ERR] Error general: {e}")
+            await asyncio.sleep(0)  # Yield even on error
 
     elapsed = ((datetime.utcnow() - timedelta(hours=5)) - start_time).total_seconds()
     total_stats["duracion_segundos"] = round(elapsed, 1)

@@ -232,13 +232,15 @@ async def _analyze_caption_only(caption: str, lugar_nombre: str, municipio: str)
         # ── FALLBACK: Claude Haiku ──
         if not raw and settings.anthropic_api_key:
             import anthropic
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-            response = client.messages.create(
-                model="claude-haiku-4-20250414",
-                max_tokens=1500, temperature=0,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = response.content[0].text.strip()
+            def _claude_call():
+                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                response = client.messages.create(
+                    model="claude-3-5-haiku-20241022",
+                    max_tokens=1500, temperature=0,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return response.content[0].text.strip()
+            raw = await asyncio.to_thread(_claude_call)
 
         parsed = parse_json_response(raw)
         if not isinstance(parsed, list):
