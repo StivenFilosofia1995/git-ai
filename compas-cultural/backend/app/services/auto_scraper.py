@@ -1444,15 +1444,129 @@ async def scrape_compas_urbano() -> dict:
     return await _impl()
 
 
+async def scrape_db_instagram_sources() -> dict:
+    """Scrape ALL lugares in Supabase that have instagram_handle.
+
+    This is the dedicated Instagram pass: it feeds every colectivo / espacio
+    registered in the DB through the full Smart Listener pipeline
+    (Meta API → direct IG → public scrapers → Google fallback + LLM date parsing).
+    Events are inserted with fuente = 'auto_scraper_instagram' and are immediately
+    visible on Home / Explorar.
+    """
+    print("\n[IG-SOURCES] Scraping Instagram de todos los lugares en BD...")
+
+    try:
+        resp = supabase.table("lugares").select(
+            "id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio"
+        ).not_.is_("instagram_handle", "null").neq("instagram_handle", "").execute()
+        lugares = resp.data or []
+    except Exception as e:
+        print(f"  [ERR] No se pudo consultar lugares: {e}")
+        return {"error": str(e), "eventos_nuevos": 0}
+
+    print(f"   {len(lugares)} lugares con instagram_handle")
+    total = {"lugares": len(lugares), "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
+
+    for i, lugar in enumerate(lugares):
+        nombre = lugar["nombre"]
+        handle = lugar.get("instagram_handle", "")
+        print(f"\n  [{i+1}/{len(lugares)}] @{handle.lstrip('@')} ({nombre})")
+        try:
+            await asyncio.sleep(0)
+            all_events: list[dict] = []
+
+            # ── Smart Listener (Meta API + Vision) ──
+            try:
+                from app.services.smart_listener import smart_scrape_instagram
+                smart_events = await smart_scrape_instagram(lugar)
+                all_events.extend(smart_events)
+                if smart_events:
+                    print(f"    [SMART] {len(smart_events)} evento(s)")
+            except Exception as e:
+                print(f"    [SMART] Error: {e} → fallback")
+                await _scrape_ig_fallback(lugar, all_events)
+
+            if not all_events:
+                print(f"    [SKIP] Sin eventos para @{handle.lstrip('@')}")
+                continue
+
+            from app.services.data_quality import normalizar_evento
+            for ev in all_events:
+                try:
+                    ev.setdefault("nombre_lugar", nombre)
+                    ev.setdefault("municipio", lugar.get("municipio", "medellin"))
+                    ev.setdefault("barrio", lugar.get("barrio"))
+                    clean = normalizar_evento(ev)
+                    if clean is None:
+                        continue
+                    existing = supabase.table("eventos").select("id").eq("slug", clean["slug"]).execute()
+                    if existing.data:
+                        total["duplicados"] += 1
+                        continue
+                    clean.setdefault("espacio_id", lugar["id"])
+                    supabase.table("eventos").insert(clean).execute()
+                    total["eventos_nuevos"] += 1
+                    print(f"    [NEW] {clean['titulo'][:60]}")
+                except Exception as e:
+                    total["errores"] += 1
+                    print(f"    [ERR] {e}")
+
+            await asyncio.sleep(3)  # rate-limit between profiles
+
+        except asyncio.TimeoutError:
+            total["errores"] += 1
+            print(f"    [TIMEOUT] {nombre} superó tiempo límite")
+        except Exception as e:
+            total["errores"] += 1
+            print(f"    [ERR] {nombre}: {e}")
+
+    print(f"\n[IG-SOURCES] Completado: {total['eventos_nuevos']} nuevos, {total['errores']} errores")
+    return total
+
+
 async def scrape_agenda_sources() -> dict:
-    """Scrape independent agenda websites using code-based extraction."""
+    """Scrape agenda websites using code-based extraction.
+
+    Sources:
+    - 15 hardcoded AGENDA_SOURCES (curated media / cultural institutions)
+    - ALL lugares in Supabase that have sitio_web (dynamic, skips instagram-only handles)
+
+    Instagram is handled separately by scrape_db_instagram_sources().
+    """
     from app.services.data_quality import normalizar_evento
     print("\n[AGENDA] Scraping fuentes externas (code-based)...")
 
-    now_co = datetime.utcnow() - timedelta(hours=5)
     total = {"fuentes": 0, "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
 
-    for src in AGENDA_SOURCES:
+    # Build unified source list: hardcoded + dynamic DB places
+    fuentes = list(AGENDA_SOURCES)
+    hardcoded_urls = {s["url"] for s in AGENDA_SOURCES}
+
+    try:
+        db_resp = supabase.table("lugares").select(
+            "id,nombre,sitio_web,categoria_principal,municipio,barrio"
+        ).not_.is_("sitio_web", "null").neq("sitio_web", "").execute()
+
+        added = 0
+        for lugar in (db_resp.data or []):
+            sitio = (lugar.get("sitio_web") or "").strip()
+            if not sitio or "instagram.com" in sitio or sitio in hardcoded_urls:
+                continue
+            fuentes.append({
+                "nombre": lugar["nombre"],
+                "url": sitio,
+                "categoria_default": lugar.get("categoria_principal") or "otro",
+                "municipio": lugar.get("municipio") or "medellin",
+                "espacio_id": lugar["id"],
+            })
+            added += 1
+
+        print(f"   {len(fuentes)} fuentes totales ({len(AGENDA_SOURCES)} fijas + {added} de BD)")
+    except Exception as e:
+        print(f"   [WARN] No se pudo cargar fuentes de BD: {e}")
+        print(f"   {len(AGENDA_SOURCES)} fuentes fijas (BD no disponible)")
+
+    for src in fuentes:
         print(f"\n  [{src['nombre']}] {src['url']}")
         try:
             soup = await _fetch_website_soup(src["url"])
@@ -1491,6 +1605,10 @@ async def scrape_agenda_sources() -> dict:
                     if existing.data:
                         total["duplicados"] += 1
                         continue
+
+                    # Link to lugar in DB if this source came from a DB place
+                    if src.get("espacio_id"):
+                        clean.setdefault("espacio_id", src["espacio_id"])
 
                     supabase.table("eventos").insert(clean).execute()
                     total["eventos_nuevos"] += 1

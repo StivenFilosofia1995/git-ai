@@ -103,6 +103,19 @@ async def _run_image_enrichment():
         _track_failure("image_enrichment", str(e))
 
 
+async def _run_ig_sources():
+    """Job wrapper for scraping ALL DB lugares with instagram_handle."""
+    from app.services.auto_scraper import scrape_db_instagram_sources
+    try:
+        result = await scrape_db_instagram_sources()
+        _log_job("scheduler_ig_sources", ok=True, detalle=result)
+        _reset_failure("ig_sources")
+    except Exception as e:
+        print(f"[ERR] IG sources error: {e}")
+        _log_job("scheduler_ig_sources", ok=False, detalle={"error": str(e)})
+        _track_failure("ig_sources", str(e))
+
+
 async def _run_agenda_alternativa():
     """Job wrapper for alternative agenda scraping (web sources + Compas Urbano API)."""
     from app.services.auto_scraper import scrape_agenda_sources
@@ -221,12 +234,30 @@ def start_scheduler():
             replace_existing=True,
         )
 
+        # Instagram BD sources: cada 8 horas (dedicated IG pass — all lugares with handle)
+        scheduler.add_job(
+            _run_ig_sources,
+            trigger=IntervalTrigger(hours=8),
+            id="ig_sources",
+            name="Instagram BD sources",
+            replace_existing=True,
+        )
+
         # Initial scrape 60 minutes after startup (avoid blocking event loop right away)
         scheduler.add_job(
             _run_scraper_job,
             trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=60)),
             id="auto_scraper_startup",
             name="Initial scrape at startup",
+            replace_existing=True,
+        )
+
+        # Initial IG pass: 90 minutes after startup (after the main scraper)
+        scheduler.add_job(
+            _run_ig_sources,
+            trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=90)),
+            id="ig_sources_startup",
+            name="Initial IG sources pass at startup",
             replace_existing=True,
         )
     else:
@@ -262,9 +293,10 @@ def start_scheduler():
     scheduler.start()
     if not scraper_disabled:
         print("[SCHEDULER] Smart Listener activo:")
-        print("   - Smart scraper: cada 12h (Vision + Meta API + RSS)")
+        print("   - Smart scraper (web+IG via Meta API): cada 12h")
+        print("   - Instagram BD sources (todos los lugares): cada 8h")
         print("   - Imágenes: cada 12h")
-        print("   - Agenda alternativa: cada 24h")
+        print("   - Agenda alternativa (web fijos + BD web): cada 24h")
     print("   - Meta token renewal: cada 7 días")
     print("   - Cleanup eventos: cada 24h")
 
