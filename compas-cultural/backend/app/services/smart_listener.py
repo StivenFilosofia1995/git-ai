@@ -234,13 +234,18 @@ async def _analyze_caption_only(caption: str, lugar_nombre: str, municipio: str)
             import anthropic
             def _claude_call():
                 client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip()
                 response = client.messages.create(
-                    model="claude-3-5-haiku-20241022",
+                    model=model,
                     max_tokens=1500, temperature=0,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 return response.content[0].text.strip()
-            raw = await asyncio.to_thread(_claude_call)
+            try:
+                raw = await asyncio.to_thread(_claude_call)
+            except Exception as e:
+                print(f"  [CAPTION] Error: {e}")
+                raw = None
 
         parsed = parse_json_response(raw)
         if not isinstance(parsed, list):

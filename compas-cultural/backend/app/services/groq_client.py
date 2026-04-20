@@ -58,6 +58,18 @@ def groq_chat(
         resp = client.chat.completions.create(**kwargs)
         return resp.choices[0].message.content.strip()
     except Exception as e:
+        err_str = str(e)
+        # Rate limit on fast model → retry with smart model (different daily quota)
+        if "429" in err_str and model == MODEL_FAST:
+            print(f"  [GROQ] 429 on {MODEL_FAST}, retrying with {MODEL_SMART}")
+            try:
+                kwargs["model"] = MODEL_SMART
+                # Smart model doesn't support json_object reliably with small prompts
+                resp2 = client.chat.completions.create(**kwargs)
+                return resp2.choices[0].message.content.strip()
+            except Exception as e2:
+                print(f"  [GROQ] Error ({MODEL_SMART}): {e2}")
+                return None
         print(f"  [GROQ] Error ({model}): {e}")
         return None
 
