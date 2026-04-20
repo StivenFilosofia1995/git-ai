@@ -1340,199 +1340,18 @@ AGENDA_SOURCES = [
 
 
 # -- Compás Urbano JSON API integration ----------------------------------------
-
-COMPAS_URBANO_CATEGORY_MAP = {
-    1: "arte_contemporaneo",   # Arte y Diseño
-    2: "teatro",               # Artes Escénicas
-    3: "cine",                 # Audiovisual
-    4: "conferencia",          # Conocimiento
-    5: "danza",                # Danza
-    6: "festival",             # Feria y Festival
-    7: "musica_en_vivo",       # Música
-    8: "electronica",          # Vida Nocturna
-    9: "taller",               # Experiencia
-}
-
+# La implementación completa vive en compas_urbano_scraper.py
+# Este alias mantiene compatibilidad con imports directos desde este módulo.
 
 async def scrape_compas_urbano() -> dict:
-    """Scrape events from Compás Urbano's public JSON API."""
-    print("\n[COMPAS URBANO] Scraping eventos desde API JSON...")
-    
-    total = {"eventos_nuevos": 0, "duplicados": 0, "errores": 0}
-    now_co = datetime.utcnow() - timedelta(hours=5)
-    
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-            resp = await client.get("https://www.apicompasurbano.com/Catalog/MacroEventos.json")
-            if resp.status_code != 200:
-                print(f"  [ERR] Status {resp.status_code}")
-                return total
-            events_data = resp.json()
-    except Exception as e:
-        print(f"  [ERR] Failed to fetch: {e}")
-        return total
-
-    for ev in events_data:
-        try:
-            nombre = (ev.get("nombre") or "").strip()
-            if not nombre:
-                continue
-
-            # Parse fecha
-            fecha_str = ev.get("fechaInicio", "")
-            if not fecha_str:
-                continue
-            try:
-                fecha = datetime.fromisoformat(fecha_str.split(".")[0])  # Strip .0000000-05:00
-            except (ValueError, TypeError):
-                continue
-
-            if not _is_valid_event_date(fecha):
-                continue
-
-            # Determine category
-            cat_id = ev.get("categoria", 0)
-            categoria = COMPAS_URBANO_CATEGORY_MAP.get(cat_id, "otro")
-            
-            # Also detect from title/description
-            desc_html = ev.get("descripcion", "") or ""
-            # Strip HTML tags for text analysis
-            desc_text = re.sub(r"<[^>]+>", " ", desc_html).strip()[:500]
-            detected_cat = _detect_category(nombre + " " + desc_text)
-            if detected_cat != "otro":
-                categoria = detected_cat
-
-            slug = _slugify(nombre)
-            
-            # Check for duplicates
-            existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
-            if existing.data:
-                total["duplicados"] += 1
-                continue
-
-            # Parse location
-            lugar = (ev.get("lugar") or "").strip()
-            municipio_raw = (ev.get("municipio") or "").strip().lower()
-            municipio = "medellin"
-            if municipio_raw and municipio_raw != "null":
-                municipio = municipio_raw.lower().replace("í", "i").replace("é", "e").replace(" ", "_")
-
-            # GPS coordinates
-            lat, lng = None, None
-            gps_str = ev.get("gps")
-            if gps_str and gps_str != "null":
-                try:
-                    import json as _json
-                    gps = _json.loads(gps_str) if isinstance(gps_str, str) else gps_str
-                    lat = gps.get("lat")
-                    lng = gps.get("lng")
-                except (ValueError, TypeError):
-                    pass
-
-            # Image URL
-            foto = ev.get("thumbnailFoto") or ev.get("foto") or ""
-            imagen_url = None
-            if foto and foto != "null":
-                if foto.startswith("http"):
-                    imagen_url = foto
-                else:
-                    imagen_url = f"https://www.compasurbano.com/{foto}"
-
-            # Price
-            modo_ingreso = ev.get("modoIngreso") or ""
-            monto_min = ev.get("montoMinimo")
-            monto_max = ev.get("montoMaximo")
-            es_gratuito = modo_ingreso.lower() in ("", "null", "gratuito", "libre") and not monto_min
-            precio = ""
-            if monto_min and monto_max and monto_min != monto_max:
-                precio = f"${monto_min:,.0f} - ${monto_max:,.0f}"
-            elif monto_min:
-                precio = f"${monto_min:,.0f}"
-            elif es_gratuito:
-                precio = "Entrada libre"
-
-            # Build event
-            evento_data = {
-                "titulo": nombre[:200],
-                "slug": slug,
-                "fecha_inicio": fecha.isoformat(),
-                "fecha_fin": None,
-                "categorias": [categoria],
-                "categoria_principal": categoria,
-                "municipio": municipio,
-                "barrio": None,
-                "nombre_lugar": lugar if lugar and lugar != "null" else None,
-                "descripcion": desc_text[:500] if desc_text else None,
-                "precio": precio,
-                "es_gratuito": es_gratuito,
-                "es_recurrente": False,
-                "imagen_url": imagen_url,
-                "fuente": "compas_urbano",
-                "fuente_url": f"https://www.compasurbano.com/eventos/ciudad/{nombre.replace(' ', '-')}/{ev.get('id', '')}",
-                "lat": lat,
-                "lng": lng,
-                "verificado": True,
-            }
-            supabase.table("eventos").insert(evento_data).execute()
-            total["eventos_nuevos"] += 1
-            print(f"    [NEW] {nombre[:60]} | {fecha.strftime('%Y-%m-%d')}")
-
-        except Exception as e:
-            total["errores"] += 1
-
-    # Discovery: extract unique organizers as potential colectivos
-    organizadores_nuevos = await _discover_colectivos_from_compas(events_data)
-    total["colectivos_descubiertos"] = organizadores_nuevos
-
-    print(f"\n[COMPAS URBANO] Completado: {total['eventos_nuevos']} nuevos, {total['duplicados']} duplicados, {organizadores_nuevos} colectivos descubiertos")
-    return total
-
-
-async def _discover_colectivos_from_compas(events_data: list) -> int:
-    """Extract unique organizers from Compás Urbano events and register as colectivos."""
-    organizadores = {}
-    for ev in events_data:
-        org = (ev.get("organizador") or "").strip()
-        if not org or org.lower() in ("null", "", "no especificado"):
-            continue
-        slug = _slugify(org)
-        if slug not in organizadores:
-            municipio_raw = (ev.get("municipio") or "").strip().lower()
-            organizadores[slug] = {
-                "nombre": org,
-                "slug": slug,
-                "municipio": municipio_raw if municipio_raw and municipio_raw != "null" else "medellin",
-            }
-
-    registrados = 0
-    for slug, org_info in organizadores.items():
-        try:
-            existing = supabase.table("lugares").select("id").eq("slug", slug).execute()
-            if existing.data:
-                continue
-            lugar_data = {
-                "nombre": org_info["nombre"][:200],
-                "slug": slug,
-                "tipo": "colectivo",
-                "categorias": [],
-                "categoria_principal": "otro",
-                "municipio": org_info["municipio"].replace("í", "i").replace("é", "e").replace(" ", "_") or "medellin",
-                "descripcion_corta": f"Organizador cultural activo en Compás Urbano",
-                "fuente_datos": "compas_urbano_discovery",
-                "nivel_actividad": "activo",
-                "es_underground": False,
-                "es_institucional": False,
-            }
-            supabase.table("lugares").insert(lugar_data).execute()
-            registrados += 1
-        except Exception:
-            pass
-
-    return registrados
+    """Alias → delega a compas_urbano_scraper (implementación completa con data_quality)."""
+    from app.services.compas_urbano_scraper import scrape_compas_urbano as _impl
+    return await _impl()
 
 
 async def scrape_agenda_sources() -> dict:
     """Scrape independent agenda websites using code-based extraction."""
+    from app.services.data_quality import normalizar_evento
     print("\n[AGENDA] Scraping fuentes externas (code-based)...")
 
     now_co = datetime.utcnow() - timedelta(hours=5)
@@ -1563,48 +1382,24 @@ async def scrape_agenda_sources() -> dict:
 
             for ev in events:
                 try:
-                    titulo = ev.get("titulo")
-                    if not titulo:
+                    # Contexto de la fuente antes de normalizar
+                    ev.setdefault("municipio", src["municipio"])
+                    ev.setdefault("categoria_principal", src["categoria_default"])
+                    ev.setdefault("fuente", f"agenda_{src['nombre'][:30]}")
+                    ev.setdefault("fuente_url", src["url"])
+
+                    clean = normalizar_evento(ev)
+                    if clean is None:
                         continue
 
-                    # Validate date
-                    fecha_str = ev.get("fecha_inicio")
-                    if fecha_str:
-                        try:
-                            fecha_check = datetime.fromisoformat(fecha_str)
-                            if not _is_valid_event_date(fecha_check):
-                                continue
-                        except (ValueError, TypeError):
-                            continue
-                    
-                    slug = _slugify(titulo)
-                    existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
+                    existing = supabase.table("eventos").select("id").eq("slug", clean["slug"]).execute()
                     if existing.data:
                         total["duplicados"] += 1
                         continue
 
-                    evento_data = {
-                        "titulo": titulo,
-                        "slug": slug,
-                        "fecha_inicio": ev.get("fecha_inicio"),
-                        "fecha_fin": ev.get("fecha_fin"),
-                        "categorias": ev.get("categorias", [src["categoria_default"]]),
-                        "categoria_principal": ev.get("categoria_principal", src["categoria_default"]),
-                        "municipio": ev.get("municipio", src["municipio"]),
-                        "barrio": ev.get("barrio"),
-                        "nombre_lugar": ev.get("nombre_lugar"),
-                        "descripcion": ev.get("descripcion"),
-                        "precio": ev.get("precio"),
-                        "es_gratuito": ev.get("es_gratuito", False),
-                        "es_recurrente": ev.get("es_recurrente", False),
-                        "imagen_url": ev.get("imagen_url"),
-                        "fuente": f"agenda_{src['nombre'][:30]}",
-                        "fuente_url": src["url"],
-                        "verificado": False,
-                    }
-                    supabase.table("eventos").insert(evento_data).execute()
+                    supabase.table("eventos").insert(clean).execute()
                     total["eventos_nuevos"] += 1
-                    print(f"    [NEW] {titulo[:60]}")
+                    print(f"    [NEW] {clean['titulo'][:60]}")
 
                 except Exception as e:
                     total["errores"] += 1
