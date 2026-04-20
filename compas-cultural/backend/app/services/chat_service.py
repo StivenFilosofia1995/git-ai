@@ -114,6 +114,17 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
         return cached_response
 
     contexto = _obtener_contexto(request.mensaje)
+    # Truncate context to avoid massive prompts (max ~15K chars ≈ 4K tokens)
+    contexto_json = json.dumps(contexto, ensure_ascii=False, default=str)
+    if len(contexto_json) > 15000:
+        # Trim spaces first (keep events which are more useful)
+        contexto["espacios"] = contexto["espacios"][:8]
+        contexto["espacios_relevantes"] = contexto["espacios_relevantes"][:10]
+        contexto_json = json.dumps(contexto, ensure_ascii=False, default=str)
+    if len(contexto_json) > 15000:
+        contexto["eventos_semana"] = contexto["eventos_semana"][:10]
+        contexto["eventos_hoy"] = contexto["eventos_hoy"][:15]
+        contexto_json = json.dumps(contexto, ensure_ascii=False, default=str)
 
     historial_msgs = [
         {
@@ -125,7 +136,7 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     historial_msgs.append({"role": "user", "content": request.mensaje})
 
     prompt = SYSTEM_PROMPT.format(
-        contexto=json.dumps(contexto, ensure_ascii=False, default=str),
+        contexto=contexto_json,
         fecha_actual_co=_now_co().strftime("%Y-%m-%d %H:%M"),
     )
 
@@ -149,8 +160,8 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
                 model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip()
                 if not model:
                     model = "claude-3-5-haiku-20241022"
-                print(f"[chat] Usando modelo: {model}")
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                print(f"[chat] Usando modelo: {model} | contexto: {len(contexto_json)} chars")
+                client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=25.0)
                 response = client.messages.create(
                     model=model,
                     max_tokens=700,
@@ -170,7 +181,7 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
             print(f"[chat_service] Modelo no encontrado: {exc}")
             # Retry with guaranteed fallback model
             try:
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=25.0)
                 response = client.messages.create(
                     model="claude-3-haiku-20240307",
                     max_tokens=700,
@@ -259,31 +270,56 @@ def _obtener_contexto(mensaje: str) -> Dict:
     if um:
         msg_clean = re.sub(r'\[Ubicación:[^\]]+\]', '', msg_clean).strip()
 
-    # 1. Get more spaces for comprehensive search (100 instead of 15)
-    resp_espacios = (
-        supabase.table("lugares")
-        .select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,descripcion,instagram_handle,sitio_web,direccion,nivel_actividad,telefono,email")
-        .neq("nivel_actividad", "cerrado")
-        .limit(100)
-        .execute()
-    )
-    contexto["espacios"] = resp_espacios.data
+    # Keywords from user query for targeted search
+    keywords = [w for w in msg_clean.lower().split() if len(w) > 2 and w not in ("que", "hay", "hoy", "para", "por", "con", "las", "los", "una", "del", "más", "como", "son", "qué", "esta", "este", "esa", "evento", "eventos", "shay")]
 
-    # 2. Search for spaces matching the query keywords (like a search engine)
-    keywords = [w for w in msg_clean.lower().split() if len(w) > 2 and w not in ("que", "hay", "hoy", "para", "por", "con", "las", "los", "una", "del", "más", "como", "son", "qué")]
+    # 1. Search for spaces matching the query (targeted, not all 600+)
+    # Only send RELEVANT spaces — not the entire database
+    COMPACT_SPACE_FIELDS = "id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,instagram_handle,sitio_web,direccion,telefono"
+    
     if keywords:
         for kw in keywords[:3]:
             resp_kw = (
                 supabase.table("lugares")
-                .select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,instagram_handle,sitio_web,direccion,telefono")
+                .select(COMPACT_SPACE_FIELDS)
                 .or_(f"nombre.ilike.%{kw}%,descripcion.ilike.%{kw}%,barrio.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
                 .neq("nivel_actividad", "cerrado")
-                .limit(20)
+                .limit(15)
                 .execute()
             )
             for e in resp_kw.data:
                 if not any(x["id"] == e["id"] for x in contexto["espacios_relevantes"]):
                     contexto["espacios_relevantes"].append(e)
+    
+    # If zone filter, add spaces from that zone
+    if zona_filtro:
+        zona_parts = zona_filtro.lower().split("–")  # e.g. "Aranjuez – Manrique"
+        for part in zona_parts:
+            part = part.strip()
+            if part:
+                resp_zona = (
+                    supabase.table("lugares")
+                    .select(COMPACT_SPACE_FIELDS)
+                    .or_(f"barrio.ilike.%{part}%,municipio.ilike.%{part}%")
+                    .neq("nivel_actividad", "cerrado")
+                    .limit(15)
+                    .execute()
+                )
+                for e in resp_zona.data:
+                    if not any(x["id"] == e["id"] for x in contexto["espacios_relevantes"]):
+                        contexto["espacios_relevantes"].append(e)
+    
+    # If no keywords matched or first-time greeting, send a curated sample (15 most active)
+    if not contexto["espacios_relevantes"]:
+        resp_sample = (
+            supabase.table("lugares")
+            .select(COMPACT_SPACE_FIELDS)
+            .neq("nivel_actividad", "cerrado")
+            .in_("nivel_actividad", ["muy_activo", "activo"])
+            .limit(15)
+            .execute()
+        )
+        contexto["espacios"] = resp_sample.data
 
     # 3. Events today
     ahora_co = _now_co()
@@ -292,13 +328,15 @@ def _obtener_contexto(mensaje: str) -> Dict:
     hoy = hoy_inicio.strftime("%Y-%m-%dT%H:%M:%S")
     manana = hoy_fin.strftime("%Y-%m-%dT%H:%M:%S")
 
+    COMPACT_EVENT_FIELDS = "id,slug,titulo,categoria_principal,fecha_inicio,barrio,municipio,nombre_lugar,precio,es_gratuito"
+
     resp_hoy = (
         supabase.table("eventos")
-        .select("id,slug,titulo,categoria_principal,fecha_inicio,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")
+        .select(COMPACT_EVENT_FIELDS)
         .gte("fecha_inicio", hoy)
         .lt("fecha_inicio", manana)
         .order("fecha_inicio")
-        .limit(50)
+        .limit(20)
         .execute()
     )
     contexto["eventos_hoy"] = resp_hoy.data
@@ -307,11 +345,11 @@ def _obtener_contexto(mensaje: str) -> Dict:
     semana = (hoy_inicio + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
     resp_semana = (
         supabase.table("eventos")
-        .select("id,slug,titulo,categoria_principal,fecha_inicio,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")
+        .select(COMPACT_EVENT_FIELDS)
         .gte("fecha_inicio", manana)
         .lte("fecha_inicio", semana)
         .order("fecha_inicio")
-        .limit(30)
+        .limit(20)
         .execute()
     )
     contexto["eventos_semana"] = resp_semana.data
@@ -322,11 +360,11 @@ def _obtener_contexto(mensaje: str) -> Dict:
         for kw in keywords[:3]:
             resp_ev_kw = (
                 supabase.table("eventos")
-                .select("id,slug,titulo,categoria_principal,fecha_inicio,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url")
+                .select(COMPACT_EVENT_FIELDS)
                 .gte("fecha_inicio", hoy)
-                .or_(f"titulo.ilike.%{kw}%,descripcion.ilike.%{kw}%,nombre_lugar.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
+                .or_(f"titulo.ilike.%{kw}%,nombre_lugar.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
                 .order("fecha_inicio")
-                .limit(15)
+                .limit(10)
                 .execute()
             )
             for ev in resp_ev_kw.data:
