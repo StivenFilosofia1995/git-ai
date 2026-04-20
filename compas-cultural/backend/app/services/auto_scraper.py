@@ -955,17 +955,31 @@ async def _scrape_lugar(lugar: dict) -> dict:
     if sitio and "instagram.com" not in sitio:
         print(f"  [WEB] {sitio}")
 
-        # Try RSS first (most reliable for recurring content)
+        # Try RSS first (most reliable for recurring content — 0 tokens LLM)
+        _rss_found = False
         if use_smart:
             try:
                 feed_url = await discover_rss_feed(sitio)
                 if feed_url:
                     rss_events = await parse_rss_events(feed_url, lugar)
                     all_events.extend(rss_events)
+                    _rss_found = bool(rss_events)
                     if rss_events:
-                        print(f"    [RSS] {len(rss_events)} evento(s) via RSS feed")
+                        print(f"    [RSS] {len(rss_events)} evento(s) via smart_listener")
             except Exception as e:
-                print(f"    [RSS] Error: {e}")
+                print(f"    [RSS smart] Error: {e}")
+        if not _rss_found:
+            # Fallback: rss_scraper module (también hace auto-descubrimiento)
+            try:
+                from app.services.rss_scraper import get_or_discover_feed, parse_rss_events as _rss_parse
+                feed_url2 = await get_or_discover_feed(sitio)
+                if feed_url2:
+                    rss_events2 = await _rss_parse(feed_url2, lugar)
+                    all_events.extend(rss_events2)
+                    if rss_events2:
+                        print(f"    [RSS] {len(rss_events2)} evento(s) via rss_scraper")
+            except Exception as e:
+                print(f"    [RSS fallback] Error: {e}")
 
         # Then try structured HTML
         soup = await _fetch_website_soup(sitio)
@@ -1009,58 +1023,34 @@ async def _scrape_lugar(lugar: dict) -> dict:
             if events:
                 print(f"    [OK] {len(events)} evento(s) via Google")
 
-    # 4. Insert events into DB
+    # 4. Insert events into DB — con normalización via data_quality
+    from app.services.data_quality import normalizar_evento
     stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
-    now_co = datetime.utcnow() - timedelta(hours=5)
 
     for ev in all_events:
         try:
-            titulo = ev.get("titulo")
-            if not titulo:
+            # Asegurar campos de contexto antes de normalizar
+            ev.setdefault("nombre_lugar", nombre)
+            ev.setdefault("municipio", lugar.get("municipio", "medellin"))
+            ev.setdefault("barrio", lugar.get("barrio"))
+
+            # Normalizar y validar (descarta fechas pasadas, municipios inválidos, etc.)
+            clean = normalizar_evento(ev)
+            if clean is None:
                 continue
 
-            fecha_str = ev.get("fecha_inicio")
-            if not fecha_str:
-                continue
-
-            try:
-                fecha = datetime.fromisoformat(fecha_str)
-                if not _is_valid_event_date(fecha):
-                    print(f"    [SKIP] Fecha invalida: {fecha_str} para '{titulo[:40]}'")
-                    continue
-            except (ValueError, TypeError):
-                continue
-
-            slug = _slugify(titulo)
-
-            existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
+            # Dedup por slug
+            existing = supabase.table("eventos").select("id").eq("slug", clean["slug"]).execute()
             if existing.data:
                 stats["duplicados"] += 1
                 continue
 
-            evento_data = {
-                "titulo": titulo,
-                "slug": slug,
-                "espacio_id": lugar_id,
-                "fecha_inicio": fecha.isoformat(),
-                "fecha_fin": ev.get("fecha_fin"),
-                "categorias": ev.get("categorias", ["otro"]),
-                "categoria_principal": ev.get("categoria_principal", "otro"),
-                "municipio": ev.get("municipio", "medellin"),
-                "barrio": ev.get("barrio"),
-                "nombre_lugar": nombre,
-                "descripcion": ev.get("descripcion"),
-                "precio": ev.get("precio"),
-                "es_gratuito": ev.get("es_gratuito", False),
-                "es_recurrente": ev.get("es_recurrente", False),
-                "imagen_url": ev.get("imagen_url"),
-                "fuente": ev.get("fuente", "auto_scraper_code"),
-                "fuente_url": ev.get("fuente_url"),
-                "verificado": False,
-            }
-            supabase.table("eventos").insert(evento_data).execute()
+            # espacio_id no lo maneja normalizar_evento, lo agregamos aquí
+            clean["espacio_id"] = lugar_id
+
+            supabase.table("eventos").insert(clean).execute()
             stats["nuevos"] += 1
-            print(f"    [NEW] {titulo[:60]}")
+            print(f"    [NEW] {clean['titulo'][:60]}")
 
         except Exception as e:
             stats["errores"] += 1
@@ -1141,28 +1131,37 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
     if limit:
         lugares = lugares[:limit]
 
-    # Sort by priority
+    # Cola de prioridad desde DB — persistente entre reinicios (1 sola query)
+    import random
     try:
-        from app.services.smart_listener import get_scrape_priority
-        prioritized = []
-        for lugar in lugares:
-            priority = await get_scrape_priority(lugar["id"])
-            prioritized.append((priority, lugar))
-        # High first, then normal, then low
-        priority_order = {"high": 0, "normal": 1, "low": 2}
-        prioritized.sort(key=lambda x: priority_order.get(x[0], 1))
-        
-        # Skip some low-priority sources (scrape them every 3rd run)
-        import random
+        state_resp = supabase.table("scraping_state").select(
+            "lugar_id,last_scraped_at,consecutive_empty,events_found"
+        ).execute()
+        state_map = {s["lugar_id"]: s for s in (state_resp.data or [])}
+
+        def _priority_key(l):
+            s = state_map.get(l["id"])
+            if not s:
+                return (0, "1970-01-01")  # nunca scrapeado → máxima prioridad
+            last = s.get("last_scraped_at") or "1970-01-01"
+            empty = s.get("consecutive_empty", 0)
+            tier = 2 if empty >= 5 else 1  # 1=normal, 2=baja actividad
+            return (tier, last)
+
+        lugares.sort(key=_priority_key)
+
+        # Skip 67% de los que tienen 5+ empties consecutivos
         filtered = []
-        for priority, lugar in prioritized:
-            if priority == "low" and random.random() > 0.33:
+        for lugar in lugares:
+            s = state_map.get(lugar["id"])
+            empty = s.get("consecutive_empty", 0) if s else 0
+            if empty >= 5 and random.random() > 0.33:
                 continue
             filtered.append(lugar)
         lugares = filtered
-        print(f"   {len(lugares)} lugares a scrapear (priorizados)")
-    except Exception:
-        print(f"   {len(lugares)} lugares a scrapear")
+        print(f"   {len(lugares)} lugares a scrapear (DB-prioridad, 1 query)")
+    except Exception as e:
+        print(f"   {len(lugares)} lugares a scrapear (sin prioridad: {e})")
 
     total_stats = {"lugares_procesados": 0, "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
     start_time = datetime.utcnow() - timedelta(hours=5)
