@@ -44,9 +44,14 @@ class Settings(BaseSettings):
     # Resend (alternative to SMTP — easier setup: https://resend.com)
     resend_api_key: str = ""
 
+    # Groq AI (fast/cheap LLM for scraping — replaces Claude for non-chat tasks)
+    groq_api_key: str = ""
+
     # Meta (Instagram/Facebook) Graph API
     meta_access_token: str = ""
     meta_ig_business_account_id: str = ""
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
 
     @property
     def effective_cors_origins(self) -> List[str]:

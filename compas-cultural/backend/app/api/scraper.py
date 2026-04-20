@@ -100,6 +100,56 @@ async def trigger_enrich_images(background_tasks: BackgroundTasks):
     return {"status": "started", "message": "Enriquecimiento de imágenes iniciado"}
 
 
+@router.get("/status")
+async def get_scraper_status():
+    """Get Smart Listener health status: Meta token, scraping stats, priorities."""
+    from app.database import supabase
+
+    status = {"smart_listener": "active"}
+
+    # Meta token health
+    try:
+        from app.services.meta_token_manager import check_token_health
+        status["meta_token"] = await check_token_health()
+    except Exception as e:
+        status["meta_token"] = {"status": "error", "message": str(e)}
+
+    # Scraping stats
+    try:
+        # Total eventos
+        ev_resp = supabase.table("eventos").select("id", count="exact").execute()
+        status["total_eventos"] = ev_resp.count
+
+        # Eventos from Smart Listener (Vision)
+        vision_resp = supabase.table("eventos").select("id", count="exact").like(
+            "fuente", "%smart_listener%"
+        ).execute()
+        status["eventos_smart_listener"] = vision_resp.count
+
+        # Total lugares
+        lug_resp = supabase.table("lugares").select("id", count="exact").execute()
+        status["total_lugares"] = lug_resp.count
+
+        # Scraping state summary
+        try:
+            state_resp = supabase.table("scraping_state").select("*").execute()
+            if state_resp.data:
+                high = sum(1 for s in state_resp.data if (s.get("events_found") or 0) > 0)
+                low = sum(1 for s in state_resp.data if (s.get("consecutive_empty") or 0) >= 5)
+                status["scraping_priorities"] = {
+                    "high": high,
+                    "normal": len(state_resp.data) - high - low,
+                    "low": low,
+                }
+        except Exception:
+            pass
+
+    except Exception as e:
+        status["db_error"] = str(e)
+
+    return status
+
+
 @router.post("/agenda-alternativa", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_agenda_alternativa(background_tasks: BackgroundTasks):
     """Scrape fuentes de agenda alternativa e independiente."""

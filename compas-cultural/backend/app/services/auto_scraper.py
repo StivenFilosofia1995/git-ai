@@ -12,7 +12,6 @@ import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional
 
-import anthropic
 import httpx
 from bs4 import BeautifulSoup
 
@@ -743,11 +742,13 @@ def _extract_events_from_ig_text(text: str, lugar: dict) -> list[dict]:
     return events
 
 
-async def _extract_events_from_ig_with_claude(ig_text: str, lugar: dict) -> list[dict]:
-    """Fallback: usa Claude para parsear captions de Instagram cuando el regex no encuentra fechas.
-    Solo se invoca si _extract_events_from_ig_text retorna 0 eventos.
+async def _extract_events_from_ig_with_llm(ig_text: str, lugar: dict) -> list[dict]:
+    """Use Groq (free) to parse Instagram captions when regex fails.
+    Falls back to Claude only if Groq is unavailable.
     """
-    if not settings.anthropic_api_key:
+    from app.services.groq_client import groq_chat, parse_json_response, MODEL_FAST
+
+    if not settings.groq_api_key and not settings.anthropic_api_key:
         return []
 
     now_co = datetime.utcnow() - timedelta(hours=5)
@@ -785,7 +786,7 @@ POSTS:
 {ig_text[:6000]}
 """
 
-    # Strip very long image URLs to save tokens and prevent JSON truncation
+    # Strip very long image URLs to save tokens
     prompt = re.sub(
         r"\[IMAGE_URL: https?://[^\]]{200,}\]",
         "[IMAGE_URL: (url removed for brevity)]",
@@ -793,23 +794,31 @@ POSTS:
     )
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip() or "claude-3-5-haiku-20241022"
-        response = client.messages.create(
-            model=model,
-            max_tokens=2500,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.content[0].text.strip() if response.content else "[]"
-        # Strip markdown code fences if present
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-        parsed = json.loads(raw)
+        raw = None
+
+        # ── PRIMARY: Groq (FREE) ──
+        if settings.groq_api_key:
+            raw = await asyncio.to_thread(groq_chat, prompt, MODEL_FAST, 2500, 0, True)
+            if raw:
+                print(f"  [IG LLM] Using Groq (FREE)")
+
+        # ── FALLBACK: Claude ──
+        if not raw and settings.anthropic_api_key:
+            import anthropic
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            model = (settings.anthropic_model or "claude-haiku-4-20250414").strip()
+            response = client.messages.create(
+                model=model, max_tokens=2500, temperature=0,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response.content[0].text.strip() if response.content else "[]"
+            print(f"  [IG LLM] Fallback to Claude (costs tokens)")
+
+        parsed = parse_json_response(raw)
         if not isinstance(parsed, list):
             return []
     except Exception as e:
-        print(f"  [IG Claude] Error parseando IG con Claude: {e}")
+        print(f"  [IG LLM] Error: {e}")
         return []
 
     events = []
@@ -842,32 +851,63 @@ POSTS:
             "categorias": [_detect_category(titulo + " " + (item.get("descripcion") or ""))],
             "municipio": municipio,
             "barrio": lugar.get("barrio"),
-            "fuente": "auto_scraper_ig_claude",
+            "fuente": "auto_scraper_ig_groq",
             "fuente_url": item.get("permalink") or f"https://instagram.com/{ig_handle.lstrip('@')}",
         })
 
     if events:
-        print(f"  [IG Claude] ✓ {len(events)} evento(s) extraídos por Claude")
+        print(f"  [IG LLM] ✓ {len(events)} evento(s) extraídos por Groq")
     return events
 
 
 # -- Core: scrape a single lugar -----------------------------------------------
 
 async def _scrape_lugar(lugar: dict) -> dict:
-    """Scrape website + Instagram for a single lugar using CODE (no AI)."""
+    """Scrape website + Instagram for a single lugar using Smart Listener.
+    
+    Pipeline:
+    1. Check scrape priority (skip low-priority sources if needed)
+    2. Website: RSS → structured HTML → text extraction
+    3. Instagram: Meta API + Claude Vision for flyer images
+    4. Change detection: only process new content
+    5. Insert events into DB
+    """
     lugar_id = lugar["id"]
     nombre = lugar["nombre"]
     all_events = []
 
-    # 1. Scrape website (structured HTML extraction)
+    # 0. Import smart listener utilities
+    try:
+        from app.services.smart_listener import (
+            has_content_changed, update_scraping_state, increment_empty_count,
+            discover_rss_feed, parse_rss_events, smart_scrape_instagram,
+        )
+        use_smart = True
+    except ImportError:
+        use_smart = False
+
+    # 1. Scrape website (structured HTML extraction + RSS)
     sitio = lugar.get("sitio_web")
-    if sitio:
+    if sitio and "instagram.com" not in sitio:
         print(f"  [WEB] {sitio}")
+
+        # Try RSS first (most reliable for recurring content)
+        if use_smart:
+            try:
+                feed_url = await discover_rss_feed(sitio)
+                if feed_url:
+                    rss_events = await parse_rss_events(feed_url, lugar)
+                    all_events.extend(rss_events)
+                    if rss_events:
+                        print(f"    [RSS] {len(rss_events)} evento(s) via RSS feed")
+            except Exception as e:
+                print(f"    [RSS] Error: {e}")
+
+        # Then try structured HTML
         soup = await _fetch_website_soup(sitio)
         if soup:
             events = _extract_events_from_html(soup, lugar, sitio)
             if not events:
-                # Fallback: try text-based extraction
                 text = soup.get_text(separator="\n", strip=True)
                 if text and len(text) > 100:
                     events = _extract_events_from_text(text, lugar, sitio)
@@ -875,34 +915,32 @@ async def _scrape_lugar(lugar: dict) -> dict:
             if events:
                 print(f"    [OK] {len(events)} evento(s) encontrados via codigo")
 
-    # 2. Scrape Instagram
+    # 2. Scrape Instagram with Smart Listener (Vision + Meta API)
     ig_handle = lugar.get("instagram_handle")
-    ig_content = None  # Save raw content for Claude fallback
     if ig_handle:
         print(f"  [IG] {ig_handle}")
-        ig_content = await _fetch_instagram_profile(ig_handle)
-        if ig_content and len(ig_content) > 100:
-            events = _extract_events_from_ig_text(ig_content, lugar)
-            if events:
-                all_events.extend(events)
-                print(f"    [OK] {len(events)} evento(s) de Instagram (regex)")
-            else:
-                # Fallback: use Claude to parse informal dates ("este sábado", "mañana", etc.)
-                print(f"  [IG] Regex no encontró fechas, intentando con Claude...")
-                events = await _extract_events_from_ig_with_claude(ig_content, lugar)
-                all_events.extend(events)
-                if events:
-                    print(f"    [OK] {len(events)} evento(s) de Instagram (Claude)")
+        if use_smart:
+            # Smart path: Meta API + Claude Vision for flyer images
+            try:
+                smart_events = await smart_scrape_instagram(lugar)
+                all_events.extend(smart_events)
+                if smart_events:
+                    print(f"    [SMART] {len(smart_events)} evento(s) via Smart Listener")
+            except Exception as e:
+                print(f"    [SMART] Error: {e}")
+                # Fallback to original IG scraping
+                await _scrape_ig_fallback(lugar, all_events)
+        else:
+            await _scrape_ig_fallback(lugar, all_events)
 
-    # 3. Google search fallback (when IG fails or isn't available)
+    # 3. Google search fallback (when nothing else works)
     if not all_events:
         print(f"  [Google] Buscando eventos en Google para '{nombre}'...")
         google_text = await _search_google_events(nombre, lugar.get("municipio", "medellin"), ig_handle or "")
         if google_text and len(google_text) > 200:
             events = _extract_events_from_text(google_text, lugar, "https://google.com")
-            if not events and settings.anthropic_api_key:
-                # Use Claude to parse Google results
-                events = await _extract_events_from_ig_with_claude(google_text, lugar)
+            if not events and (settings.groq_api_key or settings.anthropic_api_key):
+                events = await _extract_events_from_ig_with_llm(google_text, lugar)
             all_events.extend(events)
             if events:
                 print(f"    [OK] {len(events)} evento(s) via Google")
@@ -963,7 +1001,38 @@ async def _scrape_lugar(lugar: dict) -> dict:
             stats["errores"] += 1
             print(f"    [ERR] Error insertando evento: {e}")
 
+    # 5. Update scraping state for smart scheduling
+    if use_smart:
+        try:
+            content_key = f"{lugar.get('sitio_web', '')}_{lugar.get('instagram_handle', '')}"
+            if stats["nuevos"] > 0:
+                await update_scraping_state(lugar_id, content_key, stats["nuevos"])
+            else:
+                await increment_empty_count(lugar_id)
+        except Exception:
+            pass
+
     return stats
+
+
+async def _scrape_ig_fallback(lugar: dict, all_events: list):
+    """Fallback Instagram scraping when Smart Listener is unavailable."""
+    ig_handle = lugar.get("instagram_handle")
+    if not ig_handle:
+        return
+
+    ig_content = await _fetch_instagram_profile(ig_handle)
+    if ig_content and len(ig_content) > 100:
+        events = _extract_events_from_ig_text(ig_content, lugar)
+        if events:
+            all_events.extend(events)
+            print(f"    [OK] {len(events)} evento(s) de Instagram (regex)")
+        else:
+            print(f"  [IG] Regex no encontró fechas, intentando con Claude...")
+            events = await _extract_events_from_ig_with_llm(ig_content, lugar)
+            all_events.extend(events)
+            if events:
+                print(f"    [OK] {len(events)} evento(s) de Instagram (Claude)")
 
 
 # -- Logging -------------------------------------------------------------------
@@ -985,10 +1054,15 @@ def _log_scraping(fuente: str, registros_nuevos: int, errores: int, detalle: dic
 # -- Main entry points ---------------------------------------------------------
 
 async def run_auto_scraper(limit: Optional[int] = None) -> dict:
-    """Scrape all active lugares with code-based extraction (NO Claude)."""
-    print("\n[SCRAPER] ================================================")
-    print("   AUTO-SCRAPER iniciando (Meta API + scrapers + Claude fallback)")
-    print("==========================================================")
+    """Smart auto-scraper with priority-based scheduling.
+    
+    - High priority sources (recently had events): always scraped
+    - Normal priority: scraped on every run
+    - Low priority (5+ consecutive empties): scraped every 3rd run
+    """
+    print("\n[SCRAPER] ════════════════════════════════════════════════")
+    print("   SMART LISTENER — Meta API + Vision + RSS + Code")
+    print("═══════════════════════════════════════════════════════════")
 
     query = supabase.table("lugares").select(
         "id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio"
@@ -1001,6 +1075,29 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
 
     if limit:
         lugares = lugares[:limit]
+
+    # Sort by priority
+    try:
+        from app.services.smart_listener import get_scrape_priority
+        prioritized = []
+        for lugar in lugares:
+            priority = await get_scrape_priority(lugar["id"])
+            prioritized.append((priority, lugar))
+        # High first, then normal, then low
+        priority_order = {"high": 0, "normal": 1, "low": 2}
+        prioritized.sort(key=lambda x: priority_order.get(x[0], 1))
+        
+        # Skip some low-priority sources (scrape them every 3rd run)
+        import random
+        filtered = []
+        for priority, lugar in prioritized:
+            if priority == "low" and random.random() > 0.33:
+                continue
+            filtered.append(lugar)
+        lugares = filtered
+        print(f"   {len(lugares)} lugares a scrapear (priorizados)")
+    except Exception:
+        print(f"   {len(lugares)} lugares a scrapear")
 
     total_stats = {"lugares_procesados": 0, "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
     start_time = datetime.utcnow() - timedelta(hours=5)
