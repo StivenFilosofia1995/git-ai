@@ -53,9 +53,23 @@ async def trigger_lugar_scraper_publico(lugar_id: str):
             "lugar_id": lugar_id,
             "result": {},
         }
+
+    nuevos = result.get("nuevos", 0)
+    duplicados = result.get("duplicados", 0)
+    nombre = result.get("lugar", "")
+
+    if nuevos > 0:
+        msg = f"¡Se encontraron {nuevos} evento(s) nuevos para {nombre}!"
+    elif duplicados > 0:
+        msg = f"La agenda de {nombre} ya está actualizada ({duplicados} evento(s) ya guardados)."
+    elif result.get("error"):
+        msg = f"No se encontró información: {result['error']}"
+    else:
+        msg = f"Se buscó en web e Instagram de {nombre} pero no se encontraron próximos eventos publicados."
+
     return {
         "status": "completed",
-        "message": f"Búsqueda completada: {result.get('nuevos', 0)} eventos encontrados.",
+        "message": msg,
         "lugar_id": lugar_id,
         "result": result,
     }

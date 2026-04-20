@@ -161,7 +161,36 @@ export default function EspacioDetalle() {
               <p className="text-xs font-mono text-neutral-500 mb-3 border border-neutral-300 px-3 py-2">{scrapeMsg}</p>
             )}
             {eventos.length === 0 ? (
-              <p className="font-mono text-sm">No hay eventos próximos programados en este espacio.</p>
+              <div className="space-y-3">
+                <p className="font-mono text-sm">No hay eventos próximos programados en este espacio.</p>
+                {scrapeMsg && (espacio.instagram_handle || espacio.sitio_web) && (
+                  <div className="border-2 border-black p-4 bg-neutral-50">
+                    <p className="font-mono text-xs font-bold uppercase tracking-wider mb-3">CONSULTAR DIRECTAMENTE:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {espacio.instagram_handle && (
+                        <a
+                          href={`https://instagram.com/${espacio.instagram_handle.replace(/^@/, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-xs font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
+                        >
+                          📸 Ver Instagram
+                        </a>
+                      )}
+                      {espacio.sitio_web && (
+                        <a
+                          href={espacio.sitio_web}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-xs font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
+                        >
+                          🌐 Ver sitio web
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="space-y-0 border-2 border-black">
                 {eventos.map(ev => {

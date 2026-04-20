@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # Anthropic (Claude) — only used for chat, app works without it
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-20250514"
+    anthropic_model: str = "claude-3-5-haiku-20241022"
 
     # CORS — accepts JSON array string or comma-separated list
     cors_origins: Union[List[str], str] = "http://localhost:3000,http://localhost:5173,http://localhost:5174"
