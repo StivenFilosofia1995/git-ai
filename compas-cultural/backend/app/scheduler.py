@@ -83,35 +83,53 @@ def start_scheduler():
     - Meta token renewal: every 7 days
     - Event cleanup: every 24 hours
     - Initial scrape: 5 minutes after startup
+
+    Set DISABLE_SCRAPER=true in Railway env to skip scraping jobs when an
+    external worker (AI_CULTURE II) is handling scraping instead.
     """
-    # Smart scraper: every 12 hours
-    scheduler.add_job(
-        _run_scraper_job,
-        trigger=IntervalTrigger(hours=12),
-        id="auto_scraper",
-        name="Smart Listener (Vision + Meta API + RSS)",
-        replace_existing=True,
-    )
+    import os
+    scraper_disabled = os.getenv("DISABLE_SCRAPER", "false").lower() in ("true", "1", "yes")
 
-    # Enriquecer imágenes: cada 12 horas
-    scheduler.add_job(
-        _run_image_enrichment,
-        trigger=IntervalTrigger(hours=12),
-        id="image_enrichment",
-        name="Enriquecimiento de imágenes",
-        replace_existing=True,
-    )
+    if not scraper_disabled:
+        # Smart scraper: every 12 hours
+        scheduler.add_job(
+            _run_scraper_job,
+            trigger=IntervalTrigger(hours=12),
+            id="auto_scraper",
+            name="Smart Listener (Vision + Meta API + RSS)",
+            replace_existing=True,
+        )
 
-    # Agenda alternativa: cada 24 horas
-    scheduler.add_job(
-        _run_agenda_alternativa,
-        trigger=IntervalTrigger(hours=24),
-        id="agenda_alternativa",
-        name="Agenda alternativa",
-        replace_existing=True,
-    )
+        # Enriquecer imágenes: cada 12 horas
+        scheduler.add_job(
+            _run_image_enrichment,
+            trigger=IntervalTrigger(hours=12),
+            id="image_enrichment",
+            name="Enriquecimiento de imágenes",
+            replace_existing=True,
+        )
 
-    # Meta token renewal: cada 7 días
+        # Agenda alternativa: cada 24 horas
+        scheduler.add_job(
+            _run_agenda_alternativa,
+            trigger=IntervalTrigger(hours=24),
+            id="agenda_alternativa",
+            name="Agenda alternativa",
+            replace_existing=True,
+        )
+
+        # Initial scrape 60 minutes after startup (avoid blocking event loop right away)
+        scheduler.add_job(
+            _run_scraper_job,
+            trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=60)),
+            id="auto_scraper_startup",
+            name="Initial scrape at startup",
+            replace_existing=True,
+        )
+    else:
+        print("[SCHEDULER] DISABLE_SCRAPER=true — scraping jobs skipped (external worker active)")
+
+    # Meta token renewal: cada 7 días (always runs — worker II doesn't manage this)
     scheduler.add_job(
         _renew_meta_token,
         trigger=IntervalTrigger(days=7),
@@ -120,21 +138,12 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Event cleanup: cada 24 horas
+    # Event cleanup: cada 24 horas (always runs)
     scheduler.add_job(
         _cleanup_old_events,
         trigger=IntervalTrigger(hours=24),
         id="event_cleanup",
         name="Cleanup expired events",
-        replace_existing=True,
-    )
-
-    # Initial scrape 60 minutes after startup (avoid blocking event loop right away)
-    scheduler.add_job(
-        _run_scraper_job,
-        trigger=DateTrigger(run_date=datetime.now() + timedelta(minutes=60)),
-        id="auto_scraper_startup",
-        name="Initial scrape at startup",
         replace_existing=True,
     )
 
@@ -148,13 +157,13 @@ def start_scheduler():
     )
 
     scheduler.start()
-    print("[SCHEDULER] Smart Listener activo:")
-    print("   - Smart scraper: cada 12h (Vision + Meta API + RSS)")
-    print("   - Imágenes: cada 12h")
-    print("   - Agenda alternativa: cada 24h")
+    if not scraper_disabled:
+        print("[SCHEDULER] Smart Listener activo:")
+        print("   - Smart scraper: cada 12h (Vision + Meta API + RSS)")
+        print("   - Imágenes: cada 12h")
+        print("   - Agenda alternativa: cada 24h")
     print("   - Meta token renewal: cada 7 días")
     print("   - Cleanup eventos: cada 24h")
-    print("   Smart Listener activo — Vision + Meta API + RSS")
 
 
 def stop_scheduler():
