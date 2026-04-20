@@ -1,4 +1,3 @@
-"""RequireAuth — guard que redirige a /login si el usuario no está autenticado."""
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
 

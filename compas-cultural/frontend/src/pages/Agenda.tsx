@@ -277,7 +277,7 @@ export default function Agenda() {
             ))}
           </div>
 
-          {/* Zone filter */}}
+          {/* Zone filter */}
           {zonas.length > 0 && (
             <select
               value={zonaFilter}
