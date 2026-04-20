@@ -5,9 +5,10 @@ interface CategoryFilterProps {
 
 export default function CategoryFilter({ categoriasSeleccionadas, onCategoriaToggle }: Readonly<CategoryFilterProps>) {
   const categorias = [
-    'teatro', 'hip-hop', 'jazz', 'musica_en_vivo', 'electronica',
-    'galeria', 'arte_contemporaneo', 'libreria', 'editorial',
-    'poesia', 'filosofia', 'cine', 'danza', 'festival'
+    'teatro', 'rock', 'hip_hop', 'jazz', 'musica_en_vivo', 'electronica',
+    'galeria', 'arte_contemporaneo', 'libreria', 'poesia',
+    'filosofia', 'cine', 'danza', 'festival', 'fotografia',
+    'taller', 'conferencia',
   ]
 
   return (

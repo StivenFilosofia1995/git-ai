@@ -103,7 +103,7 @@ export default function Home() {
         <div className="animate-marquee whitespace-nowrap flex gap-8">
           {Array.from({ length: 2 }, (_, j) => (
             <span key={j} className="flex gap-8">
-              {['TEATRO', 'JAZZ', 'HIP-HOP', 'GALERÍAS', 'DANZA', 'ELECTRÓNICA', 'POESÍA', 'CINE', 'MURALISMO', 'FREESTYLE', 'EDITORIAL', 'CIRCO', 'FOTOGRAFÍA', 'SPOKEN WORD'].map(cat => (
+              {['TEATRO', 'ROCK', 'METAL', 'JAZZ', 'HIP-HOP', 'GALERÍAS', 'DANZA', 'ELECTRÓNICA', 'POESÍA', 'CINE', 'MURALISMO', 'FREESTYLE', 'EDITORIAL', 'CIRCO', 'FOTOGRAFÍA', 'PUNK'].map(cat => (
                 <span key={`${j}-${cat}`} className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase flex items-center gap-3">
                   <span className="w-1.5 h-1.5 bg-white" />
                   {cat}

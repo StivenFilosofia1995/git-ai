@@ -36,17 +36,21 @@ const TIME_LABELS: Record<TimeFilter, string> = {
 const CAT_OPTIONS = [
   { value: '', label: 'Todas' },
   { value: 'teatro', label: 'Teatro' },
+  { value: 'rock', label: 'Rock / Metal' },
   { value: 'hip_hop', label: 'Hip Hop' },
   { value: 'jazz', label: 'Jazz' },
   { value: 'galeria', label: 'Galerías' },
+  { value: 'arte_contemporaneo', label: 'Arte Contemporáneo' },
   { value: 'libreria', label: 'Librerías' },
-  { value: 'casa_cultura', label: 'Casas Cultura' },
   { value: 'electronica', label: 'Electrónica' },
   { value: 'danza', label: 'Danza' },
-  { value: 'batalla_freestyle', label: 'Freestyle' },
   { value: 'musica_en_vivo', label: 'Música en vivo' },
   { value: 'poesia', label: 'Poesía' },
-  { value: 'arte_contemporaneo', label: 'Arte contemporáneo' },
+  { value: 'cine', label: 'Cine' },
+  { value: 'festival', label: 'Festivales' },
+  { value: 'fotografia', label: 'Fotografía' },
+  { value: 'taller', label: 'Talleres' },
+  { value: 'conferencia', label: 'Conferencias' },
 ]
 
 export default function Agenda() {

@@ -34,9 +34,10 @@ async def _run_image_enrichment():
 
 async def _run_agenda_alternativa():
     """Job wrapper for alternative agenda scraping."""
-    from app.services.auto_scraper import scrape_agenda_sources
+    from app.services.auto_scraper import scrape_agenda_sources, scrape_compas_urbano
     try:
         await scrape_agenda_sources()
+        await scrape_compas_urbano()
     except Exception as e:
         print(f"[ERR] Agenda alternativa error: {e}")
 

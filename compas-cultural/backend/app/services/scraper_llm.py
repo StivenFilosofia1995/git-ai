@@ -37,7 +37,7 @@ Extrae la información en formato JSON con esta estructura exacta:
   "espacio": {{
     "nombre": "nombre del espacio o lugar",
     "tipo": "espacio_fisico | colectivo | festival | editorial | publicacion | programa_institucional | red_articuladora | sello_discografico",
-    "categoria_principal": "teatro | hip_hop | jazz | musica_en_vivo | electronica | galeria | arte_contemporaneo | libreria | editorial | poesia | filosofia | cine | danza | circo | fotografia | casa_cultura | centro_cultural | festival | batalla_freestyle | muralismo | radio_comunitaria | publicacion | otro",
+    "categoria_principal": "teatro | hip_hop | jazz | rock | musica_en_vivo | electronica | galeria | arte_contemporaneo | libreria | editorial | poesia | filosofia | cine | danza | circo | fotografia | casa_cultura | centro_cultural | festival | batalla_freestyle | muralismo | radio_comunitaria | publicacion | otro",
     "categorias": ["lista de categorias aplicables"],
     "municipio": "medellin | bello | itagui | envigado | sabaneta | caldas | la_estrella | copacabana | girardota | barbosa",
     "barrio": "nombre del barrio",
@@ -240,14 +240,45 @@ async def _fetch_instagram_smart(url: str) -> tuple[dict | None, list[dict]]:
 
 
 async def _extract_espacio_from_ig(handle: str, captions_text: str) -> dict | None:
-    """Extract espacio/colectivo info from Instagram captions using Groq (free)."""
+    """Extract espacio/colectivo info from Instagram captions + bio using Groq (free)."""
     default = {"nombre": handle, "instagram_handle": f"@{handle}", "tipo": "colectivo", "municipio": "medellin"}
 
     if not settings.groq_api_key and not settings.anthropic_api_key:
         return default
 
+    # Try to fetch bio from Meta API for richer context
+    bio_text = ""
+    try:
+        if settings.meta_access_token and settings.meta_ig_business_account_id:
+            async with httpx.AsyncClient(timeout=10) as client:
+                ig_account_id = settings.meta_ig_business_account_id
+                resp = await client.get(
+                    f"https://graph.facebook.com/v21.0/{ig_account_id}",
+                    params={
+                        "fields": f"business_discovery.fields(biography,name,website,followers_count).username({handle})",
+                        "access_token": settings.meta_access_token,
+                    }
+                )
+                if resp.status_code == 200:
+                    bd = resp.json().get("business_discovery", {})
+                    bio = bd.get("biography", "")
+                    name = bd.get("name", "")
+                    website = bd.get("website", "")
+                    followers = bd.get("followers_count", 0)
+                    if bio:
+                        bio_text = f"\nBIO de Instagram: {bio}"
+                    if name:
+                        bio_text += f"\nNombre de perfil: {name}"
+                    if website:
+                        bio_text += f"\nSitio web: {website}"
+                    if followers:
+                        bio_text += f"\nSeguidores: {followers}"
+    except Exception:
+        pass
+
     now_co = datetime.utcnow() - timedelta(hours=5)
     prompt = f"""Analiza estos posts de Instagram de @{handle} y extrae información del espacio/colectivo cultural.
+{bio_text}
 
 Posts recientes:
 ---
@@ -256,16 +287,25 @@ Posts recientes:
 
 Responde con JSON:
 {{
-  "nombre": "nombre del espacio/colectivo (si no es claro, usa @{handle})",
-  "tipo": "espacio_fisico | colectivo | festival | editorial | sello_discografico | otro",
-  "categoria_principal": "teatro|hip_hop|jazz|musica_en_vivo|electronica|galeria|arte_contemporaneo|libreria|poesia|fotografia|festival|taller|otro",
-  "categorias": ["lista"],
+  "nombre": "nombre REAL del espacio/colectivo (usa el nombre de perfil o el que aparezca consistentemente en posts, NO uses @{handle} si hay un nombre mejor)",
+  "tipo": "espacio_fisico | colectivo | festival | editorial | sello_discografico | plataforma_digital | red_articuladora | programa_institucional | otro",
+  "categoria_principal": "teatro|hip_hop|jazz|rock|musica_en_vivo|electronica|galeria|arte_contemporaneo|libreria|poesia|fotografia|festival|taller|conferencia|filosofia|otro",
+  "categorias": ["lista de TODAS las categorias que apliquen"],
   "municipio": "medellin|bello|itagui|envigado|sabaneta|caldas|la_estrella|copacabana|girardota|barbosa",
-  "barrio": "barrio si se menciona, o null",
-  "descripcion_corta": "descripción corta del colectivo (máx 200 chars)",
+  "barrio": "barrio si se menciona en bio/posts, o null",
+  "direccion": "dirección física si se menciona, o null",
+  "descripcion_corta": "descripción concisa e informativa de qué es y qué hace (máx 250 chars)",
+  "sitio_web": "URL del sitio web si aparece en bio, o null",
   "es_underground": true/false,
   "es_institucional": true/false
 }}
+
+REGLAS:
+- Si la bio menciona dirección o barrio, extráelo.
+- Si mencionan "Medellín", "Envigado", "Itagüí", etc., usa ese municipio.
+- "underground" = independiente/alternativo, sin apoyo gubernamental.
+- "institucional" = bibliotecas públicas, museos, centros culturales municipales.
+- Infiere el tipo: organizan eventos → colectivo, lugar físico → espacio_fisico, publican libros → editorial.
 
 Solo JSON, sin texto adicional.
 """

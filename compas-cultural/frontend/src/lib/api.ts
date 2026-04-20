@@ -489,21 +489,25 @@ export async function getZonaCulturaHoy(slug: string): Promise<ZonaCulturaHoy> {
 
 export const CATEGORIAS_CULTURALES = [
   { value: 'teatro', label: 'Teatro' },
-  { value: 'danza', label: 'Danza' },
-  { value: 'musica', label: 'Música' },
-  { value: 'artes_visuales', label: 'Artes Visuales' },
-  { value: 'literatura', label: 'Literatura' },
-  { value: 'cine', label: 'Cine' },
+  { value: 'musica_en_vivo', label: 'Música en Vivo' },
+  { value: 'rock', label: 'Rock / Metal / Punk' },
   { value: 'hip_hop', label: 'Hip-Hop' },
   { value: 'jazz', label: 'Jazz' },
   { value: 'electronica', label: 'Electrónica' },
+  { value: 'danza', label: 'Danza' },
+  { value: 'galeria', label: 'Galerías' },
+  { value: 'arte_contemporaneo', label: 'Arte Contemporáneo' },
+  { value: 'libreria', label: 'Librerías' },
   { value: 'poesia', label: 'Poesía' },
+  { value: 'cine', label: 'Cine' },
   { value: 'fotografia', label: 'Fotografía' },
+  { value: 'festival', label: 'Festivales' },
+  { value: 'taller', label: 'Talleres' },
+  { value: 'conferencia', label: 'Conferencias' },
+  { value: 'filosofia', label: 'Filosofía' },
   { value: 'muralismo', label: 'Muralismo' },
-  { value: 'circo', label: 'Circo' },
-  { value: 'gastronomia_cultural', label: 'Gastronomía Cultural' },
   { value: 'editorial', label: 'Editorial' },
-  { value: 'freestyle', label: 'Freestyle' },
+  { value: 'circo', label: 'Circo' },
 ]
 
 // ---------- Reseñas (Reviews) ----------

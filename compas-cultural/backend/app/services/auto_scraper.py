@@ -5,6 +5,7 @@ cuando las fechas son informales ("este sabado", "mañana", etc.).
 """
 import json
 import re
+import random
 import traceback
 import asyncio
 import unicodedata
@@ -17,6 +18,51 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
+
+
+# -- HTTP resilience -----------------------------------------------------------
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/17.2",
+]
+
+HEADERS_BASE = {
+    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+
+def _get_headers() -> dict:
+    """Get headers with a random user-agent."""
+    return {**HEADERS_BASE, "User-Agent": random.choice(USER_AGENTS)}
+
+
+async def _fetch_con_retry(url: str, intentos: int = 3, timeout: int = 15) -> Optional[str]:
+    """Fetch URL with exponential backoff retry. Never crashes."""
+    for attempt in range(intentos):
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+                resp = await client.get(url, headers=_get_headers())
+                if resp.status_code == 200:
+                    return resp.text
+                if resp.status_code in (429, 503):
+                    wait = (2 ** attempt) + random.uniform(0, 1)
+                    print(f"  [RETRY] {resp.status_code} para {url[:60]}... esperando {wait:.1f}s")
+                    await asyncio.sleep(wait)
+                    continue
+                print(f"  [WARN] HTTP {resp.status_code} para {url[:60]}")
+                return None
+        except Exception as e:
+            if attempt < intentos - 1:
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                await asyncio.sleep(wait)
+            else:
+                print(f"  [ERR] {intentos} intentos fallidos para {url[:60]}: {e}")
+    return None
 
 
 # -- Helpers -------------------------------------------------------------------
@@ -36,16 +82,13 @@ def _slugify(text: str) -> str:
     return text.strip("-")[:250]
 
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
-}
+HEADERS = _get_headers()  # Legacy compat — functions below use _get_headers() directly
 
 # Categories we recognize
 CATEGORY_KEYWORDS = {
     "teatro": ["teatro", "obra", "funcion", "monologos", "dramaturg", "actua"],
     "musica_en_vivo": ["concierto", "recital", "musica en vivo", "live music", "banda", "sinfoni"],
+    "rock": ["rock", "metal", "heavy metal", "punk", "hardcore", "grunge", "thrash", "death metal", "black metal", "post-punk", "stoner", "doom", "metalcore", "indie rock", "rock alternativo", "garage rock", "nu metal", "prog rock", "rock en español"],
     "jazz": ["jazz", "bossa nova", "swing"],
     "hip_hop": ["hip hop", "hip-hop", "rap", "freestyle", "cypher", "batalla"],
     "electronica": ["electronica", "dj", "techno", "house", "rave", "club night"],
@@ -729,6 +772,14 @@ def _extract_events_from_ig_text(text: str, lugar: dict) -> list[dict]:
         descripcion = " ".join(lines[1:3])[:500] if len(lines) > 1 else ""
         es_gratuito = _is_price_free(post)
 
+        # Extract image URL from [IMAGE_URL: ...] marker if present
+        img_match = re.search(r"\[IMAGE_URL:\s*(https?://[^\]]+)\]", post)
+        imagen_url = img_match.group(1).strip() if img_match else None
+
+        # Extract permalink from [PERMALINK: ...] marker
+        perm_match = re.search(r"\[PERMALINK:\s*(https?://[^\]]+)\]", post)
+        permalink = perm_match.group(1).strip() if perm_match else None
+
         events.append({
             "titulo": titulo,
             "fecha_inicio": fecha.isoformat(),
@@ -736,14 +787,14 @@ def _extract_events_from_ig_text(text: str, lugar: dict) -> list[dict]:
             "descripcion": descripcion,
             "precio": "Entrada libre" if es_gratuito else "",
             "es_gratuito": es_gratuito,
-            "imagen_url": None,
+            "imagen_url": imagen_url,
             "nombre_lugar": nombre,
             "categoria_principal": _detect_category(post),
             "categorias": [_detect_category(post)],
             "municipio": municipio,
             "barrio": lugar.get("barrio"),
             "fuente": "auto_scraper_instagram",
-            "fuente_url": f"https://instagram.com/{ig_handle.lstrip('@')}",
+            "fuente_url": permalink or f"https://instagram.com/{ig_handle.lstrip('@')}",
         })
 
     return events
@@ -1282,6 +1333,198 @@ AGENDA_SOURCES = [
         "municipio": "medellin",
     },
 ]
+
+
+# -- Compás Urbano JSON API integration ----------------------------------------
+
+COMPAS_URBANO_CATEGORY_MAP = {
+    1: "arte_contemporaneo",   # Arte y Diseño
+    2: "teatro",               # Artes Escénicas
+    3: "cine",                 # Audiovisual
+    4: "conferencia",          # Conocimiento
+    5: "danza",                # Danza
+    6: "festival",             # Feria y Festival
+    7: "musica_en_vivo",       # Música
+    8: "electronica",          # Vida Nocturna
+    9: "taller",               # Experiencia
+}
+
+
+async def scrape_compas_urbano() -> dict:
+    """Scrape events from Compás Urbano's public JSON API."""
+    print("\n[COMPAS URBANO] Scraping eventos desde API JSON...")
+    
+    total = {"eventos_nuevos": 0, "duplicados": 0, "errores": 0}
+    now_co = datetime.utcnow() - timedelta(hours=5)
+    
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+            resp = await client.get("https://www.apicompasurbano.com/Catalog/MacroEventos.json")
+            if resp.status_code != 200:
+                print(f"  [ERR] Status {resp.status_code}")
+                return total
+            events_data = resp.json()
+    except Exception as e:
+        print(f"  [ERR] Failed to fetch: {e}")
+        return total
+
+    for ev in events_data:
+        try:
+            nombre = (ev.get("nombre") or "").strip()
+            if not nombre:
+                continue
+
+            # Parse fecha
+            fecha_str = ev.get("fechaInicio", "")
+            if not fecha_str:
+                continue
+            try:
+                fecha = datetime.fromisoformat(fecha_str.split(".")[0])  # Strip .0000000-05:00
+            except (ValueError, TypeError):
+                continue
+
+            if not _is_valid_event_date(fecha):
+                continue
+
+            # Determine category
+            cat_id = ev.get("categoria", 0)
+            categoria = COMPAS_URBANO_CATEGORY_MAP.get(cat_id, "otro")
+            
+            # Also detect from title/description
+            desc_html = ev.get("descripcion", "") or ""
+            # Strip HTML tags for text analysis
+            desc_text = re.sub(r"<[^>]+>", " ", desc_html).strip()[:500]
+            detected_cat = _detect_category(nombre + " " + desc_text)
+            if detected_cat != "otro":
+                categoria = detected_cat
+
+            slug = _slugify(nombre)
+            
+            # Check for duplicates
+            existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
+            if existing.data:
+                total["duplicados"] += 1
+                continue
+
+            # Parse location
+            lugar = (ev.get("lugar") or "").strip()
+            municipio_raw = (ev.get("municipio") or "").strip().lower()
+            municipio = "medellin"
+            if municipio_raw and municipio_raw != "null":
+                municipio = municipio_raw.lower().replace("í", "i").replace("é", "e").replace(" ", "_")
+
+            # GPS coordinates
+            lat, lng = None, None
+            gps_str = ev.get("gps")
+            if gps_str and gps_str != "null":
+                try:
+                    import json as _json
+                    gps = _json.loads(gps_str) if isinstance(gps_str, str) else gps_str
+                    lat = gps.get("lat")
+                    lng = gps.get("lng")
+                except (ValueError, TypeError):
+                    pass
+
+            # Image URL
+            foto = ev.get("thumbnailFoto") or ev.get("foto") or ""
+            imagen_url = None
+            if foto and foto != "null":
+                if foto.startswith("http"):
+                    imagen_url = foto
+                else:
+                    imagen_url = f"https://www.compasurbano.com/{foto}"
+
+            # Price
+            modo_ingreso = ev.get("modoIngreso") or ""
+            monto_min = ev.get("montoMinimo")
+            monto_max = ev.get("montoMaximo")
+            es_gratuito = modo_ingreso.lower() in ("", "null", "gratuito", "libre") and not monto_min
+            precio = ""
+            if monto_min and monto_max and monto_min != monto_max:
+                precio = f"${monto_min:,.0f} - ${monto_max:,.0f}"
+            elif monto_min:
+                precio = f"${monto_min:,.0f}"
+            elif es_gratuito:
+                precio = "Entrada libre"
+
+            # Build event
+            evento_data = {
+                "titulo": nombre[:200],
+                "slug": slug,
+                "fecha_inicio": fecha.isoformat(),
+                "fecha_fin": None,
+                "categorias": [categoria],
+                "categoria_principal": categoria,
+                "municipio": municipio,
+                "barrio": None,
+                "nombre_lugar": lugar if lugar and lugar != "null" else None,
+                "descripcion": desc_text[:500] if desc_text else None,
+                "precio": precio,
+                "es_gratuito": es_gratuito,
+                "es_recurrente": False,
+                "imagen_url": imagen_url,
+                "fuente": "compas_urbano",
+                "fuente_url": f"https://www.compasurbano.com/eventos/ciudad/{nombre.replace(' ', '-')}/{ev.get('id', '')}",
+                "lat": lat,
+                "lng": lng,
+                "verificado": True,
+            }
+            supabase.table("eventos").insert(evento_data).execute()
+            total["eventos_nuevos"] += 1
+            print(f"    [NEW] {nombre[:60]} | {fecha.strftime('%Y-%m-%d')}")
+
+        except Exception as e:
+            total["errores"] += 1
+
+    # Discovery: extract unique organizers as potential colectivos
+    organizadores_nuevos = await _discover_colectivos_from_compas(events_data)
+    total["colectivos_descubiertos"] = organizadores_nuevos
+
+    print(f"\n[COMPAS URBANO] Completado: {total['eventos_nuevos']} nuevos, {total['duplicados']} duplicados, {organizadores_nuevos} colectivos descubiertos")
+    return total
+
+
+async def _discover_colectivos_from_compas(events_data: list) -> int:
+    """Extract unique organizers from Compás Urbano events and register as colectivos."""
+    organizadores = {}
+    for ev in events_data:
+        org = (ev.get("organizador") or "").strip()
+        if not org or org.lower() in ("null", "", "no especificado"):
+            continue
+        slug = _slugify(org)
+        if slug not in organizadores:
+            municipio_raw = (ev.get("municipio") or "").strip().lower()
+            organizadores[slug] = {
+                "nombre": org,
+                "slug": slug,
+                "municipio": municipio_raw if municipio_raw and municipio_raw != "null" else "medellin",
+            }
+
+    registrados = 0
+    for slug, org_info in organizadores.items():
+        try:
+            existing = supabase.table("lugares").select("id").eq("slug", slug).execute()
+            if existing.data:
+                continue
+            lugar_data = {
+                "nombre": org_info["nombre"][:200],
+                "slug": slug,
+                "tipo": "colectivo",
+                "categorias": [],
+                "categoria_principal": "otro",
+                "municipio": org_info["municipio"].replace("í", "i").replace("é", "e").replace(" ", "_") or "medellin",
+                "descripcion_corta": f"Organizador cultural activo en Compás Urbano",
+                "fuente_datos": "compas_urbano_discovery",
+                "nivel_actividad": "activo",
+                "es_underground": False,
+                "es_institucional": False,
+            }
+            supabase.table("lugares").insert(lugar_data).execute()
+            registrados += 1
+        except Exception:
+            pass
+
+    return registrados
 
 
 async def scrape_agenda_sources() -> dict:

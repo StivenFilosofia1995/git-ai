@@ -9,21 +9,23 @@ import { buscar, getEspacios, getEventos, getEventosHoy, getZonas, scrapeZona, t
 const CAT_TABS = [
   { value: '', label: 'Todo' },
   { value: 'teatro', label: 'Teatro' },
+  { value: 'rock', label: 'Rock / Metal' },
   { value: 'hip_hop', label: 'Hip-Hop' },
   { value: 'jazz', label: 'Jazz' },
   { value: 'electronica', label: 'Electrónica' },
   { value: 'galeria', label: 'Galerías' },
+  { value: 'arte_contemporaneo', label: 'Arte Contemporáneo' },
   { value: 'libreria', label: 'Librerías' },
-  { value: 'casa_cultura', label: 'Casas de Cultura' },
   { value: 'danza', label: 'Danza' },
   { value: 'musica_en_vivo', label: 'Música' },
   { value: 'poesia', label: 'Poesía' },
-  { value: 'batalla_freestyle', label: 'Freestyle' },
   { value: 'cine', label: 'Cine' },
   { value: 'filosofia', label: 'Filosofía' },
   { value: 'festival', label: 'Festivales' },
   { value: 'fotografia', label: 'Fotografía' },
   { value: 'muralismo', label: 'Muralismo' },
+  { value: 'taller', label: 'Talleres' },
+  { value: 'conferencia', label: 'Conferencias' },
 ]
 
 type ViewMode = 'todo' | 'agenda' | 'espacios'

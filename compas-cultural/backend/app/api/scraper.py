@@ -4,7 +4,7 @@ Endpoints para el sistema de auto-scraping, descubrimiento y social listener.
 import asyncio
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from app.config import settings
-from app.services.auto_scraper import run_auto_scraper, scrape_single_lugar, scrape_zona, enrich_event_images, scrape_agenda_sources
+from app.services.auto_scraper import run_auto_scraper, scrape_single_lugar, scrape_zona, enrich_event_images, scrape_agenda_sources, scrape_compas_urbano
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
 
@@ -154,7 +154,8 @@ async def get_scraper_status():
 async def trigger_agenda_alternativa(background_tasks: BackgroundTasks):
     """Scrape fuentes de agenda alternativa e independiente."""
     background_tasks.add_task(scrape_agenda_sources)
-    return {"status": "started", "message": "Scraping de agenda alternativa iniciado"}
+    background_tasks.add_task(scrape_compas_urbano)
+    return {"status": "started", "message": "Scraping de agenda alternativa + Compás Urbano iniciado"}
 
 
 # ═══════════════════════════════════════════════════════════════

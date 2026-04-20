@@ -108,6 +108,61 @@ SEMILLA = [
      "categoria": "arte_general", "municipio": "Itagüí", "fuente": "semilla"},
     {"nombre": "Casa de la Cultura de Sabaneta", "handle": "@culturasabaneta", "plataforma": "instagram",
      "categoria": "arte_general", "municipio": "Sabaneta", "fuente": "semilla"},
+
+    # ── PRIORITY HANDLES (superprompt v2) ──
+    # Hip-hop y cultura urbana
+    {"nombre": "Crew Peligrosos", "handle": "@crewpeligrosos", "plataforma": "instagram",
+     "categoria": "hip_hop", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "4 Elementos Skuela", "handle": "@4elementosskuela", "plataforma": "instagram",
+     "categoria": "hip_hop", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Batallas de Medellín", "handle": "@batallasdemedellin", "plataforma": "instagram",
+     "categoria": "hip_hop", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Combate MDE", "handle": "@combate_mde", "plataforma": "instagram",
+     "categoria": "hip_hop", "municipio": "Medellín", "fuente": "semilla"},
+
+    # Teatro adicional
+    {"nombre": "Teatro Pórtico", "handle": "@teatroportico", "plataforma": "instagram",
+     "categoria": "teatro", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Águila Descalza", "handle": "@aguiladescalza", "plataforma": "instagram",
+     "categoria": "teatro", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "El Montacargas", "handle": "@elmontacargas", "plataforma": "instagram",
+     "categoria": "teatro", "municipio": "Medellín", "fuente": "semilla"},
+
+    # Música independiente
+    {"nombre": "Club del Jazz", "handle": "@elclubdeljazz", "plataforma": "instagram",
+     "categoria": "jazz", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Portón Sound", "handle": "@portonsound", "plataforma": "instagram",
+     "categoria": "musica", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Club Eléctrico MDE", "handle": "@clubelectrico_mde", "plataforma": "instagram",
+     "categoria": "electronica", "municipio": "Medellín", "fuente": "semilla"},
+
+    # Arte contemporáneo y galerías
+    {"nombre": "Casa Nubes Galería", "handle": "@casanubesgaleria", "plataforma": "instagram",
+     "categoria": "galeria", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Galería Borrero", "handle": "@galeriaborero", "plataforma": "instagram",
+     "categoria": "galeria", "municipio": "Medellín", "fuente": "semilla"},
+
+    # Literatura y filosofía
+    {"nombre": "Otraparte", "handle": "@otraparte_medellin", "plataforma": "instagram",
+     "categoria": "filosofia", "municipio": "Envigado", "fuente": "semilla"},
+    {"nombre": "Palinuro Librería Café", "handle": "@palinurolibreriacafe", "plataforma": "instagram",
+     "categoria": "libreria", "municipio": "Medellín", "fuente": "semilla"},
+
+    # Festivales
+    {"nombre": "Circo La Minga", "handle": "@circolaminga", "plataforma": "instagram",
+     "categoria": "circo", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Festival de Cine Colombia", "handle": "@festivalcinecolombia", "plataforma": "instagram",
+     "categoria": "cine", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Miradas Medellín", "handle": "@miradasmedellin", "plataforma": "instagram",
+     "categoria": "cine", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Festival de Tango", "handle": "@festivaldetangomedellin", "plataforma": "instagram",
+     "categoria": "danza", "municipio": "Medellín", "fuente": "semilla"},
+
+    # Cultura comunitaria
+    {"nombre": "Centro Cultural Moravia", "handle": "@centroculturalmoravia", "plataforma": "instagram",
+     "categoria": "arte_general", "municipio": "Medellín", "fuente": "semilla"},
+    {"nombre": "Compás Urbano", "handle": "@compasurbano", "plataforma": "instagram",
+     "categoria": "arte_general", "municipio": "Medellín", "fuente": "semilla"},
 ]
 
 

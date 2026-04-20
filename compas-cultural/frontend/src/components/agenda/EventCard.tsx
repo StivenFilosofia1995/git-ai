@@ -8,6 +8,7 @@ interface EventCardProps {
 
 const CAT_COLORS: Record<string, string> = {
   teatro: '#DC2626',
+  rock: '#1a1a1a',
   hip_hop: '#F59E0B',
   jazz: '#7C3AED',
   galeria: '#EC4899',
@@ -24,6 +25,8 @@ const CAT_COLORS: Record<string, string> = {
   fotografia: '#7C3AED',
   muralismo: '#F59E0B',
   filosofia: '#1E40AF',
+  taller: '#059669',
+  conferencia: '#4338CA',
 }
 
 export default function EventCard({ evento, compact }: Readonly<EventCardProps>) {
