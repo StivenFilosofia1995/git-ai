@@ -50,10 +50,60 @@ export default function EventoDetalle() {
     `Recomiendame mas detalles de este evento: ${evento.titulo}. Fecha: ${fechaStr} ${horaStr}. Lugar: ${ubicacionLabel || 'Medellin'}.`
   )
 
+  const canonicalUrl = `https://culturaetereamed.com/evento/${slug}`
+  const metaDescription =
+    evento.descripcion
+      ? evento.descripcion.slice(0, 155)
+      : `${evento.categoria_principal?.replaceAll('_', ' ')} en ${evento.nombre_lugar || evento.municipio}. ${fechaStr} — ${horaStr}.`
+  const eventSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Event',
+    name: evento.titulo,
+    startDate: evento.fecha_inicio,
+    ...(evento.fecha_fin && { endDate: evento.fecha_fin }),
+    description: evento.descripcion ?? undefined,
+    ...(evento.imagen_url && { image: evento.imagen_url }),
+    location: {
+      '@type': 'Place',
+      name: evento.nombre_lugar ?? ubicacionLabel ?? 'Medellín',
+      address: {
+        '@type': 'PostalAddress',
+        addressLocality: evento.municipio ?? 'Medellín',
+        addressRegion: 'Antioquia',
+        addressCountry: 'CO',
+      },
+    },
+    organizer: { '@type': 'Organization', name: 'Cultura ETÉREA', url: 'https://culturaetereamed.com' },
+    isAccessibleForFree: evento.es_gratuito ?? false,
+    offers: {
+      '@type': 'Offer',
+      price: evento.es_gratuito ? '0' : evento.precio ?? '',
+      priceCurrency: 'COP',
+      availability: 'https://schema.org/InStock',
+      url: canonicalUrl,
+    },
+  }
+
   return (
     <>
       <Helmet>
         <title>{evento.titulo} — Cultura ETÉREA</title>
+        <meta name="description" content={metaDescription} />
+        <link rel="canonical" href={canonicalUrl} />
+        {/* Open Graph */}
+        <meta property="og:type" content="event" />
+        <meta property="og:title" content={`${evento.titulo} — Cultura ETÉREA`} />
+        <meta property="og:description" content={metaDescription} />
+        <meta property="og:url" content={canonicalUrl} />
+        {evento.imagen_url && <meta property="og:image" content={evento.imagen_url} />}
+        <meta property="og:locale" content="es_CO" />
+        {/* Twitter */}
+        <meta name="twitter:card" content={evento.imagen_url ? 'summary_large_image' : 'summary'} />
+        <meta name="twitter:title" content={evento.titulo} />
+        <meta name="twitter:description" content={metaDescription} />
+        {evento.imagen_url && <meta name="twitter:image" content={evento.imagen_url} />}
+        {/* JSON-LD Event */}
+        <script type="application/ld+json">{JSON.stringify(eventSchema)}</script>
       </Helmet>
 
       <div className="max-w-3xl mx-auto px-4 py-8">

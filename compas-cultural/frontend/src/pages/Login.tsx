@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Helmet } from 'react-helmet-async'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { crearPerfil, getZonas, CATEGORIAS_CULTURALES, type Zona } from '../lib/api'
 
@@ -10,6 +10,8 @@ type RegisterStep = 'credentials' | 'profile'
 export default function Login() {
   const { signIn, signUp, signInWithGoogle } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const redirectTo = (location.state as { from?: string })?.from ?? '/'
   const [mode, setMode] = useState<Mode>('login')
   const [step, setStep] = useState<RegisterStep>('credentials')
   const [email, setEmail] = useState('')
@@ -118,7 +120,7 @@ export default function Login() {
       if (err) {
         setError(err)
       } else {
-        navigate('/')
+        navigate(redirectTo)
       }
     }
 

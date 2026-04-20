@@ -52,10 +52,44 @@ export default function EspacioDetalle() {
   if (error) return <div className="p-8 font-mono border-2 border-black">{error}</div>
   if (!espacio) return <div className="p-8 font-mono">Espacio no encontrado</div>
 
+  const canonicalUrl = `https://culturaetereamed.com/espacio/${slug}`
+  const metaDescription =
+    espacio.descripcion_corta
+      ? espacio.descripcion_corta.slice(0, 155)
+      : `${espacio.categoria_principal?.replaceAll('_', ' ')} en ${espacio.barrio ?? ''} ${espacio.municipio}. Descubrí este espacio cultural en Cultura ETÉREA.`
+  const placeSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'LocalBusiness',
+    name: espacio.nombre,
+    description: espacio.descripcion_corta ?? espacio.descripcion ?? undefined,
+    url: canonicalUrl,
+    address: {
+      '@type': 'PostalAddress',
+      addressLocality: espacio.municipio ?? 'Medellín',
+      streetAddress: espacio.barrio ?? undefined,
+      addressRegion: 'Antioquia',
+      addressCountry: 'CO',
+    },
+  }
+
   return (
     <>
       <Helmet>
-        <title>{espacio.nombre} - Cultura ETÉREA</title>
+        <title>{espacio.nombre} — Cultura ETÉREA</title>
+        <meta name="description" content={metaDescription} />
+        <link rel="canonical" href={canonicalUrl} />
+        {/* Open Graph */}
+        <meta property="og:type" content="place" />
+        <meta property="og:title" content={`${espacio.nombre} — Cultura ETÉREA`} />
+        <meta property="og:description" content={metaDescription} />
+        <meta property="og:url" content={canonicalUrl} />
+        <meta property="og:locale" content="es_CO" />
+        {/* Twitter */}
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content={espacio.nombre} />
+        <meta name="twitter:description" content={metaDescription} />
+        {/* JSON-LD Place */}
+        <script type="application/ld+json">{JSON.stringify(placeSchema)}</script>
       </Helmet>
 
       <div className="max-w-4xl mx-auto px-4 py-8">

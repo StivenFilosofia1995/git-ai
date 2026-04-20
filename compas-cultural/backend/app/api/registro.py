@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 
 from app.database import supabase
+from app.limiter import rate_limit
 from app.schemas.registro import (
     RegistroURLRequest,
     RegistroURLResponse,
@@ -12,6 +13,7 @@ router = APIRouter()
 
 
 @router.post("/", response_model=RegistroURLResponse, status_code=201)
+@rate_limit("5/hour")
 def registrar_por_url(
     body: RegistroURLRequest,
     background_tasks: BackgroundTasks,

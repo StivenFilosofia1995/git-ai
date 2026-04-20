@@ -17,6 +17,7 @@ import EventoDetalle from './pages/EventoDetalle'
 import CompletarPerfil from './pages/CompletarPerfil'
 import PublicarEvento from './pages/PublicarEvento'
 import NotFound from './pages/NotFound'
+import RequireAuth from './components/auth/RequireAuth'
 
 /** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
 function ProfileGuard({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -65,7 +66,7 @@ function App() {
           <Route path="zona/:slug" element={<ZonaDetalle />} />
           <Route path="login" element={<Login />} />
           <Route path="completar-perfil" element={<CompletarPerfil />} />
-          <Route path="publicar" element={<PublicarEvento />} />
+          <Route path="publicar" element={<RequireAuth><PublicarEvento /></RequireAuth>} />
         </Route>
         <Route path="/chat" element={<Chat />} />
         <Route path="*" element={<NotFound />} />

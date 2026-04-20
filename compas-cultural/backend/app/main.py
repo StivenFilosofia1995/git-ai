@@ -16,15 +16,17 @@ print(f"   CWD: {os.getcwd()}")
 print("=" * 50)
 
 try:
-    from slowapi import Limiter, _rate_limit_exceeded_handler
-    from slowapi.util import get_remote_address
+    from slowapi import _rate_limit_exceeded_handler
     from slowapi.errors import RateLimitExceeded
     from slowapi.middleware import SlowAPIMiddleware
+    from app.limiter import limiter
     print("✅ slowapi imported")
 except Exception as e:
     print(f"⚠️  slowapi import failed: {e}")
-    # Create dummy objects so app still starts
-    Limiter = None
+    _rate_limit_exceeded_handler = None
+    RateLimitExceeded = None
+    SlowAPIMiddleware = None
+    limiter = None
 
 try:
     from app.config import settings
@@ -38,12 +40,6 @@ except Exception as e:
     print(f"❌ Config FAILED: {e}")
     traceback.print_exc()
     raise
-
-if Limiter:
-    limiter = Limiter(key_func=get_remote_address)
-else:
-    limiter = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -95,7 +91,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if limiter:
+if limiter and RateLimitExceeded and _rate_limit_exceeded_handler and SlowAPIMiddleware:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
@@ -124,9 +120,38 @@ async def health_check():
     return {"status": "healthy"}
 
 
-# SPA fallback: serve index.html for any 404 that is not an API route
+# ── Error handlers ────────────────────────────────────────────────────────
 from fastapi.responses import JSONResponse as _JSONResponse
+from fastapi.exceptions import RequestValidationError
 
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Devuelve mensajes legibles para errores de validación (422)."""
+    messages = [
+        f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}"
+        for e in exc.errors()
+    ]
+    return _JSONResponse(
+        status_code=422,
+        content={"detail": "Datos inválidos", "errors": messages},
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Captura cualquier excepción no controlada en rutas /api/ y retorna JSON."""
+    if request.url.path.startswith("/api/"):
+        print(f"[ERROR 500] {request.method} {request.url.path} — {type(exc).__name__}: {exc}")
+        return _JSONResponse(
+            status_code=500,
+            content={"detail": "Error interno del servidor. Intenta de nuevo más tarde."},
+        )
+    # Para rutas no-API, dejar que FastAPI maneje normalmente
+    raise exc
+
+
+# SPA fallback: serve index.html for any 404 that is not an API route
 @app.exception_handler(404)
 async def spa_404_handler(request: Request, exc):
     # Keep JSON 404 for API paths

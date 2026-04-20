@@ -2,11 +2,13 @@ import asyncio
 from fastapi import APIRouter, Request, HTTPException
 from app.schemas import ChatRequest, ChatResponse
 from app.services import chat_service
+from app.limiter import rate_limit
 
 router = APIRouter()
 
 
 @router.post("/", response_model=ChatResponse)
+@rate_limit("10/minute")
 async def chat_cultural(request: ChatRequest, req: Request):
     # Identify user by IP (X-Forwarded-For behind proxy) for rate limiting
     user_id = (
