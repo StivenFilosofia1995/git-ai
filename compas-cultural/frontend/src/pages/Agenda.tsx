@@ -5,6 +5,7 @@ import BuscarConAI from '../components/ui/BuscarConAI'
 import { getEventos, getEventosHoy, getEventosSemana, getZonas, scrapeZona, type Evento, type Zona } from '../lib/api'
 
 const CO_TZ = 'America/Bogota'
+const ITEMS_PER_PAGE = 24
 
 /** Current date/time string in Colombia timezone */
 function useColombiaClock() {
@@ -76,6 +77,7 @@ export default function Agenda() {
   const [textFilter, setTextFilter] = useState('')
   const [municipioFilter, setMunicipioFilter] = useState('')
   const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('')
+  const [page, setPage] = useState(1)
   const fechaActual = useColombiaClock()
 
   const reloadEventos = () => {
@@ -154,8 +156,14 @@ export default function Agenda() {
     return result
   }, [eventos, catFilter, zonaFilter, zonas, textFilter, municipioFilter, precioFilter])
 
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setPage(1) }, [catFilter, zonaFilter, textFilter, municipioFilter, precioFilter, timeFilter])
+
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
+  const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE)
+
   // Group events by date — force Colombia timezone
-  const grouped = filtered.reduce<Record<string, Evento[]>>((acc, ev) => {
+  const grouped = paged.reduce<Record<string, Evento[]>>((acc, ev) => {
     const dateKey = new Date(ev.fecha_inicio).toLocaleDateString('es-CO', {
       timeZone: CO_TZ,
       weekday: 'long', day: 'numeric', month: 'long'
@@ -338,6 +346,12 @@ export default function Agenda() {
 
         {!loading && !error && filtered.length > 0 && (
           <div className="space-y-8">
+            {/* count */}
+            <p className="text-[11px] font-mono font-bold uppercase tracking-wider">
+              {filtered.length} evento{filtered.length === 1 ? '' : 's'} encontrado{filtered.length === 1 ? '' : 's'}
+              {totalPages > 1 && ` — página ${page} de ${totalPages}`}
+            </p>
+
             {Object.entries(grouped).map(([dateLabel, dayEvents]) => (
               <div key={dateLabel}>
                 <div className="flex items-center gap-3 mb-4">
@@ -357,6 +371,29 @@ export default function Agenda() {
                 <div className="border-t-2 border-black mt-6" />
               </div>
             ))}
+
+            {/* Pagination controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-2 border-black p-3">
+                <button
+                  onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                  disabled={page === 1}
+                  className="text-xs font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 disabled:opacity-30 hover:bg-black hover:text-white transition-all disabled:cursor-not-allowed"
+                >
+                  ← ANTERIOR
+                </button>
+                <span className="text-xs font-mono font-bold uppercase tracking-wider">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  onClick={() => { setPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                  disabled={page === totalPages}
+                  className="text-xs font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 disabled:opacity-30 hover:bg-black hover:text-white transition-all disabled:cursor-not-allowed"
+                >
+                  SIGUIENTE →
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
