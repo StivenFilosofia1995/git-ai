@@ -33,11 +33,12 @@ async def _run_image_enrichment():
 
 
 async def _run_agenda_alternativa():
-    """Job wrapper for alternative agenda scraping."""
-    from app.services.auto_scraper import scrape_agenda_sources, scrape_compas_urbano
+    """Job wrapper for alternative agenda scraping (web sources + Compas Urbano API)."""
+    from app.services.auto_scraper import scrape_agenda_sources
+    from app.services.compas_urbano_scraper import scrape_compas_urbano
     try:
-        await scrape_agenda_sources()
-        await scrape_compas_urbano()
+        await scrape_compas_urbano()   # highest priority — verified events
+        await scrape_agenda_sources()  # secondary web sources
     except Exception as e:
         print(f"[ERR] Agenda alternativa error: {e}")
 
