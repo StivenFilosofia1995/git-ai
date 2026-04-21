@@ -146,6 +146,17 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # ── Agenda alternativa inicial: 3 minutos después de arrancar ──────────
+    # Asegura que fuentes alternativas (teatros, bibliotecas, colectivos)
+    # sean rastreadas en el mismo ciclo de arranque.
+    scheduler.add_job(
+        _run_agenda_alternativa,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(seconds=180)),
+        id="agenda_alternativa_startup",
+        name="Agenda alternativa inicial al arrancar",
+        replace_existing=True,
+    )
+
     # ── Social Listener inicial: 3 minutos después de arrancar ─────────────
     scheduler.add_job(
         _run_social_listener,
