@@ -53,7 +53,7 @@ def _now_co() -> datetime:
     return datetime.now(CO_TZ)
 
 
-def chat(request: ChatRequest) -> ChatResponse:
+def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     contexto = _obtener_contexto(request.mensaje)
 
     historial_msgs = [
