@@ -1,4 +1,3 @@
-import asyncio
 import traceback
 from fastapi import APIRouter, Request
 from app.schemas import ChatRequest, ChatResponse
@@ -9,19 +8,31 @@ router = APIRouter()
 
 
 @router.post("/", response_model=ChatResponse)
-@rate_limit("10/minute")
-async def chat_cultural(request: ChatRequest, req: Request):
+async def chat_cultural(body: ChatRequest, request: Request):
     user_id = (
-        req.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        or (req.client.host if req.client else "anonymous")
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "anonymous")
     )
     try:
-        return await asyncio.to_thread(chat_service.chat, request, user_id)
+        return chat_service.chat(body, user_id)
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[ERROR] Chat failed for {user_id}: {e}\n{tb}")
-        # Return error details in response so we can see what's failing
         return ChatResponse(
             respuesta=f"[DEBUG] Error: {type(e).__name__}: {e}",
             fuentes=[],
         )
+
+
+@router.get("/test")
+async def chat_test():
+    """Test endpoint — verifica que Groq funciona."""
+    try:
+        from app.config import settings
+        result = {"groq_key": bool(settings.groq_api_key)}
+        from app.services.chat_service import _chat_via_groq
+        r = _chat_via_groq("Di solo: OK", [{"role": "user", "content": "test"}])
+        result["groq_response"] = r
+        return result
+    except Exception as e:
+        return {"error": str(e), "type": type(e).__name__}
