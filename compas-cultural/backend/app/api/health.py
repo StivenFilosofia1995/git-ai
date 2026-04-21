@@ -11,7 +11,15 @@ _startup_time = datetime.utcnow()
 
 @router.get("/")
 async def health_check():
-    return {"status": "healthy", "service": "compas-cultural-api"}
+    from app.config import settings
+    return {
+        "status": "healthy",
+        "service": "compas-cultural-api",
+        "groq_configured": bool(settings.groq_api_key),
+        "supabase_configured": bool(settings.supabase_url),
+        "chat_engine": "groq-llama-3.1-8b-instant",
+        "version": "9e1bb43",
+    }
 
 
 @router.get("/stats")
