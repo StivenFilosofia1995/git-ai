@@ -1,6 +1,6 @@
 """
-Scraper basado en Claude LLM.
-Extrae información cultural de URLs usando httpx + BeautifulSoup + Claude.
+Scraper basado en LLM.
+Extrae información cultural de URLs usando httpx + BeautifulSoup + Groq (Claude como fallback).
 """
 import json
 import re
@@ -8,19 +8,17 @@ import traceback
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import anthropic
 import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
+from app.services.groq_client import groq_chat, MODEL_SMART
 
 CO_TZ = ZoneInfo("America/Bogota")
 
 def _now_co() -> datetime:
     return datetime.now(CO_TZ)
-
-_CLIENT = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
 Analiza el contenido de esta página web y extrae información cultural estructurada.
@@ -161,8 +159,8 @@ def _extract_ig_handle(url: str) -> str:
     return parts[-1] if parts else ""
 
 
-def _extract_with_claude(url: str, page_text: str) -> dict:
-    """Send page text to Claude for cultural data extraction."""
+def _extract_with_llm(url: str, page_text: str) -> dict:
+    """Send page text to Groq for cultural data extraction. Falls back to Claude if needed."""
     now_co = _now_co()
     prompt = EXTRACTION_PROMPT.format(
         url=url,
@@ -170,15 +168,28 @@ def _extract_with_claude(url: str, page_text: str) -> dict:
         fecha_actual=now_co.isoformat(),
     )
 
-    response = _CLIENT.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=2048,
-        temperature=0.1,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    # Try Groq first (free, fast)
+    raw = groq_chat(prompt, model=MODEL_SMART, max_tokens=2048, temperature=0)
 
-    raw = response.content[0].text.strip()
-    # Try to extract JSON from response (Claude sometimes wraps in ```json)
+    # Claude fallback only if Groq unavailable and key exists
+    if not raw and settings.anthropic_api_key:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            response = client.messages.create(
+                model=settings.anthropic_model,
+                max_tokens=2048,
+                temperature=0.1,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response.content[0].text.strip()
+        except Exception as e:
+            print(f"[scraper_llm] Claude fallback failed: {e}")
+
+    if not raw:
+        raise RuntimeError("No AI backend disponible para extraer datos")
+
+    # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
@@ -208,8 +219,8 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
             "mensaje": "Analizando contenido con inteligencia artificial…",
         }).eq("id", solicitud_id).execute()
 
-        # Analyze with Claude
-        data = _extract_with_claude(solicitud["url"], page_text)
+        # Analyze with Groq LLM
+        data = _extract_with_llm(solicitud["url"], page_text)
 
         if data.get("tipo") == "ninguno":
             supabase.table("solicitudes_registro").update({
