@@ -140,10 +140,11 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
         fecha_actual_co=_now_co().strftime("%Y-%m-%d %H:%M"),
     )
 
+    # ── AI chain: Groq (FREE) → Claude (fallback) → static fallback ──
     # Validate API key before even trying
     if not settings.anthropic_api_key or settings.anthropic_api_key.strip() == "":
-        print("[chat_service] ANTHROPIC_API_KEY no configurada — usando fallback")
-        respuesta = _respuesta_fallback(contexto)
+        print("[chat_service] ANTHROPIC_API_KEY no configurada — intentando Groq")
+        respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
     else:
         try:
             # Check daily budget
@@ -153,8 +154,8 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
                 _daily_api_calls["count"] = 0
 
             if _daily_api_calls["count"] >= MAX_DAILY_CALLS:
-                print(f"[chat_service] Daily API limit reached ({MAX_DAILY_CALLS} calls)")
-                respuesta = _respuesta_fallback(contexto)
+                print(f"[chat_service] Daily API limit reached ({MAX_DAILY_CALLS} calls) — usando Groq")
+                respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
             else:
                 # Use model from env var, default to claude-3-5-haiku-20241022
                 model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip()
@@ -172,30 +173,17 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
                 _daily_api_calls["count"] += 1
                 respuesta = response.content[0].text if response.content else ""
                 if not respuesta:
-                    respuesta = _respuesta_fallback(contexto)
+                    respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
                 print(f"[chat] OK — API call #{_daily_api_calls['count']}/{MAX_DAILY_CALLS} today")
         except anthropic.AuthenticationError as exc:
             print(f"[chat_service] ANTHROPIC_API_KEY inválida o expirada: {exc}")
-            respuesta = _respuesta_fallback(contexto)
+            respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
         except anthropic.NotFoundError as exc:
             print(f"[chat_service] Modelo no encontrado: {exc}")
-            # Retry with guaranteed fallback model
-            try:
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=25.0)
-                response = client.messages.create(
-                    model="claude-3-haiku-20240307",
-                    max_tokens=700,
-                    system=prompt,
-                    messages=historial_msgs,
-                )
-                respuesta = response.content[0].text if response.content else ""
-                if not respuesta:
-                    respuesta = _respuesta_fallback(contexto)
-            except Exception:
-                respuesta = _respuesta_fallback(contexto)
+            respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
         except Exception as exc:
             print(f"[chat_service] Claude error: {type(exc).__name__}: {exc}")
-            respuesta = _respuesta_fallback(contexto)
+            respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
@@ -215,6 +203,36 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
         _response_cache[ckey] = (_now_co(), result)
 
     return result
+
+
+def _chat_via_groq(system_prompt: str, messages: list) -> str | None:
+    """Use Groq (FREE) as AI engine for chat.
+    Sends system prompt + conversation history to llama-3.3-70b-versatile.
+    Returns response text or None if Groq is unavailable/fails.
+    """
+    if not settings.groq_api_key:
+        return None
+    try:
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=settings.groq_api_key,
+            base_url="https://api.groq.com/openai/v1",
+        )
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        resp = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=full_messages,
+            max_tokens=700,
+            temperature=0.7,
+            timeout=25,
+        )
+        text = resp.choices[0].message.content.strip() if resp.choices else ""
+        if text:
+            print("[chat] Groq llama-3.3-70b OK")
+        return text or None
+    except Exception as e:
+        print(f"[chat_service] Groq error: {e}")
+        return None
 
 
 def _respuesta_fallback(contexto: Dict) -> str:
