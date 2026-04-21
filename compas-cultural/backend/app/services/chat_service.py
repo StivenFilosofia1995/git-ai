@@ -125,9 +125,7 @@ def _respuesta_fallback(contexto: Dict) -> str:
     eventos_semana = contexto.get("eventos_semana", [])[:5]
     espacios = (contexto.get("espacios_relevantes", []) or contexto.get("espacios", []))[:5]
 
-    bloques = [
-        "Tuve un problema temporal con el motor de IA, pero igual te comparto datos en vivo del sistema:",
-    ]
+    bloques = []
 
     if eventos_hoy:
         lineas = ["Eventos de hoy:"]
@@ -153,8 +151,8 @@ def _respuesta_fallback(contexto: Dict) -> str:
             )
         bloques.append("\n".join(lineas))
 
-    bloques.append("Si querés, preguntame por un barrio, zona o categoría y te filtro resultados exactos.")
-    return "\n\n".join(bloques)
+    bloques.append("¿Querés que te filtre por barrio, zona o categoría? Contame qué te interesa y te ayudo mejor.")
+    return "\n\n".join(bloques) if bloques else "¡Hola! Soy ETÉREA. ¿En qué barrio o municipio estás y qué tipo de experiencias culturales te interesan?"
 
 
 def _obtener_contexto(mensaje: str) -> Dict:
