@@ -118,6 +118,17 @@ def _clean_cache():
 
 
 def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
+    try:
+        return _chat_inner(request, user_id)
+    except Exception as exc:
+        print(f"[chat_service] UNEXPECTED error in chat(): {exc}")
+        return ChatResponse(
+            respuesta="Tuve un problema inesperado. Intentá de nuevo en un momento.",
+            fuentes=[],
+        )
+
+
+def _chat_inner(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     # Per-user rate limit
     if not _check_user_rate_limit(user_id):
         return ChatResponse(
@@ -295,6 +306,16 @@ def _respuesta_fallback(contexto: Dict) -> str:
 
 
 def _obtener_contexto(mensaje: str) -> Dict:
+    import re
+    contexto: Dict = {"espacios": [], "eventos_hoy": [], "eventos_semana": [], "espacios_relevantes": []}
+    try:
+        return _obtener_contexto_inner(mensaje)
+    except Exception as exc:
+        print(f"[chat_service] _obtener_contexto error (returning empty): {exc}")
+        return contexto
+
+
+def _obtener_contexto_inner(mensaje: str) -> Dict:
     import re
     contexto: Dict = {"espacios": [], "eventos_hoy": [], "eventos_semana": [], "espacios_relevantes": []}
 
