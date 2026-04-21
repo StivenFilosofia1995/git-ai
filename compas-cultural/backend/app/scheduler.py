@@ -70,13 +70,13 @@ async def _run_agenda_alternativa():
 def start_scheduler():
     """Start the periodic scraper. Called from FastAPI lifespan."""
 
-    # ── Auto-scraper: diario a las 6am Colombia ────────────────────────────
-    # Daily is enough — excessive polling wastes Claude tokens.
+    # ── Auto-scraper: diario a las 2am Colombia ────────────────────────────
+    # Corre a las 2am junto a la agenda alternativa.
     scheduler.add_job(
         _run_scraper_job,
-        trigger=CronTrigger(hour=6, minute=0, timezone=CO_TZ),
+        trigger=CronTrigger(hour=2, minute=0, timezone=CO_TZ),
         id="auto_scraper",
-        name="Auto-scraper cultural (diario 6am)",
+        name="Auto-scraper cultural (diario 2am)",
         replace_existing=True,
     )
 
@@ -126,10 +126,21 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # ── Scrape inicial 60 segundos después de arrancar ─────────────────────
+    # ── Limpieza inicial 30 segundos después de arrancar ────────────────────
+    # Elimina eventos pasados ANTES de que corra el scraper.
+    scheduler.add_job(
+        _run_cleanup,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(seconds=30)),
+        id="cleanup_startup",
+        name="Limpieza inicial al arrancar",
+        replace_existing=True,
+    )
+
+    # ── Scrape inicial 90 segundos después de arrancar ─────────────────────
+    # Corre después del cleanup para traer eventos del día actual.
     scheduler.add_job(
         _run_scraper_job,
-        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(seconds=60)),
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(seconds=90)),
         id="auto_scraper_startup",
         name="Scrape inicial al arrancar",
         replace_existing=True,
@@ -146,7 +157,9 @@ def start_scheduler():
 
     scheduler.start()
     print("⏰ Scheduler iniciado (zona Colombia):")
-    print("   • Auto-scraper: diario a las 6:00am (inicio en 60s)")
+    print("   • Limpieza inicial: en 30s (startup)")
+    print("   • Scrape inicial: en 90s (startup)")
+    print("   • Auto-scraper: diario a las 2:00am")
     print("   • Social Listener: cada 6h (inicio en 3min)")
     print("   • Discovery: cada 12h")
     print("   • Imágenes: cada 12h")
