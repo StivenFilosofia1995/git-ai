@@ -13,7 +13,7 @@ def _now_co() -> datetime:
 
 
 def _now_iso() -> str:
-    return _now_co().strftime("%Y-%m-%dT%H:%M:%S")
+    return _now_co().isoformat()
 
 
 def _today_iso() -> str:
@@ -166,8 +166,8 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
     response = (
         supabase.table("eventos")
         .select("*")
-        .gte("fecha_inicio", hoy_inicio.strftime("%Y-%m-%dT%H:%M:%S"))
-        .lte("fecha_inicio", proxima_semana.strftime("%Y-%m-%dT%H:%M:%S"))
+        .gte("fecha_inicio", hoy_inicio.isoformat())
+        .lte("fecha_inicio", proxima_semana.isoformat())
         .order("fecha_inicio")
         .limit(200)
         .execute()
