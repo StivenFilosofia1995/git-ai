@@ -381,11 +381,11 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 print(f"    ✅ Código: {len(events_code)} evento(s) extraídos")
             else:
                 # 1b. Groq fallback only if code found nothing
-                # Truncate to max 1500 chars to conserve tokens (≈375 tokens)
+                # 4000 chars ≈ 1000 tokens — safe since code handles most major sites
                 text = _html_to_text(html)
-                short_text = text[:1500]
+                short_text = text[:4000]
                 if short_text and len(short_text) > 100:
-                    print(f"    🤖 Groq fallback (1500 chars)...")
+                    print(f"    🤖 Groq fallback ({len(short_text)} chars)...")
                     prompt = EVENT_EXTRACTION_PROMPT.format(
                         fecha_actual=now_iso, anio_actual=anio,
                         nombre_lugar=nombre, lugar_id=lugar_id,
@@ -406,12 +406,13 @@ async def _scrape_lugar(lugar: dict) -> dict:
         content = await _fetch_instagram_profile(ig_handle)
         if content and len(content) > 100:
             print(f"    📄 Contenido IG: {len(content)} chars")
-            # Instagram posts are unstructured → use Groq (truncated)
+            # Instagram posts are unstructured → use Groq
+            # 3000 chars ≈ ~15 posts with captions
             prompt = IG_PROFILE_PROMPT.format(
                 fecha_actual=now_iso, anio_actual=anio,
                 nombre_lugar=nombre, instagram_handle=ig_handle,
                 categoria=categoria, municipio=municipio,
-                contenido=content[:1500],
+                contenido=content[:3000],
             )
             events_ig = _extract_events_with_claude(prompt)
             for ev in events_ig:
@@ -829,20 +830,39 @@ async def scrape_agenda_sources() -> dict:
     for src in AGENDA_SOURCES:
         print(f"\n📰 [{src['nombre']}] {src['url']}")
         try:
-            content = await _fetch_website(src["url"])
-            if not content or len(content) < 100:
-                print(f"  ⚠ Sin contenido suficiente")
-                continue
+            # Try code-first extraction first (zero tokens)
+            html_raw = await _fetch_website_raw(src["url"])
+            events: list[dict] = []
 
-            prompt = AGENDA_EXTRACTION_PROMPT.format(
-                fecha_actual=now_iso,
-                anio_actual=anio,
-                nombre_fuente=src["nombre"],
-                fuente_url=src["url"],
-                municipio=src["municipio"],
-                contenido=content[:1500],  # max 1500 chars ≈ 375 tokens
-            )
-            events = _extract_events_with_claude(prompt)
+            if html_raw and len(html_raw) > 200:
+                if needs_playwright(src["url"]):
+                    html_pw = await fetch_with_playwright(src["url"])
+                    if html_pw and len(html_pw) > len(html_raw):
+                        html_raw = html_pw
+                events = extract_events_code(
+                    html_raw, src["url"],
+                    src["nombre"], src["categoria_default"], src["municipio"]
+                )
+                if events:
+                    print(f"  ✅ Código: {len(events)} evento(s)")
+
+            # Groq fallback only if code found nothing
+            if not events:
+                content = _html_to_text(html_raw) if html_raw else None
+                if not content or len(content) < 100:
+                    print(f"  ⚠ Sin contenido suficiente")
+                    continue
+                prompt = AGENDA_EXTRACTION_PROMPT.format(
+                    fecha_actual=now_iso,
+                    anio_actual=anio,
+                    nombre_fuente=src["nombre"],
+                    fuente_url=src["url"],
+                    municipio=src["municipio"],
+                    contenido=content[:3000],  # 3000 chars ≈ 750 tokens
+                )
+                events = _extract_events_with_claude(prompt)
+                print(f"  🤖 Groq: {len(events)} evento(s)")
+
             total["fuentes"] += 1
 
             for ev in events:
