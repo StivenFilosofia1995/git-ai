@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import List, Dict
+from typing import List, Dict, Optional
 import anthropic
 from app.config import settings
 from app.database import supabase
@@ -81,8 +81,11 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
         )
         respuesta = response.content[0].text
     except Exception as exc:
-        print(f"[chat_service] Claude no disponible, usando fallback local: {exc}")
-        respuesta = _respuesta_fallback(contexto)
+        print(f"[chat_service] Claude falló ({type(exc).__name__}: {exc}), intentando Groq...")
+        respuesta = _chat_via_groq(prompt, historial_msgs)
+        if not respuesta:
+            print(f"[chat_service] Groq también falló, usando fallback local")
+            respuesta = _respuesta_fallback(contexto)
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
@@ -94,6 +97,26 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     }).execute()
 
     return ChatResponse(respuesta=respuesta, fuentes=fuentes)
+
+
+def _chat_via_groq(system_prompt: str, messages: list) -> Optional[str]:
+    """Fallback: usa Groq (llama-3.3-70b) cuando Claude no está disponible."""
+    try:
+        from app.services.groq_client import _get_client, MODEL_SMART
+        client = _get_client()
+        if not client:
+            return None
+        groq_messages = [{"role": "system", "content": system_prompt}] + messages
+        resp = client.chat.completions.create(
+            model=MODEL_SMART,
+            max_tokens=1024,
+            temperature=0.7,
+            messages=groq_messages,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[chat_service] Groq falló: {e}")
+        return None
 
 
 def _respuesta_fallback(contexto: Dict) -> str:
