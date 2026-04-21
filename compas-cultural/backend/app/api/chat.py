@@ -1,26 +1,32 @@
 import traceback
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from app.schemas import ChatRequest, ChatResponse
 from app.services import chat_service
 from app.limiter import rate_limit
+import json
 
 router = APIRouter()
 
 
-@router.post("/", response_model=ChatResponse)
+@router.post("/")
 async def chat_cultural(body: ChatRequest, request: Request):
     user_id = (
         request.headers.get("x-forwarded-for", "").split(",")[0].strip()
         or (request.client.host if request.client else "anonymous")
     )
     try:
-        return chat_service.chat(body, user_id)
+        result = chat_service.chat(body, user_id)
+        return JSONResponse(
+            content=json.loads(result.model_dump_json()),
+            media_type="application/json; charset=utf-8",
+        )
     except Exception as e:
-        tb = traceback.format_exc()
-        print(f"[ERROR] Chat failed for {user_id}: {e}\n{tb}")
-        return ChatResponse(
-            respuesta=f"[DEBUG] Error: {type(e).__name__}: {e}",
-            fuentes=[],
+        import traceback
+        print(f"[ERROR] Chat failed: {e}\n{traceback.format_exc()}")
+        return JSONResponse(
+            content={"respuesta": f"[DEBUG] {type(e).__name__}: {e}", "fuentes": []},
+            media_type="application/json; charset=utf-8",
         )
 
 

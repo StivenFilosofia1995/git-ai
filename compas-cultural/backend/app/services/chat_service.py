@@ -210,7 +210,7 @@ def _chat_via_groq(system_prompt: str, messages: list) -> str | None:
             messages=full_messages,
             max_tokens=700,
             temperature=0.7,
-            timeout=25,
+            timeout=40,
         )
         text = resp.choices[0].message.content.strip() if resp.choices else ""
         if text:
