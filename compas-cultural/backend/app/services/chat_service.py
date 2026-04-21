@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Optional
+import anthropic
 from app.config import settings
 from app.database import supabase
 from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
@@ -71,17 +72,37 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     )
 
     try:
-        # 1. Gemini 2.0 Flash (primary — free tier 1500 req/day)
-        respuesta = gemini_chat(prompt, historial_msgs, max_tokens=1024, temperature=0.7)
+        # 1. Gemini 2.0 Flash (si tiene key válida)
+        respuesta = None
+        if settings.gemini_api_key:
+            respuesta = gemini_chat(prompt, historial_msgs, max_tokens=1024, temperature=0.7)
+
+        # 2. Claude (Anthropic) — fallback principal
+        if not respuesta and settings.anthropic_api_key:
+            try:
+                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                response = client.messages.create(
+                    model=settings.anthropic_model,
+                    max_tokens=1024,
+                    temperature=0.7,
+                    system=prompt,
+                    messages=historial_msgs,
+                )
+                respuesta = response.content[0].text
+            except Exception as e:
+                print(f"[chat_service] Claude falló: {e}")
+
+        # 3. Groq fallback
         if not respuesta:
-            raise ValueError("Gemini returned empty")
-    except Exception as exc:
-        print(f"[chat_service] Gemini falló ({type(exc).__name__}: {exc}), intentando Groq...")
-        # 2. Groq 70b fallback
-        respuesta = _chat_via_groq(prompt, historial_msgs)
+            respuesta = _chat_via_groq(prompt, historial_msgs)
+
+        # 4. Respuesta local de emergencia
         if not respuesta:
-            print(f"[chat_service] Groq también falló, usando fallback local")
             respuesta = _respuesta_fallback(contexto)
+
+    except Exception as exc:
+        print(f"[chat_service] Error general: {exc}")
+        respuesta = _respuesta_fallback(contexto)
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
