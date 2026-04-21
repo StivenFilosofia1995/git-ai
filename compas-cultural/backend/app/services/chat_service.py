@@ -2,10 +2,10 @@ import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Optional
-import anthropic
 from app.config import settings
 from app.database import supabase
 from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
+from app.services.gemini_client import gemini_chat
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -71,17 +71,13 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     )
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=1024,
-            temperature=0.7,
-            system=prompt,
-            messages=historial_msgs,
-        )
-        respuesta = response.content[0].text
+        # 1. Gemini 2.0 Flash (primary — free tier 1500 req/day)
+        respuesta = gemini_chat(prompt, historial_msgs, max_tokens=1024, temperature=0.7)
+        if not respuesta:
+            raise ValueError("Gemini returned empty")
     except Exception as exc:
-        print(f"[chat_service] Claude falló ({type(exc).__name__}: {exc}), intentando Groq...")
+        print(f"[chat_service] Gemini falló ({type(exc).__name__}: {exc}), intentando Groq...")
+        # 2. Groq 70b fallback
         respuesta = _chat_via_groq(prompt, historial_msgs)
         if not respuesta:
             print(f"[chat_service] Groq también falló, usando fallback local")

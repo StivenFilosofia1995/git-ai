@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # Groq AI (fast/cheap LLM for scraping — replaces Claude for non-chat tasks)
     groq_api_key: str = ""
 
+    # Gemini (Google AI) — primary model for user chat (free tier: 1500 req/day)
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+
     # Meta (Instagram/Facebook) Graph API
     meta_access_token: str = ""
     meta_ig_business_account_id: str = ""
