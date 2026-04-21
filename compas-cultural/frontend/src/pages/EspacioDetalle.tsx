@@ -52,44 +52,10 @@ export default function EspacioDetalle() {
   if (error) return <div className="p-8 font-mono border-2 border-black">{error}</div>
   if (!espacio) return <div className="p-8 font-mono">Espacio no encontrado</div>
 
-  const canonicalUrl = `https://culturaetereamed.com/espacio/${slug}`
-  const metaDescription =
-    espacio.descripcion_corta
-      ? espacio.descripcion_corta.slice(0, 155)
-      : `${espacio.categoria_principal?.replaceAll('_', ' ')} en ${espacio.barrio ?? ''} ${espacio.municipio}. Descubrí este espacio cultural en Cultura ETÉREA.`
-  const placeSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'LocalBusiness',
-    name: espacio.nombre,
-    description: espacio.descripcion_corta ?? espacio.descripcion ?? undefined,
-    url: canonicalUrl,
-    address: {
-      '@type': 'PostalAddress',
-      addressLocality: espacio.municipio ?? 'Medellín',
-      streetAddress: espacio.barrio ?? undefined,
-      addressRegion: 'Antioquia',
-      addressCountry: 'CO',
-    },
-  }
-
   return (
     <>
       <Helmet>
-        <title>{espacio.nombre} — Cultura ETÉREA</title>
-        <meta name="description" content={metaDescription} />
-        <link rel="canonical" href={canonicalUrl} />
-        {/* Open Graph */}
-        <meta property="og:type" content="place" />
-        <meta property="og:title" content={`${espacio.nombre} — Cultura ETÉREA`} />
-        <meta property="og:description" content={metaDescription} />
-        <meta property="og:url" content={canonicalUrl} />
-        <meta property="og:locale" content="es_CO" />
-        {/* Twitter */}
-        <meta name="twitter:card" content="summary" />
-        <meta name="twitter:title" content={espacio.nombre} />
-        <meta name="twitter:description" content={metaDescription} />
-        {/* JSON-LD Place */}
-        <script type="application/ld+json">{JSON.stringify(placeSchema)}</script>
+        <title>{espacio.nombre} - Cultura ETÉREA</title>
       </Helmet>
 
       <div className="max-w-4xl mx-auto px-4 py-8">
@@ -195,40 +161,12 @@ export default function EspacioDetalle() {
               <p className="text-xs font-mono text-neutral-500 mb-3 border border-neutral-300 px-3 py-2">{scrapeMsg}</p>
             )}
             {eventos.length === 0 ? (
-              <div className="space-y-3">
-                <p className="font-mono text-sm">No hay eventos próximos programados en este espacio.</p>
-                {scrapeMsg && (espacio.instagram_handle || espacio.sitio_web) && (
-                  <div className="border-2 border-black p-4 bg-neutral-50">
-                    <p className="font-mono text-xs font-bold uppercase tracking-wider mb-3">CONSULTAR DIRECTAMENTE:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {espacio.instagram_handle && (
-                        <a
-                          href={`https://instagram.com/${espacio.instagram_handle.replace(/^@/, '')}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-xs font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
-                        >
-                          📸 Ver Instagram
-                        </a>
-                      )}
-                      {espacio.sitio_web && (
-                        <a
-                          href={espacio.sitio_web}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-xs font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
-                        >
-                          🌐 Ver sitio web
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <p className="font-mono text-sm">No hay eventos próximos programados en este espacio.</p>
             ) : (
               <div className="space-y-0 border-2 border-black">
                 {eventos.map(ev => {
                   const fecha = new Date(ev.fecha_inicio)
+                  const enCurso = (ev as Evento & { _en_curso?: boolean })._en_curso
                   return (
                     <Link
                       key={ev.id}
@@ -237,11 +175,17 @@ export default function EspacioDetalle() {
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div>
+                          {enCurso && (
+                            <span className="text-[9px] font-mono font-bold bg-red-600 text-white px-1.5 py-0.5 mr-2 uppercase">EN CURSO</span>
+                          )}
                           <p className="font-heading font-bold uppercase tracking-wider text-sm">{ev.titulo}</p>
                           <p className="text-xs font-mono mt-1">
                             {fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
                             {' · '}
                             {fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                            {ev.fecha_fin && (
+                              <> → {new Date(ev.fecha_fin).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}</>
+                            )}
                           </p>
                         </div>
                         {ev.es_gratuito && (

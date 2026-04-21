@@ -77,6 +77,7 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
   const hora = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
   const dia = fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
   const cat = evento.categoria_principal
+  const enCurso = (evento as Evento & { _en_curso?: boolean })._en_curso
 
   return (
     <Link
@@ -94,6 +95,7 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
           <div className="relative p-5 text-white">
             <div className="flex items-center gap-2 mb-3">
+              {enCurso && <span className="text-[9px] font-mono font-bold bg-red-600 px-1.5 py-0.5 uppercase">EN CURSO</span>}
               <span className="w-2 h-2 bg-white" />
               <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{dia} · {hora}</span>
             </div>
@@ -114,6 +116,7 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
       ) : (
         <div className="absolute inset-0 flex flex-col justify-end p-5 bg-white group-hover:bg-black group-hover:text-white transition-all duration-300">
           <div className="flex items-center gap-2 mb-3">
+            {enCurso && <span className="text-[9px] font-mono font-bold bg-red-600 text-white px-1.5 py-0.5 uppercase">EN CURSO</span>}
             <span className="w-2 h-2 bg-current" />
             <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{dia} · {hora}</span>
           </div>

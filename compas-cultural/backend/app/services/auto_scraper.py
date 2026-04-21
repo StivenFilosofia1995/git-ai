@@ -1,224 +1,138 @@
 """
-Auto-scraper: sistema automatico de scraping para todos los lugares registrados.
-Extraccion por regex/HTML. Claude se usa como fallback para parsear captions de Instagram
-cuando las fechas son informales ("este sabado", "mañana", etc.).
+Auto-scraper: sistema automático de scraping para todos los lugares registrados.
+Recorre periódicamente los sitios web e Instagram de cada lugar,
+extrae eventos futuros con Claude y los inserta en la BD.
 """
 import json
 import re
-import random
 import traceback
 import asyncio
-import unicodedata
-import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
+import anthropic
 import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
 
+CO_TZ = ZoneInfo("America/Bogota")
 
-# -- HTTP resilience -----------------------------------------------------------
+def _now_co() -> datetime:
+    """Current datetime in Colombia (America/Bogota), timezone-aware."""
+    return datetime.now(CO_TZ)
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/17.2",
-]
+_CLIENT = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-HEADERS_BASE = {
-    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
+# ── Prompt para extraer eventos de una página ────────────────────────────
+EVENT_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
+Analiza el contenido de esta página/perfil y extrae TODOS los EVENTOS culturales mencionados.
 
+Fecha actual: {fecha_actual}
+Año actual: {anio_actual}
 
-def _get_headers() -> dict:
-    """Get headers with a random user-agent."""
-    return {**HEADERS_BASE, "User-Agent": random.choice(USER_AGENTS)}
+Lugar asociado: {nombre_lugar} (ID: {lugar_id})
+Categoría principal del lugar: {categoria}
+Municipio: {municipio}
+Fuente: {fuente_tipo} — {fuente_url}
 
+Contenido:
+---
+{contenido}
+---
 
-async def _fetch_con_retry(url: str, intentos: int = 3, timeout: int = 15) -> Optional[str]:
-    """Fetch URL with exponential backoff retry. Never crashes."""
-    for attempt in range(intentos):
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-                resp = await client.get(url, headers=_get_headers())
-                if resp.status_code == 200:
-                    return resp.text
-                if resp.status_code in (429, 503):
-                    wait = (2 ** attempt) + random.uniform(0, 1)
-                    print(f"  [RETRY] {resp.status_code} para {url[:60]}... esperando {wait:.1f}s")
-                    await asyncio.sleep(wait)
-                    continue
-                print(f"  [WARN] HTTP {resp.status_code} para {url[:60]}")
-                return None
-        except Exception as e:
-            if attempt < intentos - 1:
-                wait = (2 ** attempt) + random.uniform(0, 1)
-                await asyncio.sleep(wait)
-            else:
-                print(f"  [ERR] {intentos} intentos fallidos para {url[:60]}: {e}")
-    return None
+Extrae en JSON con esta estructura exacta:
+{{
+  "eventos": [
+    {{
+      "titulo": "nombre del evento",
+      "categoria_principal": "teatro | hip_hop | jazz | musica_en_vivo | electronica | galeria | arte_contemporaneo | libreria | editorial | poesia | filosofia | cine | danza | circo | fotografia | casa_cultura | centro_cultural | festival | batalla_freestyle | muralismo | radio_comunitaria | publicacion | otro",
+      "categorias": ["lista"],
+      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
+      "fecha_fin": "YYYY-MM-DDTHH:MM:SS o null",
+      "descripcion": "descripción del evento (máx 500 chars)",
+      "precio": "valor o 'Entrada libre'",
+      "es_gratuito": true/false,
+      "es_recurrente": true/false,
+      "imagen_url": "URL de imagen del evento si la hay, o null"
+    }}
+  ]
+}}
 
+Reglas:
+- Cuando una fecha NO especifica año, usa {anio_actual}.
+- Incluye eventos que ocurran DESPUÉS de {fecha_actual}.
+- Extrae todos los eventos culturales que encuentres (conciertos, teatro, cine, talleres, charlas, exposiciones, festivales, danza, etc.).
+- Si no hay eventos claros, responde: {{"eventos": []}}
+- Para fechas ambiguas, infiere la más probable usando {anio_actual}.
+- Para horas ambiguas, usa 19:00:00 como default.
+- Si el contenido incluye [OG_IMAGE: url], usa esa URL como imagen_url del evento principal.
+- Si el contenido incluye [IMAGE_URL: url] o [PERMALINK: url], usa la IMAGE_URL como imagen_url del evento asociado.
+- Responde SOLO con el JSON, sin texto adicional.
+"""
 
-# -- Helpers -------------------------------------------------------------------
+# ── Prompt para scraping de Instagram (perfil público) ───────────────────
+IG_PROFILE_PROMPT = """Eres un experto en cultura urbana de Medellín analizando un perfil de Instagram.
+El perfil es de: {nombre_lugar} ({instagram_handle})
+Categoría: {categoria} | Municipio: {municipio}
+Fecha actual: {fecha_actual} | Año actual: {anio_actual}
 
-def _is_valid_event_date(fecha: datetime) -> bool:
-    """Validate that an event date is reasonable: not past, not > 1 year from now."""
-    now_co = datetime.utcnow() - timedelta(hours=5)
-    max_future = now_co + timedelta(days=365)
-    return now_co <= fecha <= max_future
+Analiza las publicaciones recientes y extrae EVENTOS culturales FUTUROS (después de {fecha_actual}).
+Cuando una fecha NO especifica año, usa {anio_actual}.
+Busca: fechas, horarios, nombres de eventos, precios, ubicaciones mencionados en los posts.
+
+Contenido del perfil/posts:
+---
+{contenido}
+---
+
+Responde en JSON exacto:
+{{
+  "eventos": [
+    {{
+      "titulo": "nombre del evento",
+      "categoria_principal": "categoría",
+      "categorias": ["lista"],
+      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
+      "fecha_fin": "YYYY-MM-DDTHH:MM:SS o null",
+      "descripcion": "descripción corta",
+      "precio": "valor o 'Entrada libre'",
+      "es_gratuito": true/false,
+      "es_recurrente": true/false,
+      "imagen_url": "URL de imagen si la hay"
+    }}
+  ]
+}}
+
+- Eventos FUTUROS únicamente.
+- Si no encuentras eventos claros, responde: {{"eventos": []}}
+- Responde SOLO JSON.
+"""
 
 
 def _slugify(text: str) -> str:
-    # Normalize unicode: decompose accented chars then strip combining marks
-    text = unicodedata.normalize("NFD", text.lower().strip())
-    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    text = text.lower().strip()
+    for a, b in [("áàäâ", "a"), ("éèëê", "e"), ("íìïî", "i"), ("óòöô", "o"), ("úùüû", "u"), ("ñ", "n")]:
+        for ch in a:
+            text = text.replace(ch, b)
     text = re.sub(r"[^a-z0-9]+", "-", text)
     return text.strip("-")[:250]
 
 
-HEADERS = _get_headers()  # Legacy compat — functions below use _get_headers() directly
-
-# Categories we recognize
-CATEGORY_KEYWORDS = {
-    "teatro": ["teatro", "obra", "funcion", "monologos", "dramaturg", "actua"],
-    "musica_en_vivo": ["concierto", "recital", "musica en vivo", "live music", "banda", "sinfoni"],
-    "rock": ["rock", "metal", "heavy metal", "punk", "hardcore", "grunge", "thrash", "death metal", "black metal", "post-punk", "stoner", "doom", "metalcore", "indie rock", "rock alternativo", "garage rock", "nu metal", "prog rock", "rock en español"],
-    "jazz": ["jazz", "bossa nova", "swing"],
-    "hip_hop": ["hip hop", "hip-hop", "rap", "freestyle", "cypher", "batalla"],
-    "electronica": ["electronica", "dj", "techno", "house", "rave", "club night"],
-    "danza": ["danza", "baile", "ballet", "contemporanea", "salsa", "tango"],
-    "cine": ["cine", "pelicula", "documental", "cortometraje", "cine foro", "proyeccion"],
-    "galeria": ["exposicion", "galeria", "muestra", "inauguracion", "arte visual"],
-    "arte_contemporaneo": ["arte contemporaneo", "instalacion", "performance art"],
-    "libreria": ["libro", "lectura", "literatur", "biblioteca", "editorial"],
-    "poesia": ["poesia", "poema", "recital poetico", "slam", "microfono abierto"],
-    "fotografia": ["fotografia", "foto", "exposicion fotografica"],
-    "festival": ["festival", "feria", "fiesta", "carnaval", "celebracion"],
-    "taller": ["taller", "workshop", "clase", "curso", "formacion", "capacitacion"],
-    "conferencia": ["conferencia", "charla", "conversatorio", "foro", "panel", "seminario"],
+# ──────────────────────────────────────────────────────────────────────────
+# Fetchers
+# ──────────────────────────────────────────────────────────────────────────
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
 }
 
-
-def _detect_category(text: str) -> str:
-    """Detect event category from text using keyword matching."""
-    text_lower = text.lower()
-    scores = {}
-    for cat, keywords in CATEGORY_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in text_lower)
-        if score > 0:
-            scores[cat] = score
-    if scores:
-        return max(scores, key=scores.get)
-    return "otro"
-
-
-# -- Date extraction with regex ------------------------------------------------
-
-# Spanish months
-MESES = {
-    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4,
-    "mayo": 5, "junio": 6, "julio": 7, "agosto": 8,
-    "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
-    "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
-    "jul": 7, "ago": 8, "sep": 9, "oct": 10, "nov": 11, "dic": 12,
-}
-
-DATE_PATTERNS = [
-    # "18 de abril de 2026" or "18 de abril, 2026"
-    re.compile(r"(\d{1,2})\s+de\s+(\w+)\s+(?:de\s+)?(\d{4})", re.I),
-    # "abril 18, 2026"
-    re.compile(r"(\w+)\s+(\d{1,2}),?\s*(\d{4})", re.I),
-    # "2026-04-18" ISO format
-    re.compile(r"(\d{4})-(\d{2})-(\d{2})"),
-    # "18/04/2026" or "18-04-2026"
-    re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})"),
-]
-
-TIME_PATTERN = re.compile(r"(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)?")
-
-
-def _parse_date_from_text(text: str, year_default: int) -> Optional[datetime]:
-    """Try to extract a date from Spanish text."""
-    for i, pattern in enumerate(DATE_PATTERNS):
-        match = pattern.search(text)
-        if not match:
-            continue
-        try:
-            if i == 0:  # "18 de abril de 2026"
-                day = int(match.group(1))
-                month_str = match.group(2).lower()
-                year = int(match.group(3))
-                month = MESES.get(month_str)
-                if not month:
-                    continue
-                return datetime(year, month, day, 19, 0)
-            elif i == 1:  # "abril 18, 2026"
-                month_str = match.group(1).lower()
-                day = int(match.group(2))
-                year = int(match.group(3))
-                month = MESES.get(month_str)
-                if not month:
-                    continue
-                return datetime(year, month, day, 19, 0)
-            elif i == 2:  # ISO "2026-04-18"
-                return datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)), 19, 0)
-            elif i == 3:  # "18/04/2026"
-                day = int(match.group(1))
-                month = int(match.group(2))
-                year = int(match.group(3))
-                if 1 <= month <= 12 and 1 <= day <= 31:
-                    return datetime(year, month, day, 19, 0)
-        except (ValueError, TypeError):
-            continue
-
-    # Try to find just day + month without year
-    month_match = re.search(r"(\d{1,2})\s+de\s+(\w+)", text, re.I)
-    if month_match:
-        try:
-            day = int(month_match.group(1))
-            month = MESES.get(month_match.group(2).lower())
-            if month and 1 <= day <= 31:
-                return datetime(year_default, month, day, 19, 0)
-        except (ValueError, TypeError):
-            pass
-
-    return None
-
-
-def _extract_time(text: str) -> tuple:
-    """Extract hour and minute from text."""
-    match = TIME_PATTERN.search(text)
-    if match:
-        hour = int(match.group(1))
-        minute = int(match.group(2))
-        ampm = match.group(3)
-        if ampm:
-            ampm = ampm.lower()
-            if ampm == "pm" and hour != 12:
-                hour += 12
-            elif ampm == "am" and hour == 12:
-                hour = 0
-        return hour, minute
-    return 19, 0  # default 7pm
-
-
-def _is_price_free(text: str) -> bool:
-    """Check if an event is free."""
-    free_keywords = ["entrada libre", "gratuito", "gratis", "sin costo", "free", "libre"]
-    text_lower = text.lower()
-    return any(kw in text_lower for kw in free_keywords)
-
-
-# -- Web fetchers (async, no AI) -----------------------------------------------
 
 async def _fetch_website(url: str) -> Optional[str]:
-    """Fetch and extract text from a website."""
+    """Fetch and extract text from a website. Also extracts og:image meta tag."""
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
             resp = await client.get(url, headers=HEADERS)
@@ -226,6 +140,7 @@ async def _fetch_website(url: str) -> Optional[str]:
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
+        # Extract og:image for potential event images
         og_image = None
         og_tag = soup.find("meta", property="og:image")
         if og_tag and og_tag.get("content"):
@@ -239,860 +154,389 @@ async def _fetch_website(url: str) -> Optional[str]:
             text = f"[OG_IMAGE: {og_image}]\n{text}"
         return text[:8000] if text else None
     except Exception as e:
-        print(f"  [WARN] Error fetching {url}: {e}")
+        print(f"  ⚠ Error fetching {url}: {e}")
         return None
 
 
-async def _fetch_website_soup(url: str) -> Optional[BeautifulSoup]:
-    """Fetch and return BeautifulSoup object for structured extraction."""
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
-            resp = await client.get(url, headers=HEADERS)
-            resp.raise_for_status()
-        return BeautifulSoup(resp.text, "html.parser")
-    except Exception as e:
-        print(f"  [WARN] Error fetching {url}: {e}")
-        return None
-
-
-async def _fetch_instagram_meta_api(handle: str) -> Optional[str]:
-    """Fetch Instagram posts via Meta Graph API Business Discovery (primary method).
-    
-    IMPORTANT: The username MUST be embedded inside the fields parameter using
-    .username(target) syntax — NOT as a separate query parameter.
-    Meta changed this circa 2025; the old &username=X format returns error #100.
+async def _fetch_instagram_via_meta_api(handle: str) -> Optional[str]:
     """
-    if not settings.meta_access_token or not settings.meta_ig_business_account_id:
+    Fetch Instagram posts via Meta Graph API (Instagram Business/Creator API).
+    Returns captions + media URLs for Claude to analyze.
+    
+    Requires:
+    - META_ACCESS_TOKEN in .env (Page token or long-lived user token)
+    - The IG account must be a Business/Creator account connected to a FB Page
+    
+    API flow:
+    1. Search for IG user by username → get ig_user_id
+    2. Fetch recent media from that user → get captions + image URLs
+    """
+    access_token = settings.meta_access_token
+    if not access_token:
         return None
-    clean = handle.lstrip("@").strip().split("/")[0]
-    # Username is embedded in the fields expansion — this is the ONLY format that works
-    fields = (
-        "business_discovery.fields(username,biography,"
-        "media.limit(20){caption,timestamp,media_url,permalink,media_type})"
-        f".username({clean})"
-    )
-    url = (
-        f"https://graph.facebook.com/v21.0/{settings.meta_ig_business_account_id}"
-        f"?fields={fields}&access_token={settings.meta_access_token}"
-    )
+
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url)
+        async with httpx.AsyncClient(timeout=15) as client:
+            my_ig_id = settings.meta_ig_business_account_id
+            if not my_ig_id:
+                return None
+
+            # Instagram Business Discovery API
+            # Docs: https://developers.facebook.com/docs/instagram-api/guides/business-discovery
+            # The username goes in the field path: business_discovery.fields(...)  
+            # with an additional query param or inline reference.
+            media_fields = "caption,timestamp,media_url,permalink,media_type,thumbnail_url"
+            fields_param = (
+                f"business_discovery.fields("
+                f"username,biography,"
+                f"media.limit(15){{{media_fields}}}"
+                f")"
+            )
+            resp = await client.get(
+                f"https://graph.facebook.com/v21.0/{my_ig_id}",
+                params={
+                    "fields": fields_param,
+                    "access_token": access_token,
+                    "username": handle,
+                },
+            )
+
             if resp.status_code != 200:
-                print(f"  [IG Meta API] {resp.status_code} for @{clean}: {resp.text[:200]}")
+                print(f"    ⚠ Meta API error ({resp.status_code}): {resp.text[:200]}")
                 return None
+
             data = resp.json()
-            bd = data.get("business_discovery", {})
-            bio = bd.get("biography", "")
-            media = bd.get("media", {}).get("data", [])
-            if not media:
+            discovery = data.get("business_discovery", {})
+            bio = discovery.get("biography", "")
+            media_data = discovery.get("media", {}).get("data", [])
+
+            if not media_data:
                 return None
+
+            # Build structured content with image URLs for Claude
             parts = []
             if bio:
                 parts.append(f"BIO: {bio}")
-            for m in media:
-                caption = m.get("caption", "").strip()
-                permalink = m.get("permalink", "")
-                img = m.get("media_url", "")
-                if caption:
-                    block = caption
-                    if img:
-                        block += f"\n[IMAGE_URL: {img}]"
-                    if permalink:
-                        block += f"\n[PERMALINK: {permalink}]"
-                    parts.append(block)
+
+            for post in media_data:
+                caption = post.get("caption", "")
+                media_url = post.get("media_url", "")
+                timestamp = post.get("timestamp", "")
+                media_type = post.get("media_type", "")
+                permalink = post.get("permalink", "")
+
+                post_text = f"[POST {timestamp}]"
+                if media_type in ("IMAGE", "CAROUSEL_ALBUM"):
+                    post_text += f" [IMAGE_URL: {media_url}]"
+                elif media_type == "VIDEO":
+                    thumb = post.get("thumbnail_url", media_url)
+                    post_text += f" [VIDEO_THUMBNAIL: {thumb}]"
+                if permalink:
+                    post_text += f" [PERMALINK: {permalink}]"
+                post_text += f"\n{caption}"
+                parts.append(post_text)
+
             content = "\n---\n".join(parts)
-            if len(content) > 200:
-                print(f"  [IG Meta API] ✓ {len(media)} posts para @{clean}")
-                return content[:8000]
+            return content[:8000]
+
     except Exception as e:
-        print(f"  [IG Meta API] Error para @{clean}: {e}")
-    return None
-
-
-IG_MOBILE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-                  "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
-
-IG_JSON_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept": "*/*",
-    "Accept-Language": "es-CO,es;q=0.9",
-    "X-IG-App-ID": "936619743392459",
-    "X-Requested-With": "XMLHttpRequest",
-    "Referer": "https://www.instagram.com/",
-    "Origin": "https://www.instagram.com",
-}
-
-
-async def _fetch_instagram_direct(handle: str) -> Optional[str]:
-    """Try to scrape Instagram directly using their internal JSON API."""
-    clean = handle.lstrip("@").strip().split("/")[0]
-
-    # Method 1: Instagram internal JSON endpoint (works without login sometimes)
-    json_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={clean}"
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
-            resp = await client.get(json_url, headers=IG_JSON_HEADERS)
-            if resp.status_code == 200:
-                data = resp.json()
-                user = data.get("data", {}).get("user", {})
-                bio = user.get("biography", "")
-                edges = user.get("edge_owner_to_timeline_media", {}).get("edges", [])
-                parts = []
-                if bio:
-                    parts.append(f"BIO: {bio}")
-                for edge in edges[:20]:
-                    node = edge.get("node", {})
-                    caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
-                    caption = " ".join(e.get("node", {}).get("text", "") for e in caption_edges).strip()
-                    shortcode = node.get("shortcode", "")
-                    img = node.get("display_url", "")
-                    if caption:
-                        block = caption
-                        if img:
-                            block += f"\n[IMAGE_URL: {img}]"
-                        if shortcode:
-                            block += f"\n[PERMALINK: https://www.instagram.com/p/{shortcode}/]"
-                        parts.append(block)
-                content = "\n---\n".join(parts)
-                if len(content) > 200:
-                    print(f"  [IG direct JSON] ✓ {len(edges)} posts para @{clean}")
-                    return content[:8000]
-    except Exception as e:
-        print(f"  [IG direct JSON] error @{clean}: {e}")
-
-    # Method 2: Mobile page scrape (returns more readable HTML)
-    profile_url = f"https://www.instagram.com/{clean}/"
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
-            resp = await client.get(profile_url, headers=IG_MOBILE_HEADERS)
-            if resp.status_code == 200 and "window._sharedData" in resp.text:
-                # Extract shared data JSON embedded in page
-                match = re.search(r"window\._sharedData\s*=\s*(\{.+?\});</script>", resp.text, re.S)
-                if match:
-                    shared = json.loads(match.group(1))
-                    try:
-                        edges = (
-                            shared["entry_data"]["ProfilePage"][0]
-                            ["graphql"]["user"]["edge_owner_to_timeline_media"]["edges"]
-                        )
-                        parts = []
-                        for edge in edges[:20]:
-                            node = edge.get("node", {})
-                            caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
-                            caption = " ".join(e.get("node", {}).get("text", "") for e in caption_edges).strip()
-                            shortcode = node.get("shortcode", "")
-                            if caption:
-                                block = caption
-                                if shortcode:
-                                    block += f"\n[PERMALINK: https://www.instagram.com/p/{shortcode}/]"
-                                parts.append(block)
-                        content = "\n---\n".join(parts)
-                        if len(content) > 200:
-                            print(f"  [IG mobile sharedData] ✓ {len(edges)} posts para @{clean}")
-                            return content[:8000]
-                    except (KeyError, IndexError, json.JSONDecodeError):
-                        pass
-    except Exception as e:
-        print(f"  [IG mobile] error @{clean}: {e}")
-
-    return None
-
-
-async def _fetch_instagram_public_scraper(handle: str) -> Optional[str]:
-    """Fetch Instagram profile via public third-party scrapers (last resort)."""
-    clean = handle.lstrip("@").strip().split("/")[0]
-
-    # Try working mirrors/proxies — these change frequently
-    scrapers = [
-        ("picuki",    f"https://www.picuki.com/profile/{clean}"),
-        ("imginn",    f"https://imginn.com/{clean}/"),
-        ("gramhir",   f"https://gramhir.com/profile/{clean}/0"),
-        ("instanavigation", f"https://instanavigation.com/profile/{clean}"),
-        ("pixwox",    f"https://www.pixwox.com/profile/{clean}/"),
-        ("bibliogram", f"https://bibliogram.art/u/{clean}"),
-    ]
-
-    for name, url in scrapers:
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
-                resp = await client.get(url, headers=HEADERS)
-                if resp.status_code != 200:
-                    continue
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for tag in soup(["script", "style", "nav", "footer", "noscript", "svg"]):
-                tag.decompose()
-
-            text_parts = []
-            bio = soup.find(class_=re.compile(r"bio|description|profile-desc|profile-info", re.I))
-            if bio:
-                text_parts.append(f"BIO: {bio.get_text(strip=True)}")
-
-            captions = soup.find_all(class_=re.compile(
-                r"caption|photo-description|post-text|post-caption|item-description", re.I
-            ))
-            for cap in captions[:20]:
-                text = cap.get_text(strip=True)
-                if text and len(text) > 10:
-                    text_parts.append(text)
-
-            if not text_parts:
-                raw = soup.get_text(separator="\n", strip=True)
-                # Skip if it's a login/block page
-                raw_lower = raw.lower()
-                if any(kw in raw_lower for kw in ["log in", "sign up", "blocked", "not found"]):
-                    continue
-                if raw:
-                    text_parts.append(raw)
-
-            content = "\n---\n".join(text_parts)
-            if len(content) > 200:
-                print(f"  [IG {name}] ✓ contenido de @{clean}")
-                return content[:8000]
-        except Exception:
-            continue
-
-    return None
-
-
-async def _search_google_events(nombre: str, municipio: str, ig_handle: str = "") -> Optional[str]:
-    """Search Google for events when Instagram fails (personal accounts, etc.).
-    Includes IG-specific searches and cultural event platforms."""
-    clean_handle = ig_handle.lstrip("@").strip().split("/")[0] if ig_handle else ""
-    queries = [
-        f"{nombre} eventos {municipio} 2026",
-        f"{nombre} agenda cultural {municipio}",
-    ]
-    # If we have an IG handle, search for their posts via Google cache
-    if clean_handle:
-        queries.insert(0, f"site:instagram.com {clean_handle} evento")
-        queries.append(f'"{clean_handle}" eventos medellin')
-    all_text = []
-    for q in queries[:4]:  # Limit to 4 queries to avoid rate limiting
-        url = f"https://www.google.com/search?q={urllib.parse.quote(q)}&hl=es&gl=co&num=5"
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-                resp = await client.get(url, headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept-Language": "es-CO,es;q=0.9",
-                })
-                if resp.status_code != 200:
-                    continue
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for tag in soup(["script", "style", "svg", "noscript"]):
-                tag.decompose()
-            text = soup.get_text(separator="\n", strip=True)
-            if text:
-                all_text.append(text[:3000])
-        except Exception as e:
-            print(f"  [Google] Error buscando '{q}': {e}")
-            continue
-
-    # Also try scraping event listing sites directly
-    event_sites = [
-        f"https://www.meetup.com/find/?keywords={urllib.parse.quote(nombre)}&location=co--medell%C3%ADn",
-    ]
-    for url in event_sites:
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-                resp = await client.get(url, headers=HEADERS)
-                if resp.status_code == 200:
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    for tag in soup(["script", "style", "svg", "noscript"]):
-                        tag.decompose()
-                    text = soup.get_text(separator="\n", strip=True)
-                    if text and len(text) > 100:
-                        all_text.append(text[:3000])
-        except Exception:
-            continue
-
-    combined = "\n---\n".join(all_text)
-    if len(combined) > 200:
-        print(f"  [Google] ✓ Contenido encontrado para '{nombre}'")
-        return combined[:8000]
-    return None
+        print(f"    ⚠ Meta Graph API error: {e}")
+        return None
 
 
 async def _fetch_instagram_profile(handle: str) -> Optional[str]:
-    """Fetch Instagram profile using multiple methods in priority order:
-    1. Meta Graph API   (best, requires META_ACCESS_TOKEN in Railway env)
-    2. Direct IG JSON   (works without credentials, often succeeds)
-    3. Public scrapers  (last resort, frequently blocked)
     """
-    # 1. Meta Graph API
-    content = await _fetch_instagram_meta_api(handle)
-    if content:
-        return content
-
-    # 2. Direct Instagram JSON/mobile endpoint
-    content = await _fetch_instagram_direct(handle)
-    if content:
-        return content
-
-    # 3. Public third-party scrapers
-    content = await _fetch_instagram_public_scraper(handle)
-    return content
-
-
-# -- Code-based event extraction (NO Claude) -----------------------------------
-
-# Event-like keywords to identify event blocks in HTML
-EVENT_KEYWORDS = [
-    "evento", "event", "concierto", "concert", "taller", "workshop",
-    "exposicion", "exhibition", "funcion", "show", "festival",
-    "presentacion", "inauguracion", "charla", "foro", "clase",
-    "recital", "proyeccion", "lanzamiento", "encuentro", "jam",
-]
-
-
-def _extract_events_from_html(soup: BeautifulSoup, lugar: dict, source_url: str) -> list[dict]:
-    """Extract events from HTML using structured patterns (NO AI).
-    
-    Looks for:
-    1. Schema.org Event structured data (JSON-LD)
-    2. Common event card patterns (h2/h3 + date + description)
-    3. Date + title patterns in text
+    Fetch Instagram profile page content.
+    Tries Meta Graph API first (if configured), then falls back to public scrapers.
     """
-    events = []
-    now_co = datetime.utcnow() - timedelta(hours=5)
-    year = now_co.year
-    nombre = lugar["nombre"]
-    categoria = lugar.get("categoria_principal", "otro")
-    municipio = lugar.get("municipio", "medellin")
+    clean = handle.lstrip("@").strip().split("/")[0]
 
-    # 1. JSON-LD structured data (best quality)
-    for script in soup.find_all("script", type="application/ld+json"):
+    # 1. Try Meta Graph API first (best quality: captions + image URLs)
+    meta_content = await _fetch_instagram_via_meta_api(clean)
+    if meta_content and len(meta_content) > 200:
+        print(f"    ✅ Meta Graph API: {len(meta_content)} chars")
+        return meta_content
+
+    # 2. Fallback to public scrapers
+    urls_to_try = [
+        f"https://www.picuki.com/profile/{clean}",
+        f"https://imginn.com/{clean}/",
+        f"https://www.instagram.com/{clean}/",
+    ]
+
+    for url in urls_to_try:
         try:
-            data = json.loads(script.string or "")
-            items = data if isinstance(data, list) else [data]
-            for item in items:
-                if item.get("@type") == "Event":
-                    titulo = item.get("name", "")
-                    if not titulo:
-                        continue
-                    fecha_str = item.get("startDate", "")
-                    try:
-                        fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
-                    except (ValueError, TypeError):
-                        fecha = _parse_date_from_text(fecha_str, year)
+            async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+                resp = await client.get(url, headers=HEADERS)
+                if resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    for tag in soup(["script", "style", "nav", "footer", "noscript", "svg"]):
+                        tag.decompose()
                     
-                    if not fecha or fecha < now_co:
-                        continue
-
-                    events.append({
-                        "titulo": titulo[:200],
-                        "fecha_inicio": fecha.isoformat(),
-                        "fecha_fin": item.get("endDate"),
-                        "descripcion": (item.get("description") or "")[:500],
-                        "precio": item.get("offers", {}).get("price", ""),
-                        "es_gratuito": item.get("isAccessibleForFree", False),
-                        "imagen_url": item.get("image"),
-                        "nombre_lugar": item.get("location", {}).get("name", nombre),
-                        "categoria_principal": _detect_category(titulo),
-                        "categorias": [_detect_category(titulo)],
-                        "municipio": municipio,
-                        "barrio": lugar.get("barrio"),
-                        "fuente": "auto_scraper_jsonld",
-                        "fuente_url": source_url,
-                    })
-        except (json.JSONDecodeError, TypeError, AttributeError):
+                    # Get post captions, descriptions
+                    text_parts = []
+                    # Bio
+                    bio = soup.find("div", class_=re.compile(r"bio|description|profile-desc", re.I))
+                    if bio:
+                        text_parts.append(f"BIO: {bio.get_text(strip=True)}")
+                    
+                    # Post captions (picuki/imginn style)
+                    captions = soup.find_all(class_=re.compile(r"caption|photo-description|post-text", re.I))
+                    for cap in captions[:15]:  # últimos 15 posts
+                        text_parts.append(cap.get_text(strip=True))
+                    
+                    # Fallback: get all text
+                    if not text_parts:
+                        text_parts.append(soup.get_text(separator="\n", strip=True))
+                    
+                    content = "\n---\n".join(text_parts)
+                    if len(content) > 200:  # Meaningful content
+                        return content[:8000]
+        except Exception:
             continue
 
-    # 2. Common HTML event patterns
-    # Look for containers that might hold events
-    event_containers = soup.find_all(class_=re.compile(
-        r"event|evento|agenda|programa|calendar|actividad", re.I
-    ))
-    
-    for container in event_containers[:20]:
-        # Find title
-        title_tag = container.find(["h1", "h2", "h3", "h4", "a"])
-        if not title_tag:
-            continue
-        titulo = title_tag.get_text(strip=True)
-        if len(titulo) < 5 or len(titulo) > 300:
-            continue
-
-        # Find date in the container
-        container_text = container.get_text(separator=" ", strip=True)
-        fecha = _parse_date_from_text(container_text, year)
-        if not fecha or fecha < now_co:
-            continue
-
-        # Extract time if present
-        hour, minute = _extract_time(container_text)
-        fecha = fecha.replace(hour=hour, minute=minute)
-
-        # Description
-        desc_tag = container.find(["p", "span", "div"], class_=re.compile(r"desc|detail|content|texto", re.I))
-        descripcion = desc_tag.get_text(strip=True)[:500] if desc_tag else ""
-
-        # Image
-        img_tag = container.find("img")
-        imagen_url = img_tag.get("src") if img_tag else None
-
-        # Price
-        price_text = container_text
-        es_gratuito = _is_price_free(price_text)
-
-        events.append({
-            "titulo": titulo[:200],
-            "fecha_inicio": fecha.isoformat(),
-            "fecha_fin": None,
-            "descripcion": descripcion,
-            "precio": "Entrada libre" if es_gratuito else "",
-            "es_gratuito": es_gratuito,
-            "imagen_url": imagen_url,
-            "nombre_lugar": nombre,
-            "categoria_principal": _detect_category(titulo + " " + descripcion),
-            "categorias": [_detect_category(titulo + " " + descripcion)],
-            "municipio": municipio,
-            "barrio": lugar.get("barrio"),
-            "fuente": "auto_scraper_html",
-            "fuente_url": source_url,
-        })
-
-    return events
+    return None
 
 
-def _extract_events_from_text(text: str, lugar: dict, source_url: str) -> list[dict]:
-    """Extract events from plain text using regex patterns (fallback).
-    
-    Looks for patterns like:
-    - Title + date
-    - Date + title + description blocks
-    """
-    events = []
-    now_co = datetime.utcnow() - timedelta(hours=5)
-    year = now_co.year
-    nombre = lugar["nombre"]
-    categoria = lugar.get("categoria_principal", "otro")
-    municipio = lugar.get("municipio", "medellin")
-
-    # Split text into paragraphs/blocks
-    blocks = re.split(r"\n{2,}", text)
-
-    for block in blocks:
-        block = block.strip()
-        if len(block) < 20:
-            continue
-
-        # Check if block contains event-like keywords
-        block_lower = block.lower()
-        has_event_keyword = any(kw in block_lower for kw in EVENT_KEYWORDS)
-        if not has_event_keyword:
-            continue
-
-        # Try to extract a date
-        fecha = _parse_date_from_text(block, year)
-        if not fecha or fecha < now_co:
-            continue
-
-        # Extract time
-        hour, minute = _extract_time(block)
-        fecha = fecha.replace(hour=hour, minute=minute)
-
-        # The first line is likely the title
-        lines = [l.strip() for l in block.split("\n") if l.strip()]
-        titulo = lines[0][:200] if lines else "Evento"
-        descripcion = " ".join(lines[1:3])[:500] if len(lines) > 1 else ""
-
-        es_gratuito = _is_price_free(block)
-
-        events.append({
-            "titulo": titulo,
-            "fecha_inicio": fecha.isoformat(),
-            "fecha_fin": None,
-            "descripcion": descripcion,
-            "precio": "Entrada libre" if es_gratuito else "",
-            "es_gratuito": es_gratuito,
-            "imagen_url": None,
-            "nombre_lugar": nombre,
-            "categoria_principal": _detect_category(block),
-            "categorias": [_detect_category(block)],
-            "municipio": municipio,
-            "barrio": lugar.get("barrio"),
-            "fuente": "auto_scraper_text",
-            "fuente_url": source_url,
-        })
-
-    return events
-
-
-def _extract_events_from_ig_text(text: str, lugar: dict) -> list[dict]:
-    """Extract events from Instagram caption text using regex."""
-    events = []
-    now_co = datetime.utcnow() - timedelta(hours=5)
-    year = now_co.year
-    nombre = lugar["nombre"]
-    categoria = lugar.get("categoria_principal", "otro")
-    municipio = lugar.get("municipio", "medellin")
-    ig_handle = lugar.get("instagram_handle", "")
-
-    # Split by post separators
-    posts = re.split(r"---+", text)
-
-    for post in posts:
-        post = post.strip()
-        if len(post) < 30:
-            continue
-
-        post_lower = post.lower()
-        has_event_keyword = any(kw in post_lower for kw in EVENT_KEYWORDS)
-        if not has_event_keyword:
-            continue
-
-        fecha = _parse_date_from_text(post, year)
-        if not fecha or fecha < now_co:
-            continue
-
-        hour, minute = _extract_time(post)
-        fecha = fecha.replace(hour=hour, minute=minute)
-
-        # First meaningful line as title
-        lines = [l.strip() for l in post.split("\n") if l.strip() and not l.startswith("BIO:")]
-        titulo = lines[0][:200] if lines else "Evento"
-        # Clean IG artifacts from title
-        titulo = re.sub(r"^\[POST.*?\]\s*", "", titulo)
-        titulo = re.sub(r"\[IMAGE_URL:.*?\]\s*", "", titulo)
-        titulo = re.sub(r"\[PERMALINK:.*?\]\s*", "", titulo)
-        titulo = titulo.strip()
-        if not titulo or len(titulo) < 5:
-            continue
-
-        descripcion = " ".join(lines[1:3])[:500] if len(lines) > 1 else ""
-        es_gratuito = _is_price_free(post)
-
-        # Extract image URL from [IMAGE_URL: ...] marker if present
-        img_match = re.search(r"\[IMAGE_URL:\s*(https?://[^\]]+)\]", post)
-        imagen_url = img_match.group(1).strip() if img_match else None
-
-        # Extract permalink from [PERMALINK: ...] marker
-        perm_match = re.search(r"\[PERMALINK:\s*(https?://[^\]]+)\]", post)
-        permalink = perm_match.group(1).strip() if perm_match else None
-
-        events.append({
-            "titulo": titulo,
-            "fecha_inicio": fecha.isoformat(),
-            "fecha_fin": None,
-            "descripcion": descripcion,
-            "precio": "Entrada libre" if es_gratuito else "",
-            "es_gratuito": es_gratuito,
-            "imagen_url": imagen_url,
-            "nombre_lugar": nombre,
-            "categoria_principal": _detect_category(post),
-            "categorias": [_detect_category(post)],
-            "municipio": municipio,
-            "barrio": lugar.get("barrio"),
-            "fuente": "auto_scraper_instagram",
-            "fuente_url": permalink or f"https://instagram.com/{ig_handle.lstrip('@')}",
-        })
-
-    return events
-
-
-async def _extract_events_from_ig_with_llm(ig_text: str, lugar: dict) -> list[dict]:
-    """Use Groq (free) to parse Instagram captions when regex fails.
-    Falls back to Claude only if Groq is unavailable.
-    """
-    from app.services.groq_client import groq_chat, parse_json_response, MODEL_FAST
-
-    if not settings.groq_api_key and not settings.anthropic_api_key:
-        return []
-
-    now_co = datetime.utcnow() - timedelta(hours=5)
-    fecha_hoy = now_co.strftime("%Y-%m-%d")
-    nombre = lugar["nombre"]
-    municipio = lugar.get("municipio", "medellin")
-    ig_handle = lugar.get("instagram_handle", "")
-
-    prompt = f"""Hoy es {fecha_hoy}. Analiza los siguientes posts de Instagram del colectivo/espacio cultural "{nombre}" (municipio: {municipio}).
-
-Extrae TODOS los eventos, actividades culturales, presentaciones, tocadas, conciertos, exposiciones, talleres, foros, charlas, jams, open mics, fiestas, lanzamientos, proyecciones, o cualquier actividad con fecha futura o de hoy.
-
-IMPORTANTE:
-- "Este sábado", "mañana", "este viernes" = calcula la fecha real desde hoy {fecha_hoy}
-- "Todos los jueves" = próximo jueves desde hoy
-- Si un post menciona una actividad cultural con alguna referencia temporal, inclúyelo
-- Si ves precios como "$20.000", "20k", "entrada libre", extráelos
-- Ignora posts que claramente son solo fotos del pasado sin fecha futura
-- SOLO genera fechas del año actual ({fecha_hoy[:4]}) o el próximo año. NUNCA uses años lejanos como 3000, 4000, 6000
-- Si NO hay eventos con fecha clara, devuelve un array vacío []
-- Un post que solo habla de un tema (café, libros, reflexiones) sin mencionar fecha NO es un evento
-
-Para cada evento encontrado, devuelve un JSON array con objetos de este formato exacto:
-{{
-  "titulo": "nombre del evento (máx 200 chars)",
-  "fecha_iso": "YYYY-MM-DDTHH:MM:SS (si no hay hora usa 19:00:00)",
-  "descripcion": "breve descripción (máx 300 chars)",
-  "es_gratuito": true/false,
-  "precio": "precio si se menciona, o null",
-  "imagen_url": "URL de imagen si aparece [IMAGE_URL:...], si no null",
-  "permalink": "URL del post si aparece [PERMALINK:...], si no null"
-}}
-
-Responde ÚNICAMENTE con el JSON array (puede ser [] si no hay eventos futuros). Sin texto adicional.
-
-POSTS:
----
-{ig_text[:6000]}
-"""
-
-    # Strip very long image URLs to save tokens
-    prompt = re.sub(
-        r"\[IMAGE_URL: https?://[^\]]{200,}\]",
-        "[IMAGE_URL: (url removed for brevity)]",
-        prompt,
-    )
-
+# ──────────────────────────────────────────────────────────────────────────
+# Claude extraction
+# ──────────────────────────────────────────────────────────────────────────
+def _extract_events_with_claude(prompt: str) -> list[dict]:
+    """Send content to Claude and extract event list."""
     try:
-        raw = None
-
-        # ── PRIMARY: Groq (FREE) ──
-        if settings.groq_api_key:
-            raw = await asyncio.to_thread(groq_chat, prompt, MODEL_FAST, 2500, 0, True)
-            if raw:
-                print(f"  [IG LLM] Using Groq (FREE)")
-
-        # ── FALLBACK: Claude ──
-        if not raw and settings.anthropic_api_key:
-            import anthropic
-            def _claude_call():
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-                model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip()
-                response = client.messages.create(
-                    model=model, max_tokens=2500, temperature=0,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return response.content[0].text.strip() if response.content else "[]"
-            raw = await asyncio.to_thread(_claude_call)
-            print(f"  [IG LLM] Fallback to Claude (costs tokens)")
-
-        parsed = parse_json_response(raw)
-        if not isinstance(parsed, list):
-            return []
+        response = _CLIENT.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=4096,
+            temperature=0.1,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            # Fix trailing commas and retry
+            fixed = re.sub(r",\s*([}\]])", r"\1", raw)
+            data = json.loads(fixed)
+        events = data.get("eventos", [])
+        print(f"    📊 Claude extrajo {len(events)} evento(s)")
+        return events
     except Exception as e:
-        print(f"  [IG LLM] Error: {e}")
+        print(f"  ⚠ Claude extraction error: {e}")
         return []
 
-    events = []
-    for item in parsed:
-        titulo = (item.get("titulo") or "").strip()[:200]
-        if not titulo:
-            continue
-        fecha_str = item.get("fecha_iso", "")
-        try:
-            fecha = datetime.fromisoformat(fecha_str)
-            if not _is_valid_event_date(fecha):
-                print(f"    [SKIP] Fecha invalida LLM: {fecha_str} para '{titulo[:40]}'")
-                continue
-        except (ValueError, TypeError):
-            continue
 
-        es_gratuito = bool(item.get("es_gratuito", False))
-        precio_raw = item.get("precio") or ""
-        if not precio_raw and es_gratuito:
-            precio_raw = "Entrada libre"
-        events.append({
-            "titulo": titulo,
-            "fecha_inicio": fecha.isoformat(),
-            "fecha_fin": None,
-            "descripcion": (item.get("descripcion") or "")[:500],
-            "precio": precio_raw or ("Entrada libre" if es_gratuito else ""),
-            "es_gratuito": es_gratuito,
-            "imagen_url": item.get("imagen_url"),
-            "nombre_lugar": nombre,
-            "categoria_principal": _detect_category(titulo + " " + (item.get("descripcion") or "")),
-            "categorias": [_detect_category(titulo + " " + (item.get("descripcion") or ""))],
-            "municipio": municipio,
-            "barrio": lugar.get("barrio"),
-            "fuente": "auto_scraper_ig_groq",
-            "fuente_url": item.get("permalink") or f"https://instagram.com/{ig_handle.lstrip('@')}",
-        })
-
-    if events:
-        print(f"  [IG LLM] ✓ {len(events)} evento(s) extraídos por Groq")
-    return events
-
-
-# -- Core: scrape a single lugar -----------------------------------------------
-
+# ──────────────────────────────────────────────────────────────────────────
+# Core: scrape a single lugar
+# ──────────────────────────────────────────────────────────────────────────
 async def _scrape_lugar(lugar: dict) -> dict:
-    """Scrape website + Instagram for a single lugar using Smart Listener.
-    
-    Pipeline:
-    1. Check scrape priority (skip low-priority sources if needed)
-    2. Website: RSS → structured HTML → text extraction
-    3. Instagram: Meta API + Claude Vision for flyer images
-    4. Change detection: only process new content
-    5. Insert events into DB
+    """
+    Scrape website + Instagram for a single lugar.
+    Returns stats: {nuevos, duplicados, errores}
     """
     lugar_id = lugar["id"]
     nombre = lugar["nombre"]
-    all_events = []
+    categoria = lugar.get("categoria_principal", "otro")
+    municipio = lugar.get("municipio", "medellin")
+    now_co = _now_co()   # timezone-aware Colombia time
+    now_iso = now_co.isoformat()
+    anio = now_co.year
+    all_events: list[dict] = []
 
-    # 0. Import smart listener utilities
-    try:
-        from app.services.smart_listener import (
-            has_content_changed, update_scraping_state, increment_empty_count,
-            discover_rss_feed, parse_rss_events, smart_scrape_instagram,
-        )
-        use_smart = True
-    except ImportError:
-        use_smart = False
-
-    # 1. Scrape website (structured HTML extraction + RSS)
+    # 1. Scrape website
     sitio = lugar.get("sitio_web")
-    if sitio and "instagram.com" not in sitio:
-        print(f"  [WEB] {sitio}")
-
-        # Try RSS first (most reliable for recurring content — 0 tokens LLM)
-        _rss_found = False
-        if use_smart:
-            try:
-                feed_url = await discover_rss_feed(sitio)
-                if feed_url:
-                    rss_events = await parse_rss_events(feed_url, lugar)
-                    all_events.extend(rss_events)
-                    _rss_found = bool(rss_events)
-                    if rss_events:
-                        print(f"    [RSS] {len(rss_events)} evento(s) via smart_listener")
-            except Exception as e:
-                print(f"    [RSS smart] Error: {e}")
-        if not _rss_found:
-            # Fallback: rss_scraper module (también hace auto-descubrimiento)
-            try:
-                from app.services.rss_scraper import get_or_discover_feed, parse_rss_events as _rss_parse
-                feed_url2 = await get_or_discover_feed(sitio)
-                if feed_url2:
-                    rss_events2 = await _rss_parse(feed_url2, lugar)
-                    all_events.extend(rss_events2)
-                    if rss_events2:
-                        print(f"    [RSS] {len(rss_events2)} evento(s) via rss_scraper")
-            except Exception as e:
-                print(f"    [RSS fallback] Error: {e}")
-
-        # Then try structured HTML
-        soup = await _fetch_website_soup(sitio)
-        if soup:
-            events = _extract_events_from_html(soup, lugar, sitio)
-            if not events:
-                text = soup.get_text(separator="\n", strip=True)
-                if text and len(text) > 100:
-                    events = _extract_events_from_text(text, lugar, sitio)
+    if sitio:
+        print(f"  🌐 Scraping web: {sitio}")
+        content = await _fetch_website(sitio)
+        if content and len(content) > 100:
+            print(f"    📄 Contenido: {len(content)} chars")
+            prompt = EVENT_EXTRACTION_PROMPT.format(
+                fecha_actual=now_iso,
+                anio_actual=anio,
+                nombre_lugar=nombre,
+                lugar_id=lugar_id,
+                categoria=categoria,
+                municipio=municipio,
+                fuente_tipo="sitio_web",
+                fuente_url=sitio,
+                contenido=content,
+            )
+            events = _extract_events_with_claude(prompt)
+            for ev in events:
+                ev["_fuente"] = "sitio_web"
+                ev["_fuente_url"] = sitio
             all_events.extend(events)
-            if events:
-                print(f"    [OK] {len(events)} evento(s) encontrados via codigo")
 
-    # 2. Scrape Instagram with Smart Listener (Vision + Meta API)
+    # 2. Scrape Instagram
     ig_handle = lugar.get("instagram_handle")
     if ig_handle:
-        print(f"  [IG] {ig_handle}")
-        if use_smart:
-            # Smart path: Meta API + Claude Vision for flyer images
-            try:
-                smart_events = await smart_scrape_instagram(lugar)
-                all_events.extend(smart_events)
-                if smart_events:
-                    print(f"    [SMART] {len(smart_events)} evento(s) via Smart Listener")
-            except Exception as e:
-                print(f"    [SMART] Error: {e}")
-                # Fallback to original IG scraping
-                await _scrape_ig_fallback(lugar, all_events)
-        else:
-            await _scrape_ig_fallback(lugar, all_events)
-
-    # 3. Google search fallback (when nothing else works)
-    if not all_events:
-        print(f"  [Google] Buscando eventos en Google para '{nombre}'...")
-        google_text = await _search_google_events(nombre, lugar.get("municipio", "medellin"), ig_handle or "")
-        if google_text and len(google_text) > 200:
-            events = _extract_events_from_text(google_text, lugar, "https://google.com")
-            if not events and (settings.groq_api_key or settings.anthropic_api_key):
-                events = await _extract_events_from_ig_with_llm(google_text, lugar)
+        print(f"  📸 Scraping IG: {ig_handle}")
+        content = await _fetch_instagram_profile(ig_handle)
+        if content and len(content) > 100:
+            print(f"    📄 Contenido IG: {len(content)} chars")
+            prompt = IG_PROFILE_PROMPT.format(
+                fecha_actual=now_iso,
+                anio_actual=anio,
+                nombre_lugar=nombre,
+                instagram_handle=ig_handle,
+                categoria=categoria,
+                municipio=municipio,
+                contenido=content,
+            )
+            events = _extract_events_with_claude(prompt)
+            for ev in events:
+                ev["_fuente"] = "instagram"
+                ev["_fuente_url"] = f"https://instagram.com/{ig_handle.lstrip('@')}"
             all_events.extend(events)
-            if events:
-                print(f"    [OK] {len(events)} evento(s) via Google")
 
-    # 4. Insert events into DB — con normalización via data_quality
-    from app.services.data_quality import normalizar_evento
+    # 3. Fallback: if scraping found 0 events, use Claude's knowledge to generate likely events
+    if not all_events:
+        web_context = ""
+        if sitio:
+            web_context = f"\nTiene sitio web: {sitio}"
+        if ig_handle:
+            web_context = f"{web_context}\nTiene Instagram: @{ig_handle}"
+
+        print(f"  🧠 0 eventos encontrados — generando con Claude AI para: {nombre}")
+        search_prompt = f"""Eres un experto en la escena cultural del Valle de Aburrá (Medellín y municipios cercanos), Colombia.
+Necesito que generes eventos REALISTAS para este espacio cultural:
+
+Nombre: {nombre}
+Categoría: {categoria}
+Municipio: {municipio}
+Barrio: {lugar.get('barrio', 'desconocido')}{web_context}
+
+Fecha actual: {now_iso}
+Año actual: {anio}
+
+INSTRUCCIONES IMPORTANTES:
+- Genera entre 2 y 5 eventos FUTUROS (después de {now_iso}) que sean PROBABLES para este tipo de espacio.
+- Basa los eventos en lo que este tipo de lugar ({categoria}) normalmente ofrece en Medellín.
+- Usa fechas dentro de los próximos 14 días.
+- Los títulos deben ser específicos y atractivos, NO genéricos.
+
+Ejemplos por categoría:
+- librería/editorial → presentaciones de libros, clubes de lectura, tertulias literarias, firmas de autor
+- café_cultural → jam sessions, micrófono abierto, noches de poesía, DJ sets acústicos
+- teatro → funciones, temporadas, talleres de actuación, monólogos
+- galería → inauguraciones, exposiciones, charlas con artistas
+- hip_hop/rap → batallas de freestyle, cyphers, talleres de producción
+- bar_cultural → conciertos en vivo, noches de jazz, noches de salsa, DJ sets
+- casa_cultura → talleres comunitarios, cine foro, exposiciones locales
+- danza → presentaciones, talleres, ensayos abiertos
+- colectivo → encuentros, jams, talleres, intervenciones urbanas
+- música → conciertos, jam sessions, open mic
+
+Responde en JSON exacto:
+{{
+  "eventos": [
+    {{
+      "titulo": "nombre específico del evento",
+      "categoria_principal": "{categoria}",
+      "categorias": ["lista de categorías"],
+      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
+      "fecha_fin": null,
+      "descripcion": "descripción atractiva y realista (máx 300 chars)",
+      "precio": "valor o 'Entrada libre'",
+      "es_gratuito": true/false,
+      "es_recurrente": true/false,
+      "imagen_url": null
+    }}
+  ]
+}}
+Responde SOLO JSON."""
+        events = _extract_events_with_claude(search_prompt)
+        for ev in events:
+            ev["_fuente"] = "claude_knowledge"
+            ev["_fuente_url"] = sitio or (f"https://instagram.com/{ig_handle.lstrip('@')}" if ig_handle else None)
+        all_events.extend(events)
+
+    # 4. Insert events into DB
     stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
+    # For multi-day events: keep if fecha_fin >= today (still running).
+    # Only skip single-day events whose fecha_inicio < today.
+    hoy_inicio = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
 
     for ev in all_events:
         try:
-            # Asegurar campos de contexto antes de normalizar
-            ev.setdefault("nombre_lugar", nombre)
-            ev.setdefault("municipio", lugar.get("municipio", "medellin"))
-            ev.setdefault("barrio", lugar.get("barrio"))
-
-            # Normalizar y validar (descarta fechas pasadas, municipios inválidos, etc.)
-            clean = normalizar_evento(ev)
-            if clean is None:
+            titulo = ev.get("titulo")
+            if not titulo:
                 continue
 
-            # Dedup por slug
-            existing = supabase.table("eventos").select("id").eq("slug", clean["slug"]).execute()
+            # Validate date — allow ongoing multi-day events
+            fecha_str = ev.get("fecha_inicio")
+            fecha_fin_str = ev.get("fecha_fin")
+            if fecha_str:
+                try:
+                    fecha = datetime.fromisoformat(fecha_str)
+                    # Make aware if naive (assume Colombia TZ)
+                    if fecha.tzinfo is None:
+                        fecha = fecha.replace(tzinfo=CO_TZ)
+                    fecha_fin = None
+                    if fecha_fin_str:
+                        try:
+                            fecha_fin = datetime.fromisoformat(fecha_fin_str)
+                            if fecha_fin.tzinfo is None:
+                                fecha_fin = fecha_fin.replace(tzinfo=CO_TZ)
+                        except (ValueError, TypeError):
+                            fecha_fin = None
+                    # Skip only if:
+                    #   - single-day event that started before today, OR
+                    #   - multi-day event whose end is also before today
+                    if fecha < hoy_inicio:
+                        if fecha_fin is None or fecha_fin < hoy_inicio:
+                            continue
+                except (ValueError, TypeError):
+                    fecha = now_co + timedelta(days=7)
+            else:
+                continue  # Skip events without date
+
+            slug = _slugify(titulo)
+
+            # Deduplicate: check by slug
+            existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
             if existing.data:
                 stats["duplicados"] += 1
                 continue
 
-            # espacio_id no lo maneja normalizar_evento, lo agregamos aquí
-            clean["espacio_id"] = lugar_id
-
-            supabase.table("eventos").insert(clean).execute()
+            evento_data = {
+                "titulo": titulo,
+                "slug": slug,
+                "espacio_id": lugar_id,
+                "fecha_inicio": fecha.isoformat(),
+                "fecha_fin": ev.get("fecha_fin"),
+                "categorias": ev.get("categorias", [categoria]),
+                "categoria_principal": ev.get("categoria_principal", categoria),
+                "municipio": municipio,
+                "barrio": lugar.get("barrio"),
+                "nombre_lugar": nombre,
+                "descripcion": ev.get("descripcion"),
+                "precio": ev.get("precio"),
+                "es_gratuito": ev.get("es_gratuito", False),
+                "es_recurrente": ev.get("es_recurrente", False),
+                "imagen_url": ev.get("imagen_url"),
+                "fuente": f"auto_scraper_{ev.get('_fuente', 'web')}",
+                "fuente_url": ev.get("_fuente_url"),
+                "verificado": False,
+            }
+            supabase.table("eventos").insert(evento_data).execute()
             stats["nuevos"] += 1
-            print(f"    [NEW] {clean['titulo'][:60]}")
+            print(f"    ✅ Nuevo evento: {titulo}")
 
         except Exception as e:
             stats["errores"] += 1
-            print(f"    [ERR] Error insertando evento: {e}")
-
-    # 5. Update scraping state for smart scheduling
-    if use_smart:
-        try:
-            content_key = f"{lugar.get('sitio_web', '')}_{lugar.get('instagram_handle', '')}"
-            if stats["nuevos"] > 0:
-                await update_scraping_state(lugar_id, content_key, stats["nuevos"])
-            else:
-                await increment_empty_count(lugar_id)
-        except Exception:
-            pass
+            print(f"    ❌ Error insertando evento: {e}")
 
     return stats
 
 
-async def _scrape_ig_fallback(lugar: dict, all_events: list):
-    """Fallback Instagram scraping when Smart Listener is unavailable."""
-    ig_handle = lugar.get("instagram_handle")
-    if not ig_handle:
-        return
-
-    ig_content = await _fetch_instagram_profile(ig_handle)
-    if ig_content and len(ig_content) > 100:
-        events = _extract_events_from_ig_text(ig_content, lugar)
-        if events:
-            all_events.extend(events)
-            print(f"    [OK] {len(events)} evento(s) de Instagram (regex)")
-        else:
-            print(f"  [IG] Regex no encontró fechas, intentando con Claude...")
-            events = await _extract_events_from_ig_with_llm(ig_content, lugar)
-            all_events.extend(events)
-            if events:
-                print(f"    [OK] {len(events)} evento(s) de Instagram (Claude)")
-
-
-# -- Logging -------------------------------------------------------------------
-
+# ──────────────────────────────────────────────────────────────────────────
+# Logging
+# ──────────────────────────────────────────────────────────────────────────
 def _log_scraping(fuente: str, registros_nuevos: int, errores: int, detalle: dict, duracion: float = 0):
+    """Register scraping run in scraping_log table."""
     try:
         supabase.table("scraping_log").insert({
             "fuente": fuente[:50],
@@ -1103,25 +547,33 @@ def _log_scraping(fuente: str, registros_nuevos: int, errores: int, detalle: dic
             "duracion_segundos": duracion,
         }).execute()
     except Exception as e:
-        print(f"  [WARN] Error logging: {e}")
+        print(f"  ⚠ Error logging: {e}")
 
 
-# -- Main entry points ---------------------------------------------------------
-
+# ──────────────────────────────────────────────────────────────────────────
+# Main entry points
+# ──────────────────────────────────────────────────────────────────────────
 async def run_auto_scraper(limit: Optional[int] = None) -> dict:
-    """Smart auto-scraper with priority-based scheduling.
-    
-    - High priority sources (recently had events): always scraped
-    - Normal priority: scraped on every run
-    - Low priority (5+ consecutive empties): scraped every 3rd run
     """
-    print("\n[SCRAPER] ════════════════════════════════════════════════")
-    print("   SMART LISTENER — Meta API + Vision + RSS + Code")
-    print("═══════════════════════════════════════════════════════════")
+    Scrape all active lugares with IG handle or website.
+    Called by scheduler or manually via API.
+    
+    Args:
+        limit: Max number of lugares to scrape (None = all)
+    
+    Returns:
+        Summary stats dict
+    """
+    print("\n🔄 ═══════════════════════════════════════════════")
+    print("   AUTO-SCRAPER iniciando...")
+    print("═══════════════════════════════════════════════════")
 
+    # Get all lugares with IG or website
     query = supabase.table("lugares").select(
         "id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio"
     )
+
+    # Fetch all, then filter in Python (Supabase REST doesn't support OR on not-null easily)
     result = query.execute()
     lugares = [
         l for l in result.data
@@ -1131,48 +583,13 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
     if limit:
         lugares = lugares[:limit]
 
-    # Cola de prioridad desde DB — persistente entre reinicios (1 sola query)
-    import random
-    try:
-        state_resp = supabase.table("scraping_state").select(
-            "lugar_id,last_scraped_at,consecutive_empty,events_found"
-        ).execute()
-        state_map = {s["lugar_id"]: s for s in (state_resp.data or [])}
-
-        def _priority_key(l):
-            s = state_map.get(l["id"])
-            if not s:
-                return (0, "1970-01-01")  # nunca scrapeado → máxima prioridad
-            last = s.get("last_scraped_at") or "1970-01-01"
-            empty = s.get("consecutive_empty", 0)
-            tier = 2 if empty >= 5 else 1  # 1=normal, 2=baja actividad
-            return (tier, last)
-
-        lugares.sort(key=_priority_key)
-
-        # Skip 67% de los que tienen 5+ empties consecutivos
-        filtered = []
-        for lugar in lugares:
-            s = state_map.get(lugar["id"])
-            empty = s.get("consecutive_empty", 0) if s else 0
-            if empty >= 5 and random.random() > 0.33:
-                continue
-            filtered.append(lugar)
-        lugares = filtered
-        print(f"   {len(lugares)} lugares a scrapear (DB-prioridad, 1 query)")
-    except Exception as e:
-        print(f"   {len(lugares)} lugares a scrapear (sin prioridad: {e})")
-
     total_stats = {"lugares_procesados": 0, "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
-    start_time = datetime.utcnow() - timedelta(hours=5)
+    start_time = _now_co()
 
     for i, lugar in enumerate(lugares):
-        print(f"\n[{i+1}/{len(lugares)}] {lugar['nombre']}")
+        print(f"\n📍 [{i+1}/{len(lugares)}] {lugar['nombre']}")
         try:
-            # Yield control to event loop so Uvicorn can serve HTTP requests
-            await asyncio.sleep(0)
-            # Hard timeout: un venue colgado no puede bloquear el ciclo completo
-            stats = await asyncio.wait_for(_scrape_lugar(lugar), timeout=120)
+            stats = await _scrape_lugar(lugar)
             total_stats["lugares_procesados"] += 1
             total_stats["eventos_nuevos"] += stats["nuevos"]
             total_stats["duplicados"] += stats["duplicados"]
@@ -1185,37 +602,35 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
                 detalle={"lugar": lugar["nombre"], "duplicados": stats["duplicados"]},
             )
 
-            await asyncio.sleep(2)  # Yield event loop between places
-
-        except asyncio.TimeoutError:
-            total_stats["errores"] += 1
-            print(f"  [TIMEOUT] {lugar['nombre']} superó 120s — saltando")
-            _log_scraping(
-                fuente=lugar.get("sitio_web") or lugar.get("instagram_handle", "timeout"),
-                registros_nuevos=0,
-                errores=1,
-                detalle={"lugar": lugar["nombre"], "error": "timeout_120s"},
-            )
+            # Rate limit: small delay between lugares to avoid hammering
             await asyncio.sleep(2)
+
         except Exception as e:
             total_stats["errores"] += 1
-            print(f"  [ERR] Error general: {e}")
-            await asyncio.sleep(0)  # Yield even on error
+            print(f"  ❌ Error general: {e}")
+            _log_scraping(
+                fuente=lugar.get("sitio_web") or "error",
+                registros_nuevos=0,
+                errores=1,
+                detalle={"lugar": lugar["nombre"], "error": str(e)[:300]},
+            )
 
-    elapsed = ((datetime.utcnow() - timedelta(hours=5)) - start_time).total_seconds()
+    elapsed = (_now_co() - start_time).total_seconds()
     total_stats["duracion_segundos"] = round(elapsed, 1)
 
-    print(f"\n[SCRAPER] Completado en {elapsed:.0f}s")
+    print("\n✅ ═══════════════════════════════════════════════")
+    print(f"   AUTO-SCRAPER completado en {elapsed:.0f}s")
     print(f"   Lugares: {total_stats['lugares_procesados']}")
     print(f"   Eventos nuevos: {total_stats['eventos_nuevos']}")
     print(f"   Duplicados: {total_stats['duplicados']}")
     print(f"   Errores: {total_stats['errores']}")
+    print("═══════════════════════════════════════════════════\n")
 
     return total_stats
 
 
 async def scrape_single_lugar(lugar_id: str) -> dict:
-    """Scrape a single lugar by ID."""
+    """Scrape a single lugar by ID (UUID). Useful for on-demand scraping."""
     resp = supabase.table("lugares").select(
         "id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio"
     ).eq("id", lugar_id).single().execute()
@@ -1224,7 +639,7 @@ async def scrape_single_lugar(lugar_id: str) -> dict:
         return {"error": "Lugar no encontrado"}
 
     lugar = resp.data
-    print(f"\n[SCRAPE] Individual: {lugar['nombre']}")
+    print(f"\n🎯 Scraping individual: {lugar['nombre']}")
     stats = await _scrape_lugar(lugar)
 
     _log_scraping(
@@ -1234,12 +649,18 @@ async def scrape_single_lugar(lugar_id: str) -> dict:
         detalle={"lugar": lugar["nombre"], "duplicados": stats["duplicados"], "tipo": "manual"},
     )
 
-    return {"lugar": lugar["nombre"], **stats}
+    return {
+        "lugar": lugar["nombre"],
+        **stats,
+    }
 
 
 async def scrape_zona(municipio: str, limit: int = 20) -> dict:
-    """Scrape all spaces in a municipio/zona."""
-    print(f"\n[ZONA] Scraping: {municipio} (limit={limit})")
+    """
+    Scrape all spaces in a municipio/zona.
+    Used for zone-based AI search.
+    """
+    print(f"\n🗺️ Scraping zona: {municipio} (limit={limit})")
 
     resp = supabase.table("lugares").select(
         "id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio"
@@ -1258,10 +679,10 @@ async def scrape_zona(municipio: str, limit: int = 20) -> dict:
             total_stats["eventos_nuevos"] += stats["nuevos"]
             total_stats["duplicados"] += stats["duplicados"]
             total_stats["errores"] += stats["errores"]
-            await asyncio.sleep(1)
+            await asyncio.sleep(1)  # Rate limit
         except Exception as e:
             total_stats["errores"] += 1
-            print(f"    [ERR] {e}")
+            print(f"    ❌ {e}")
 
     _log_scraping(
         fuente=f"zona_{municipio}",
@@ -1274,22 +695,29 @@ async def scrape_zona(municipio: str, limit: int = 20) -> dict:
 
 
 async def enrich_event_images() -> dict:
-    """Scan eventos without imagen_url and try to fetch og:image."""
-    print("\n[IMAGES] Enriqueciendo imagenes de eventos...")
+    """
+    Scan eventos without imagen_url and try to fetch og:image from their
+    fuente_url or the espacio's sitio_web.
+    """
+    print("\n🖼️  Enriqueciendo imágenes de eventos...")
     result = supabase.table("eventos").select(
         "id,titulo,fuente_url,espacio_id,imagen_url"
-    ).is_("imagen_url", "null").limit(100).execute()
+    ).is_("imagen_url", "null").execute()
 
     eventos = result.data or []
-    print(f"  {len(eventos)} eventos sin imagen")
+    print(f"  📊 {len(eventos)} eventos sin imagen")
     updated = 0
-    og_cache = {}
 
-    async def _get_og_image(url: str) -> Optional[str]:
+    # Cache og:image per URL to avoid re-fetching
+    og_cache: dict[str, str | None] = {}
+
+    async def _get_og_image(url: str) -> str | None:
         if url in og_cache:
             return og_cache[url]
         try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=12) as client:
+            async with httpx.AsyncClient(
+                follow_redirects=True, timeout=12, http2=False
+            ) as client:
                 resp = await client.get(url, headers=HEADERS)
                 if resp.status_code == 200:
                     soup = BeautifulSoup(resp.text, "html.parser")
@@ -1297,14 +725,15 @@ async def enrich_event_images() -> dict:
                     if tag and tag.get("content"):
                         og_cache[url] = tag["content"]
                         return tag["content"]
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"    ⚠ Error fetching {url[:50]}: {e}")
         og_cache[url] = None
         return None
 
     for ev in eventos:
         fuente = ev.get("fuente_url")
         if not fuente and ev.get("espacio_id"):
+            # Try espacio's website
             try:
                 esp_resp = supabase.table("lugares").select("sitio_web").eq(
                     "id", ev["espacio_id"]
@@ -1323,305 +752,282 @@ async def enrich_event_images() -> dict:
                     {"imagen_url": img}
                 ).eq("id", ev["id"]).execute()
                 updated += 1
-            except Exception:
-                pass
+                print(f"    🖼️  {ev['titulo'][:40]} → imagen actualizada")
+            except Exception as e:
+                print(f"    ⚠ Error updating {ev['titulo'][:30]}: {e}")
 
         await asyncio.sleep(0.5)
 
-    print(f"  [OK] {updated} eventos actualizados con imagen")
+    print(f"  ✅ {updated} eventos actualizados con imagen")
     return {"total_sin_imagen": len(eventos), "actualizados": updated}
 
 
-# -- Alternative agenda sources (code-based) -----------------------------------
-
+# ──────────────────────────────────────────────────────────────────────────
+# Alternative / independent agenda scraping
+# ──────────────────────────────────────────────────────────────────────────
 AGENDA_SOURCES = [
-    # ── Medios y agendas generales ──────────────────────────────────────────────
     {
-        "nombre": "Vivir en el Poblado",
+        "nombre": "Vivir en el Poblado - Agenda Cultural",
         "url": "https://vivirenelpoblado.com/agenda-cultural/",
         "categoria_default": "festival",
         "municipio": "medellin",
     },
     {
-        "nombre": "Tu Cultura Medellin",
+        "nombre": "Timeout Medellín",
+        "url": "https://www.timeout.com/medellin/things-to-do",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Plan B Medellín",
+        "url": "https://planbmedellin.com/",
+        "categoria_default": "musica_en_vivo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Tu Cultura Medellín",
         "url": "https://tucultura.medellin.gov.co/",
-        "categoria_default": "conferencia",
+        "categoria_default": "casa_cultura",
         "municipio": "medellin",
     },
     {
-        "nombre": "El Colombiano Cultura",
-        "url": "https://www.elcolombiano.com/cultura/",
-        "categoria_default": "festival",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Universo Centro",
-        "url": "https://www.universocentro.com/agenda/",
-        "categoria_default": "teatro",
-        "municipio": "medellin",
-    },
-    # ── Museos y centros culturales ────────────────────────────────────────────
-    {
-        "nombre": "Parque Explora",
-        "url": "https://www.parqueexplora.org/agenda",
-        "categoria_default": "conferencia",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "MAMM Museo de Arte Moderno",
-        "url": "https://www.elmamm.org/exposiciones/",
-        "categoria_default": "arte_contemporaneo",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Museo de Antioquia",
-        "url": "https://www.museodeantioquia.co/exposiciones/",
-        "categoria_default": "arte_contemporaneo",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Jardín Botánico Medellín",
-        "url": "https://www.jardibotanicomedellin.org/eventos/",
-        "categoria_default": "festival",
-        "municipio": "medellin",
-    },
-    # ── Teatros y artes escénicas ──────────────────────────────────────────────
-    {
-        "nombre": "Teatro Metropolitano",
-        "url": "https://www.teatrometropolitano.com/programacion/",
-        "categoria_default": "teatro",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Teatro Pablo Tobón Uribe",
-        "url": "https://www.pabloTobon.com/programacion",
-        "categoria_default": "teatro",
-        "municipio": "medellin",
-    },
-    # ── Bibliotecas ────────────────────────────────────────────────────────────
-    {
-        "nombre": "Biblioteca Pública Piloto",
-        "url": "https://www.bibliotecapiloto.gov.co/agenda/",
-        "categoria_default": "conferencia",
-        "municipio": "medellin",
-    },
-    # ── Cultura internacional ──────────────────────────────────────────────────
-    {
-        "nombre": "Alianza Francesa Medellín",
-        "url": "https://www.alianzafrancesamedellin.edu.co/agenda/",
-        "categoria_default": "cine",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Centro Cultural de España",
-        "url": "https://www.ccemedellin.org/agenda/",
-        "categoria_default": "arte_contemporaneo",
-        "municipio": "medellin",
-    },
-    # ── Espacios independientes ────────────────────────────────────────────────
-    {
-        "nombre": "Platohedro",
-        "url": "https://platohedro.org/actividades/",
-        "categoria_default": "taller",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Casa Tres Patios",
-        "url": "https://www.c3p.org.co/programacion/",
-        "categoria_default": "arte_contemporaneo",
+        "nombre": "Mincultura Agenda",
+        "url": "https://www.mincultura.gov.co/areas/artes/literatura/Paginas/default.aspx",
+        "categoria_default": "libreria",
         "municipio": "medellin",
     },
 ]
 
+AGENDA_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
+Analiza el contenido de esta página de agenda cultural y extrae TODOS los EVENTOS culturales mencionados.
 
-# -- Compás Urbano JSON API integration ----------------------------------------
-# La implementación completa vive en compas_urbano_scraper.py
-# Este alias mantiene compatibilidad con imports directos desde este módulo.
+Fecha actual: {fecha_actual}
+Año actual: {anio_actual}
 
-async def scrape_compas_urbano() -> dict:
-    """Alias → delega a compas_urbano_scraper (implementación completa con data_quality)."""
-    from app.services.compas_urbano_scraper import scrape_compas_urbano as _impl
-    return await _impl()
+Fuente: {nombre_fuente}
+URL: {fuente_url}
+Municipio por defecto: {municipio}
 
+Contenido:
+---
+{contenido}
+---
 
-async def scrape_db_instagram_sources() -> dict:
-    """Scrape ALL lugares in Supabase that have instagram_handle.
+Extrae en JSON con esta estructura exacta:
+{{
+  "eventos": [
+    {{
+      "titulo": "nombre del evento",
+      "categoria_principal": "teatro | hip_hop | jazz | musica_en_vivo | electronica | galeria | arte_contemporaneo | libreria | editorial | poesia | filosofia | cine | danza | circo | fotografia | casa_cultura | centro_cultural | festival | batalla_freestyle | muralismo | radio_comunitaria | publicacion | otro",
+      "categorias": ["lista"],
+      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
+      "fecha_fin": "YYYY-MM-DDTHH:MM:SS o null",
+      "descripcion": "descripción del evento (máx 500 chars)",
+      "nombre_lugar": "nombre del lugar si se menciona",
+      "barrio": "barrio si se menciona",
+      "municipio": "municipio o medellin por defecto",
+      "precio": "valor o 'Entrada libre'",
+      "es_gratuito": true/false,
+      "es_recurrente": true/false,
+      "imagen_url": "URL de imagen del evento si la hay, o null"
+    }}
+  ]
+}}
 
-    This is the dedicated Instagram pass: it feeds every colectivo / espacio
-    registered in the DB through the full Smart Listener pipeline
-    (Meta API → direct IG → public scrapers → Google fallback + LLM date parsing).
-    Events are inserted with fuente = 'auto_scraper_instagram' and are immediately
-    visible on Home / Explorar.
-    """
-    print("\n[IG-SOURCES] Scraping Instagram de todos los lugares en BD...")
-
-    try:
-        resp = supabase.table("lugares").select(
-            "id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio"
-        ).not_.is_("instagram_handle", "null").neq("instagram_handle", "").execute()
-        lugares = resp.data or []
-    except Exception as e:
-        print(f"  [ERR] No se pudo consultar lugares: {e}")
-        return {"error": str(e), "eventos_nuevos": 0}
-
-    print(f"   {len(lugares)} lugares con instagram_handle")
-    total = {"lugares": len(lugares), "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
-
-    for i, lugar in enumerate(lugares):
-        nombre = lugar["nombre"]
-        handle = lugar.get("instagram_handle", "")
-        print(f"\n  [{i+1}/{len(lugares)}] @{handle.lstrip('@')} ({nombre})")
-        try:
-            await asyncio.sleep(0)
-            all_events: list[dict] = []
-
-            # ── Smart Listener (Meta API + Vision) ──
-            try:
-                from app.services.smart_listener import smart_scrape_instagram
-                smart_events = await smart_scrape_instagram(lugar)
-                all_events.extend(smart_events)
-                if smart_events:
-                    print(f"    [SMART] {len(smart_events)} evento(s)")
-            except Exception as e:
-                print(f"    [SMART] Error: {e} → fallback")
-                await _scrape_ig_fallback(lugar, all_events)
-
-            if not all_events:
-                print(f"    [SKIP] Sin eventos para @{handle.lstrip('@')}")
-                continue
-
-            from app.services.data_quality import normalizar_evento
-            for ev in all_events:
-                try:
-                    ev.setdefault("nombre_lugar", nombre)
-                    ev.setdefault("municipio", lugar.get("municipio", "medellin"))
-                    ev.setdefault("barrio", lugar.get("barrio"))
-                    clean = normalizar_evento(ev)
-                    if clean is None:
-                        continue
-                    existing = supabase.table("eventos").select("id").eq("slug", clean["slug"]).execute()
-                    if existing.data:
-                        total["duplicados"] += 1
-                        continue
-                    clean.setdefault("espacio_id", lugar["id"])
-                    supabase.table("eventos").insert(clean).execute()
-                    total["eventos_nuevos"] += 1
-                    print(f"    [NEW] {clean['titulo'][:60]}")
-                except Exception as e:
-                    total["errores"] += 1
-                    print(f"    [ERR] {e}")
-
-            await asyncio.sleep(3)  # rate-limit between profiles
-
-        except asyncio.TimeoutError:
-            total["errores"] += 1
-            print(f"    [TIMEOUT] {nombre} superó tiempo límite")
-        except Exception as e:
-            total["errores"] += 1
-            print(f"    [ERR] {nombre}: {e}")
-
-    print(f"\n[IG-SOURCES] Completado: {total['eventos_nuevos']} nuevos, {total['errores']} errores")
-    return total
+Reglas:
+- Cuando una fecha NO especifica año, usa {anio_actual}.
+- Incluye SOLO eventos que ocurran DESPUÉS de {fecha_actual}.
+- Prioriza agenda alternativa, underground, independiente.
+- Si no hay eventos claros, responde: {{"eventos": []}}
+- Para horas ambiguas, usa 19:00:00 como default.
+- Si el contenido incluye [OG_IMAGE: url], usa esa URL como imagen_url del evento principal.
+- Responde SOLO con el JSON, sin texto adicional.
+"""
 
 
 async def scrape_agenda_sources() -> dict:
-    """Scrape agenda websites using code-based extraction.
-
-    Sources:
-    - 15 hardcoded AGENDA_SOURCES (curated media / cultural institutions)
-    - ALL lugares in Supabase that have sitio_web (dynamic, skips instagram-only handles)
-
-    Instagram is handled separately by scrape_db_instagram_sources().
     """
-    from app.services.data_quality import normalizar_evento
-    print("\n[AGENDA] Scraping fuentes externas (code-based)...")
+    Scrape independent agenda websites (not linked to a specific lugar).
+    These are cultural agenda aggregators, media outlets, etc.
+    """
+    print("\n📰 ═══════════════════════════════════════════════")
+    print("   AGENDA ALTERNATIVA — scraping fuentes externas...")
+    print("═══════════════════════════════════════════════════")
+
+    now_co = _now_co()
+    now_iso = now_co.isoformat()
+    anio = now_co.year
 
     total = {"fuentes": 0, "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
 
-    # Build unified source list: hardcoded + dynamic DB places
-    fuentes = list(AGENDA_SOURCES)
-    hardcoded_urls = {s["url"] for s in AGENDA_SOURCES}
-
-    try:
-        db_resp = supabase.table("lugares").select(
-            "id,nombre,sitio_web,categoria_principal,municipio,barrio"
-        ).not_.is_("sitio_web", "null").neq("sitio_web", "").execute()
-
-        added = 0
-        for lugar in (db_resp.data or []):
-            sitio = (lugar.get("sitio_web") or "").strip()
-            if not sitio or "instagram.com" in sitio or sitio in hardcoded_urls:
-                continue
-            fuentes.append({
-                "nombre": lugar["nombre"],
-                "url": sitio,
-                "categoria_default": lugar.get("categoria_principal") or "otro",
-                "municipio": lugar.get("municipio") or "medellin",
-                "espacio_id": lugar["id"],
-            })
-            added += 1
-
-        print(f"   {len(fuentes)} fuentes totales ({len(AGENDA_SOURCES)} fijas + {added} de BD)")
-    except Exception as e:
-        print(f"   [WARN] No se pudo cargar fuentes de BD: {e}")
-        print(f"   {len(AGENDA_SOURCES)} fuentes fijas (BD no disponible)")
-
-    for src in fuentes:
-        print(f"\n  [{src['nombre']}] {src['url']}")
+    for src in AGENDA_SOURCES:
+        print(f"\n📰 [{src['nombre']}] {src['url']}")
         try:
-            soup = await _fetch_website_soup(src["url"])
-            if not soup:
+            content = await _fetch_website(src["url"])
+            if not content or len(content) < 100:
+                print(f"  ⚠ Sin contenido suficiente")
                 continue
 
-            lugar_dummy = {
-                "id": None,
-                "nombre": src["nombre"],
-                "categoria_principal": src["categoria_default"],
-                "municipio": src["municipio"],
-                "barrio": None,
-            }
-
-            events = _extract_events_from_html(soup, lugar_dummy, src["url"])
-            if not events:
-                text = soup.get_text(separator="\n", strip=True)
-                if text:
-                    events = _extract_events_from_text(text, lugar_dummy, src["url"])
-
+            prompt = AGENDA_EXTRACTION_PROMPT.format(
+                fecha_actual=now_iso,
+                anio_actual=anio,
+                nombre_fuente=src["nombre"],
+                fuente_url=src["url"],
+                municipio=src["municipio"],
+                contenido=content[:12000],
+            )
+            events = _extract_events_with_claude(prompt)
             total["fuentes"] += 1
 
             for ev in events:
                 try:
-                    # Contexto de la fuente antes de normalizar
-                    ev.setdefault("municipio", src["municipio"])
-                    ev.setdefault("categoria_principal", src["categoria_default"])
-                    ev.setdefault("fuente", f"agenda_{src['nombre'][:30]}")
-                    ev.setdefault("fuente_url", src["url"])
-
-                    clean = normalizar_evento(ev)
-                    if clean is None:
+                    titulo = ev.get("titulo")
+                    if not titulo:
                         continue
 
-                    existing = supabase.table("eventos").select("id").eq("slug", clean["slug"]).execute()
+                    fecha_str = ev.get("fecha_inicio")
+                    if fecha_str:
+                        try:
+                            fecha = datetime.fromisoformat(fecha_str)
+                            if fecha.tzinfo is None:
+                                fecha = fecha.replace(tzinfo=CO_TZ)
+                            hoy_inicio_ag = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
+                            fecha_fin_ag = None
+                            if ev.get("fecha_fin"):
+                                try:
+                                    fecha_fin_ag = datetime.fromisoformat(ev["fecha_fin"])
+                                    if fecha_fin_ag.tzinfo is None:
+                                        fecha_fin_ag = fecha_fin_ag.replace(tzinfo=CO_TZ)
+                                except (ValueError, TypeError):
+                                    pass
+                            if fecha < hoy_inicio_ag:
+                                if fecha_fin_ag is None or fecha_fin_ag < hoy_inicio_ag:
+                                    continue
+                        except (ValueError, TypeError):
+                            fecha = now_co + timedelta(days=7)
+                    else:
+                        continue
+
+                    slug = _slugify(titulo)
+                    existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
                     if existing.data:
                         total["duplicados"] += 1
                         continue
 
-                    # Link to lugar in DB if this source came from a DB place
-                    if src.get("espacio_id"):
-                        clean.setdefault("espacio_id", src["espacio_id"])
-
-                    supabase.table("eventos").insert(clean).execute()
+                    evento_data = {
+                        "titulo": titulo,
+                        "slug": slug,
+                        "fecha_inicio": fecha.isoformat(),
+                        "fecha_fin": ev.get("fecha_fin"),
+                        "categorias": ev.get("categorias", [src["categoria_default"]]),
+                        "categoria_principal": ev.get("categoria_principal", src["categoria_default"]),
+                        "municipio": ev.get("municipio", src["municipio"]),
+                        "barrio": ev.get("barrio"),
+                        "nombre_lugar": ev.get("nombre_lugar"),
+                        "descripcion": ev.get("descripcion"),
+                        "precio": ev.get("precio"),
+                        "es_gratuito": ev.get("es_gratuito", False),
+                        "es_recurrente": ev.get("es_recurrente", False),
+                        "imagen_url": ev.get("imagen_url"),
+                        "fuente": f"agenda_{src['nombre'][:30]}",
+                        "fuente_url": src["url"],
+                        "verificado": False,
+                    }
+                    supabase.table("eventos").insert(evento_data).execute()
                     total["eventos_nuevos"] += 1
-                    print(f"    [NEW] {clean['titulo'][:60]}")
+                    print(f"    ✅ {titulo[:60]}")
 
                 except Exception as e:
                     total["errores"] += 1
+                    print(f"    ❌ Error: {e}")
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
 
         except Exception as e:
             total["errores"] += 1
-            print(f"  [ERR] {src['nombre']}: {e}")
+            print(f"  ❌ Error scraping {src['nombre']}: {e}")
 
-    print(f"\n[AGENDA] Completado: {total['eventos_nuevos']} nuevos, {total['duplicados']} duplicados")
+    _log_scraping(
+        fuente="agenda_alternativa",
+        registros_nuevos=total["eventos_nuevos"],
+        errores=total["errores"],
+        detalle=total,
+    )
+
+    print(f"\n✅ Agenda alternativa: {total['eventos_nuevos']} nuevos, {total['duplicados']} dup, {total['errores']} err")
     return total
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Cleanup: remove fully-past events
+# ──────────────────────────────────────────────────────────────────────────
+async def cleanup_past_events() -> dict:
+    """
+    Delete events that have fully ended.
+    Rules:
+    - Multi-day events (fecha_fin set): delete only if fecha_fin < yesterday
+    - Single-day events (no fecha_fin): delete if fecha_inicio < today start
+    Multi-day events still running (fecha_fin >= today) are KEPT.
+    """
+    print("\n🗑️  Limpiando eventos pasados...")
+    now_co = _now_co()
+    hoy_inicio = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
+    ayer_inicio = hoy_inicio - timedelta(days=1)
+    hoy_iso = hoy_inicio.isoformat()
+    ayer_iso = ayer_inicio.isoformat()
+
+    removed = 0
+
+    # 1. Single-day events (no fecha_fin) that started before today
+    try:
+        resp = (
+            supabase.table("eventos")
+            .select("id,titulo,fecha_inicio")
+            .lt("fecha_inicio", hoy_iso)
+            .is_("fecha_fin", "null")
+            .execute()
+        )
+        ids_to_delete = [e["id"] for e in (resp.data or [])]
+        if ids_to_delete:
+            for ev_id in ids_to_delete:
+                try:
+                    supabase.table("eventos").delete().eq("id", ev_id).execute()
+                    removed += 1
+                except Exception as e:
+                    print(f"    ⚠ Error deleting {ev_id}: {e}")
+                await asyncio.sleep(0)  # yield control between deletes
+        print(f"  🗑️  Eventos de día único pasados eliminados: {len(ids_to_delete)}")
+    except Exception as e:
+        print(f"  ⚠ Error en cleanup single-day: {e}")
+
+    # 2. Multi-day events where fecha_fin < yesterday
+    try:
+        resp2 = (
+            supabase.table("eventos")
+            .select("id,titulo,fecha_fin")
+            .not_.is_("fecha_fin", "null")
+            .lt("fecha_fin", ayer_iso)
+            .execute()
+        )
+        ids_to_delete2 = [e["id"] for e in (resp2.data or [])]
+        if ids_to_delete2:
+            for ev_id in ids_to_delete2:
+                try:
+                    supabase.table("eventos").delete().eq("id", ev_id).execute()
+                    removed += 1
+                except Exception as e:
+                    print(f"    ⚠ Error deleting multiday {ev_id}: {e}")
+                await asyncio.sleep(0)
+        print(f"  🗑️  Eventos multi-día pasados eliminados: {len(ids_to_delete2)}")
+    except Exception as e:
+        print(f"  ⚠ Error en cleanup multi-day: {e}")
+
+    print(f"  ✅ Cleanup total: {removed} eventos eliminados")
+    _log_scraping(
+        fuente="cleanup_past_events",
+        registros_nuevos=0,
+        errores=0,
+        detalle={"eliminados": removed},
+    )
+    return {"eliminados": removed}
+

@@ -16,6 +16,12 @@ def _now_iso() -> str:
     return _now_co().strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def _today_iso() -> str:
+    """ISO string for today midnight in Colombia, with tz offset preserved."""
+    ahora = _now_co()
+    return ahora.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
 def get_eventos(
     fecha_desde: Optional[datetime] = None,
     fecha_hasta: Optional[datetime] = None,
@@ -26,7 +32,7 @@ def get_eventos(
     limit: int = 20,
     offset: int = 0,
 ) -> List[dict]:
-    query = supabase.table("eventos").select("*").gte("fecha_inicio", _now_iso())
+    query = supabase.table("eventos").select("*").gte("fecha_inicio", _today_iso())
 
     if fecha_desde:
         query = query.gte("fecha_inicio", fecha_desde.isoformat())
@@ -49,15 +55,37 @@ def get_eventos_hoy() -> List[dict]:
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_fin = hoy_inicio + timedelta(days=1)
-    response = (
+    hoy_iso = hoy_inicio.isoformat()      # preserves -05:00 offset
+    manana_iso = hoy_fin.isoformat()
+
+    # Events that START today
+    resp_inicio = (
         supabase.table("eventos")
         .select("*")
-        .gte("fecha_inicio", hoy_inicio.strftime("%Y-%m-%dT%H:%M:%S"))
-        .lt("fecha_inicio", hoy_fin.strftime("%Y-%m-%dT%H:%M:%S"))
+        .gte("fecha_inicio", hoy_iso)
+        .lt("fecha_inicio", manana_iso)
         .order("fecha_inicio")
         .execute()
     )
-    return response.data
+    eventos = resp_inicio.data or []
+
+    # Multi-day events that started before today but end today or later
+    resp_en_curso = (
+        supabase.table("eventos")
+        .select("*")
+        .lt("fecha_inicio", hoy_iso)
+        .gte("fecha_fin", hoy_iso)
+        .order("fecha_inicio")
+        .execute()
+    )
+    seen_ids = {e["id"] for e in eventos}
+    for ev in (resp_en_curso.data or []):
+        if ev["id"] not in seen_ids:
+            ev["_en_curso"] = True  # flag so frontend can show "En curso"
+            eventos.append(ev)
+            seen_ids.add(ev["id"])
+
+    return eventos
 
 
 def get_eventos_semana() -> List[dict]:
@@ -67,8 +95,8 @@ def get_eventos_semana() -> List[dict]:
     response = (
         supabase.table("eventos")
         .select("*")
-        .gte("fecha_inicio", hoy_inicio.strftime("%Y-%m-%dT%H:%M:%S"))
-        .lte("fecha_inicio", semana_fin.strftime("%Y-%m-%dT%H:%M:%S"))
+        .gte("fecha_inicio", hoy_inicio.isoformat())
+        .lte("fecha_inicio", semana_fin.isoformat())
         .order("fecha_inicio")
         .execute()
     )
@@ -87,16 +115,37 @@ def get_evento_by_slug(slug: str) -> dict:
 
 
 def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
+    # Use start of today (not current time) so events earlier today are included
+    hoy_iso = _now_co().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     response = (
         supabase.table("eventos")
         .select("*")
         .eq("espacio_id", espacio_id)
-        .gte("fecha_inicio", _now_iso())
+        .gte("fecha_inicio", hoy_iso)
         .order("fecha_inicio")
         .limit(limit)
         .execute()
     )
-    return response.data
+    eventos = response.data or []
+
+    # Also include ongoing multi-day events for this espacio
+    resp_en_curso = (
+        supabase.table("eventos")
+        .select("*")
+        .eq("espacio_id", espacio_id)
+        .lt("fecha_inicio", hoy_iso)
+        .gte("fecha_fin", hoy_iso)
+        .order("fecha_inicio")
+        .execute()
+    )
+    seen_ids = {e["id"] for e in eventos}
+    for ev in (resp_en_curso.data or []):
+        if ev["id"] not in seen_ids:
+            ev["_en_curso"] = True
+            eventos.insert(0, ev)  # show ongoing first
+            seen_ids.add(ev["id"])
+
+    return eventos
 
 
 def get_eventos_feed(limit: int = 20) -> List[dict]:

@@ -1,78 +1,49 @@
-import hashlib
 import json
-from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Dict
+import anthropic
 from app.config import settings
 from app.database import supabase
 from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
 
 CO_TZ = ZoneInfo("America/Bogota")
 
-# -- Response cache (in-memory, TTL 10 min) --
-# Key: hash of normalized message → (timestamp, ChatResponse)
-_response_cache: Dict[str, tuple] = {}
-_CACHE_TTL_SECONDS = 600  # 10 minutes
+SYSTEM_PROMPT = """Eres ETÉREA, una guía cultural viva del Valle de Aburrá (Medellín y sus 9 municipios vecinos).
+Eres cálida, curiosa y hablas como una amiga que conoce cada rincón cultural de la ciudad.
 
-# -- Per-user rate limit (in-memory) --
-# Key: user_id → list of timestamps
-_user_calls: Dict[str, list] = defaultdict(list)
-_USER_MAX_PER_HOUR = 20  # Max messages per user per hour
+Tu personalidad:
+- Siempre preguntás al usuario por su contexto: ¿En qué zona vivís? ¿Qué tipo de arte te mueve? ¿Buscás algo para hoy o para esta semana?
+- Si es la primera vez que alguien te habla, presentate brevemente y preguntá: "¿En qué barrio o municipio estás? ¿Qué tipo de experiencias culturales te interesan (música, teatro, arte, libros, filosofía, hip-hop...)?"
+- Si ya tenés contexto del usuario, personalizá tus recomendaciones.
+- Hablás en español colombiano (vos/voseo paisa es aceptable).
 
-SYSTEM_PROMPT = """Eres ETÉREA — la guía cultural más completa del Valle de Aburrá (Medellín y sus 9 municipios: Bello, Itagüí, Envigado, Sabaneta, Caldas, La Estrella, Copacabana, Girardota, Barbosa).
+Tu conocimiento abarca:
+- Espacios culturales documentados (teatros, galerías, librerías, cafés culturales,
+  casas de cultura, colectivos de hip hop, bares de jazz, editoriales, sellos discográficos)
+- Agenda de eventos en tiempo real (hoy y esta semana)
+- Geografía cultural por barrios, zonas y municipios del Valle de Aburrá
+- Escena underground (freestyle rap, fanzines, espacios autogestionados)
+- Colectivos artísticos, festivales independientes, redes culturales
 
-━━━ IDENTIDAD ━━━
-Sos una amiga local que conoce CADA rincón cultural de la ciudad: los teatros del centro, los colectivos de hip-hop de Aranjuez, las galerías de El Poblado, las librerías de Laureles, los espacios autogestionados del Barrio Antioquia, los festivales de Itagüí, todo.
-Hablás en español colombiano natural. Usás "vos" y expresiones paisas cuando van al caso ("bacano", "parce", "qué plan tan chévere"). No sos formal ni rígida — sos cercana, entusiasta y directa.
+Reglas:
+1. Respondé SIEMPRE con datos concretos del contexto proporcionado.
+2. Incluí nombres de espacios, direcciones, Instagram y sitio web cuando estén disponibles.
+3. Si preguntan "¿qué hay hoy?", listá TODOS los eventos_hoy del contexto con hora, lugar y precio. Incluí también los eventos_en_curso (empezaron ayer/antes pero siguen hoy).
+4. Los eventos_en_curso son eventos de varios días que aún están activos — mostralos CON UNA ETIQUETA "🔴 En curso" antes del resto.
+5. Si hay eventos_anteriores en el contexto, mostralos AL FINAL bajo "📅 Eventos recientes (ya empezaron)", no los omitas.
+6. Si preguntan por un barrio, zona o municipio, filtrá resultados de esa ubicación.
+7. Si no tenés datos suficientes, decilo honestamente y sugerí alternativas.
+8. NO inventes espacios ni eventos que no estén en el contexto.
+9. Cuando un usuario registra un lugar nuevo, explicá que el sistema lo va a categorizar automáticamente (librería, casa de cultura, colectivo, etc.) y empezar a rastrear sus eventos diariamente.
+10. Si alguien pregunta algo general ("¿qué puedo hacer?"), preguntá sus intereses y zona, y luego recomendá espacios + eventos concretos.
+11. Para cada evento/espacio, da toda la info útil: nombre, fecha/hora, lugar, precio, contacto, Instagram.
+12. Sé exhaustiva: si hay 10 resultados relevantes, mostrá todos.
+13. Podés recomendar por categoría: "Si te gusta la filosofía, mirá Café Filosófico y Fundación Estanislao Zuleta. Si te va el hip-hop, andá a una batalla en Aranjuez..."
 
-━━━ PRIMERA INTERACCIÓN ━━━
-Si el usuario no se ha presentado antes, saludá y preguntá DOS cosas clave:
-1. ¿En qué barrio o municipio del Valle de Aburrá estás?
-2. ¿Qué tipo de cultura te mueve? (música en vivo, teatro, arte, libros, filosofía, hip-hop, cine, danza, lo underground...)
-Ejemplo: "¡Hola! Soy ETÉREA, tu guía cultural del Valle de Aburrá 🌆 ¿En qué zona estás y qué tipo de plan cultural buscás?"
+Fecha y hora actual en Colombia: {fecha_actual_co}
 
-━━━ CÓMO RESPONDER ━━━
-SIEMPRE usa los datos del contexto real que te llega. Nunca inventes.
-
-Cuando listés EVENTOS, usa este formato exacto:
-🎭 **[Nombre del evento]**
-📅 [Día, fecha] a las [hora]
-📍 [Nombre del espacio] — [Barrio/Municipio]
-💰 [Precio o "Entrada libre"]
-📱 [Instagram del espacio si existe]
-
-Cuando listés ESPACIOS CULTURALES, usa:
-🏛️ **[Nombre del espacio]**
-📍 [Dirección] — [Barrio]
-🎯 [Qué tipo de cultura ofrece en 1 línea]
-📱 [Instagram] | 🌐 [Web si existe]
-
-━━━ REGLAS CRÍTICAS ━━━
-1. NUNCA inventes un evento, espacio, dirección, Instagram o teléfono que no esté en el contexto. Si no tenés el dato, decí "no tengo ese dato en el sistema".
-2. Si preguntan "¿qué hay hoy?" → listá TODOS los eventos_hoy del contexto. Si hay muchos, mostrá todos igual.
-3. Si preguntan por un barrio o municipio → filtrá y mostrá solo lo de esa zona.
-4. Si el contexto tiene 0 eventos para lo que preguntan → decilo claro y ofrecé alternativas: "No tengo eventos de jazz para hoy, pero hay estos eventos de música en vivo esta semana..."
-5. Si alguien pregunta algo muy general ("¿qué puedo hacer?") → primero preguntá su zona e intereses, luego recomendá.
-6. Para eventos gratuitos → resaltálos siempre ("¡y es GRATIS!").
-7. Respondé en el idioma del usuario (si escribe en inglés, respondé en inglés).
-8. Longitud ideal: 150-400 palabras. No más largo a menos que haya muchos eventos que listar.
-9. Si hay info de Instagram de un espacio → siempre incluidla, es el canal principal de la escena cultural paisa.
-10. Cuando registran un lugar nuevo: explicá que el sistema lo va a empezar a rastrear automáticamente cada 6-8 horas para traer sus eventos a la plataforma.
-
-━━━ TU EXPERTISE POR ZONAS ━━━
-- Centro/Candelaria: teatros históricos, galerías, librerías de viejo, performances callejeras
-- El Poblado: galerías de arte contemporáneo, cine independiente, música electrónica
-- Laureles/Estadio: librerías, cafés culturales, jazz, música acústica
-- Aranjuez/Manrique: escena hip-hop, freestyle, murales, cultura barrial
-- Belén/Guayabal: casas de cultura, teatro comunitario, danza folclórica
-- Itagüí/Envigado: festivales municipales, espacios institucionales, rock alternativo
-- Bello: hip-hop, reggaeton cultural, casas de cultura, eventos masivos
-
-━━━ FECHA Y HORA ACTUAL EN COLOMBIA ━━━
-{fecha_actual_co}
-
-━━━ BASE DE DATOS EN TIEMPO REAL ━━━
+Contexto cultural (base de datos en tiempo real):
 {contexto}
 """
 
@@ -82,75 +53,8 @@ def _now_co() -> datetime:
     return datetime.now(CO_TZ)
 
 
-def _cache_key(mensaje: str) -> str:
-    """Normalize message and return hash for cache lookup."""
-    normalized = mensaje.lower().strip()
-    # Remove zone/location metadata
-    import re as _re
-    normalized = _re.sub(r'\[(?:Zona|Ubicación):[^\]]+\]', '', normalized).strip()
-    return hashlib.md5(normalized.encode()).hexdigest()
-
-
-def _check_user_rate_limit(user_id: str) -> bool:
-    """Return True if user is within rate limit, False if exceeded."""
-    now = _now_co()
-    cutoff = now - timedelta(hours=1)
-    # Clean old entries
-    _user_calls[user_id] = [t for t in _user_calls[user_id] if t > cutoff]
-    if len(_user_calls[user_id]) >= _USER_MAX_PER_HOUR:
-        return False
-    _user_calls[user_id].append(now)
-    return True
-
-
-def _clean_cache():
-    """Remove expired cache entries."""
-    now = _now_co()
-    expired = [k for k, (ts, _) in _response_cache.items()
-               if (now - ts).total_seconds() > _CACHE_TTL_SECONDS]
-    for k in expired:
-        del _response_cache[k]
-
-
-def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
-    try:
-        return _chat_inner(request, user_id)
-    except Exception as exc:
-        print(f"[chat_service] UNEXPECTED error in chat(): {exc}")
-        return ChatResponse(
-            respuesta="Tuve un problema inesperado. Intentá de nuevo en un momento.",
-            fuentes=[],
-        )
-
-
-def _chat_inner(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
-    # Per-user rate limit
-    if not _check_user_rate_limit(user_id):
-        return ChatResponse(
-            respuesta="¡Hey! Estás preguntando demasiado rápido. Esperá unos minutos y volvé a intentar. Máximo 20 mensajes por hora.",
-            fuentes=[],
-        )
-
-    # Check cache for identical/very similar questions (saves API calls)
-    _clean_cache()
-    ckey = _cache_key(request.mensaje)
-    if ckey in _response_cache and not request.historial:
-        cached_ts, cached_response = _response_cache[ckey]
-        print(f"[chat] Cache hit for '{request.mensaje[:50]}...'")
-        return cached_response
-
+def chat(request: ChatRequest) -> ChatResponse:
     contexto = _obtener_contexto(request.mensaje)
-    # Truncate context to avoid massive prompts (max ~15K chars ≈ 4K tokens)
-    contexto_json = json.dumps(contexto, ensure_ascii=False, default=str)
-    if len(contexto_json) > 15000:
-        # Trim spaces first (keep events which are more useful)
-        contexto["espacios"] = contexto["espacios"][:8]
-        contexto["espacios_relevantes"] = contexto["espacios_relevantes"][:10]
-        contexto_json = json.dumps(contexto, ensure_ascii=False, default=str)
-    if len(contexto_json) > 15000:
-        contexto["eventos_semana"] = contexto["eventos_semana"][:10]
-        contexto["eventos_hoy"] = contexto["eventos_hoy"][:15]
-        contexto_json = json.dumps(contexto, ensure_ascii=False, default=str)
 
     historial_msgs = [
         {
@@ -162,63 +66,34 @@ def _chat_inner(request: ChatRequest, user_id: str = "anonymous") -> ChatRespons
     historial_msgs.append({"role": "user", "content": request.mensaje})
 
     prompt = SYSTEM_PROMPT.format(
-        contexto=contexto_json,
+        contexto=json.dumps(contexto, ensure_ascii=False, default=str),
         fecha_actual_co=_now_co().strftime("%Y-%m-%d %H:%M"),
     )
 
-    # ── AI: Groq llama-3.1-8b-instant (FREE, 14400 req/day) → static fallback ──
-    print(f"[chat] Groq | contexto: {len(contexto_json)} chars")
-    respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        response = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=1024,
+            temperature=0.7,
+            system=prompt,
+            messages=historial_msgs,
+        )
+        respuesta = response.content[0].text
+    except Exception as exc:
+        print(f"[chat_service] Claude no disponible, usando fallback local: {exc}")
+        respuesta = _respuesta_fallback(contexto)
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
-    # Guardar en memoria_consultas (non-blocking — errors should not affect the response)
-    try:
-        supabase.table("memoria_consultas").insert({
-            "pregunta": request.mensaje,
-            "respuesta": respuesta[:2000],
-        }).execute()
-    except Exception as db_exc:
-        print(f"[chat_service] memoria_consultas insert failed (non-fatal): {db_exc}")
+    # Guardar en memoria_consultas
+    supabase.table("memoria_consultas").insert({
+        "pregunta": request.mensaje,
+        "respuesta": respuesta,
+        "contexto": contexto,
+    }).execute()
 
-    result = ChatResponse(respuesta=respuesta, fuentes=fuentes)
-
-    # Cache the response (only for first messages without history)
-    if not request.historial:
-        _response_cache[ckey] = (_now_co(), result)
-
-    return result
-
-
-def _chat_via_groq(system_prompt: str, messages: list) -> str | None:
-    """Use Groq (FREE) as AI engine for chat.
-    Uses llama-3.1-8b-instant: 14,400 req/day (vs 1,000/day of 70b).
-    Enough for ~1,400 active users/day on the same free key.
-    Returns response text or None if Groq is unavailable/fails.
-    """
-    if not settings.groq_api_key:
-        return None
-    try:
-        from openai import OpenAI
-        client = OpenAI(
-            api_key=settings.groq_api_key,
-            base_url="https://api.groq.com/openai/v1",
-        )
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
-        resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=full_messages,
-            max_tokens=700,
-            temperature=0.7,
-            timeout=40,
-        )
-        text = resp.choices[0].message.content.strip() if resp.choices else ""
-        if text:
-            print("[chat] Groq llama-3.1-8b OK")
-        return text or None
-    except Exception as e:
-        print(f"[chat_service] Groq error: {e}")
-        return None
+    return ChatResponse(respuesta=respuesta, fuentes=fuentes)
 
 
 def _respuesta_fallback(contexto: Dict) -> str:
@@ -261,17 +136,14 @@ def _respuesta_fallback(contexto: Dict) -> str:
 
 def _obtener_contexto(mensaje: str) -> Dict:
     import re
-    contexto: Dict = {"espacios": [], "eventos_hoy": [], "eventos_semana": [], "espacios_relevantes": []}
-    try:
-        return _obtener_contexto_inner(mensaje)
-    except Exception as exc:
-        print(f"[chat_service] _obtener_contexto error (returning empty): {exc}")
-        return contexto
-
-
-def _obtener_contexto_inner(mensaje: str) -> Dict:
-    import re
-    contexto: Dict = {"espacios": [], "eventos_hoy": [], "eventos_semana": [], "espacios_relevantes": []}
+    contexto: Dict = {
+        "espacios": [],
+        "eventos_hoy": [],
+        "eventos_en_curso": [],   # multi-day events still running today
+        "eventos_semana": [],
+        "eventos_anteriores": [], # events from yesterday shown at bottom
+        "espacios_relevantes": [],
+    }
 
     # Extract zone/location context from message
     zona_filtro = None
@@ -284,101 +156,104 @@ def _obtener_contexto_inner(mensaje: str) -> Dict:
     if um:
         msg_clean = re.sub(r'\[Ubicación:[^\]]+\]', '', msg_clean).strip()
 
-    # Keywords from user query for targeted search
-    keywords = [w for w in msg_clean.lower().split() if len(w) > 2 and w not in ("que", "hay", "hoy", "para", "por", "con", "las", "los", "una", "del", "más", "como", "son", "qué", "esta", "este", "esa", "evento", "eventos", "shay")]
+    # 1. Get more spaces for comprehensive search (100 instead of 15)
+    resp_espacios = (
+        supabase.table("lugares")
+        .select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,descripcion,instagram_handle,sitio_web,direccion,nivel_actividad,telefono,email")
+        .neq("nivel_actividad", "cerrado")
+        .limit(100)
+        .execute()
+    )
+    contexto["espacios"] = resp_espacios.data
 
-    # 1. Search for spaces matching the query (targeted, not all 600+)
-    # Only send RELEVANT spaces — not the entire database
-    COMPACT_SPACE_FIELDS = "id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,instagram_handle,sitio_web,direccion,telefono"
-    
+    # 2. Search for spaces matching the query keywords (like a search engine)
+    keywords = [w for w in msg_clean.lower().split() if len(w) > 2 and w not in ("que", "hay", "hoy", "para", "por", "con", "las", "los", "una", "del", "más", "como", "son", "qué")]
     if keywords:
         for kw in keywords[:3]:
             resp_kw = (
                 supabase.table("lugares")
-                .select(COMPACT_SPACE_FIELDS)
+                .select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,instagram_handle,sitio_web,direccion,telefono")
                 .or_(f"nombre.ilike.%{kw}%,descripcion.ilike.%{kw}%,barrio.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
                 .neq("nivel_actividad", "cerrado")
-                .limit(15)
+                .limit(20)
                 .execute()
             )
             for e in resp_kw.data:
                 if not any(x["id"] == e["id"] for x in contexto["espacios_relevantes"]):
                     contexto["espacios_relevantes"].append(e)
-    
-    # If zone filter, add spaces from that zone
-    if zona_filtro:
-        zona_parts = zona_filtro.lower().split("–")  # e.g. "Aranjuez – Manrique"
-        for part in zona_parts:
-            part = part.strip()
-            if part:
-                resp_zona = (
-                    supabase.table("lugares")
-                    .select(COMPACT_SPACE_FIELDS)
-                    .or_(f"barrio.ilike.%{part}%,municipio.ilike.%{part}%")
-                    .neq("nivel_actividad", "cerrado")
-                    .limit(15)
-                    .execute()
-                )
-                for e in resp_zona.data:
-                    if not any(x["id"] == e["id"] for x in contexto["espacios_relevantes"]):
-                        contexto["espacios_relevantes"].append(e)
-    
-    # If no keywords matched or first-time greeting, send a curated sample (15 most active)
-    if not contexto["espacios_relevantes"]:
-        resp_sample = (
-            supabase.table("lugares")
-            .select(COMPACT_SPACE_FIELDS)
-            .neq("nivel_actividad", "cerrado")
-            .in_("nivel_actividad", ["muy_activo", "activo"])
-            .limit(15)
-            .execute()
-        )
-        contexto["espacios"] = resp_sample.data
 
-    # 3. Events today
+    # 3. Events today — use .isoformat() to preserve -05:00 offset so Supabase
+    #    compares timestamps correctly (strftime strips the tz and Supabase
+    #    treats the bare string as UTC, causing an ~5-hour shift).
     ahora_co = _now_co()
     hoy_inicio = ahora_co.replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_fin = hoy_inicio + timedelta(days=1)
-    hoy = hoy_inicio.strftime("%Y-%m-%dT%H:%M:%S")
-    manana = hoy_fin.strftime("%Y-%m-%dT%H:%M:%S")
-
-    COMPACT_EVENT_FIELDS = "id,slug,titulo,categoria_principal,fecha_inicio,barrio,municipio,nombre_lugar,precio,es_gratuito"
+    ayer_inicio = hoy_inicio - timedelta(days=1)
+    hoy_iso = hoy_inicio.isoformat()       # "2026-04-21T00:00:00-05:00"
+    manana_iso = hoy_fin.isoformat()       # "2026-04-22T00:00:00-05:00"
+    ayer_iso = ayer_inicio.isoformat()     # "2026-04-20T00:00:00-05:00"
 
     resp_hoy = (
         supabase.table("eventos")
-        .select(COMPACT_EVENT_FIELDS)
-        .gte("fecha_inicio", hoy)
-        .lt("fecha_inicio", manana)
+        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")
+        .gte("fecha_inicio", hoy_iso)
+        .lt("fecha_inicio", manana_iso)
         .order("fecha_inicio")
-        .limit(20)
+        .limit(50)
         .execute()
     )
     contexto["eventos_hoy"] = resp_hoy.data
 
-    # 4. Events this week
-    semana = (hoy_inicio + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
-    resp_semana = (
+    # 3b. Multi-day / ongoing events: started before today, fecha_fin >= today start
+    resp_en_curso = (
         supabase.table("eventos")
-        .select(COMPACT_EVENT_FIELDS)
-        .gte("fecha_inicio", manana)
-        .lte("fecha_inicio", semana)
+        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")
+        .lt("fecha_inicio", hoy_iso)
+        .gte("fecha_fin", hoy_iso)
         .order("fecha_inicio")
         .limit(20)
+        .execute()
+    )
+    contexto["eventos_en_curso"] = resp_en_curso.data
+
+    # 3c. Yesterday's events without fecha_fin (single-day, started yesterday)
+    #     shown at the bottom so user knows what they missed
+    resp_ayer = (
+        supabase.table("eventos")
+        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url")
+        .gte("fecha_inicio", ayer_iso)
+        .lt("fecha_inicio", hoy_iso)
+        .is_("fecha_fin", "null")
+        .order("fecha_inicio", desc=True)
+        .limit(10)
+        .execute()
+    )
+    contexto["eventos_anteriores"] = resp_ayer.data
+
+    # 4. Events this week
+    semana_iso = (hoy_inicio + timedelta(days=7)).isoformat()
+    resp_semana = (
+        supabase.table("eventos")
+        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")
+        .gte("fecha_inicio", manana_iso)
+        .lte("fecha_inicio", semana_iso)
+        .order("fecha_inicio")
+        .limit(30)
         .execute()
     )
     contexto["eventos_semana"] = resp_semana.data
 
     # 5. Search events by keywords too (search engine style)
     if keywords:
-        all_ev_ids = {e["id"] for e in contexto["eventos_hoy"] + contexto["eventos_semana"]}
+        all_ev_ids = {e["id"] for e in contexto["eventos_hoy"] + contexto["eventos_en_curso"] + contexto["eventos_semana"]}
         for kw in keywords[:3]:
             resp_ev_kw = (
                 supabase.table("eventos")
-                .select(COMPACT_EVENT_FIELDS)
-                .gte("fecha_inicio", hoy)
-                .or_(f"titulo.ilike.%{kw}%,nombre_lugar.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
+                .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url")
+                .gte("fecha_inicio", hoy_iso)
+                .or_(f"titulo.ilike.%{kw}%,descripcion.ilike.%{kw}%,nombre_lugar.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
                 .order("fecha_inicio")
-                .limit(10)
+                .limit(15)
                 .execute()
             )
             for ev in resp_ev_kw.data:
@@ -419,7 +294,8 @@ def _extraer_fuentes(respuesta: str, contexto: Dict) -> List[FuenteCitada]:
                 sitio_web=e.get("sitio_web"),
             ))
 
-    all_events = contexto.get("eventos_hoy", []) + contexto.get("eventos_semana", [])
+    all_events = (contexto.get("eventos_en_curso", []) + contexto.get("eventos_hoy", [])
+                  + contexto.get("eventos_anteriores", []) + contexto.get("eventos_semana", []))
     for ev in all_events:
         if ev["id"] in seen_ids:
             continue
