@@ -4,16 +4,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Dict
-import anthropic
 from app.config import settings
 from app.database import supabase
 from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
 
 CO_TZ = ZoneInfo("America/Bogota")
-
-# -- Daily usage tracking (in-memory, resets on restart) --
-_daily_api_calls = {"date": "", "count": 0}
-MAX_DAILY_CALLS = 200  # Max Claude API calls per day
 
 # -- Response cache (in-memory, TTL 10 min) --
 # Key: hash of normalized message → (timestamp, ChatResponse)
@@ -171,50 +166,9 @@ def _chat_inner(request: ChatRequest, user_id: str = "anonymous") -> ChatRespons
         fecha_actual_co=_now_co().strftime("%Y-%m-%d %H:%M"),
     )
 
-    # ── AI chain: Groq (FREE) → Claude (fallback) → static fallback ──
-    # Validate API key before even trying
-    if not settings.anthropic_api_key or settings.anthropic_api_key.strip() == "":
-        print("[chat_service] ANTHROPIC_API_KEY no configurada — intentando Groq")
-        respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
-    else:
-        try:
-            # Check daily budget
-            today = _now_co().strftime("%Y-%m-%d")
-            if _daily_api_calls["date"] != today:
-                _daily_api_calls["date"] = today
-                _daily_api_calls["count"] = 0
-
-            if _daily_api_calls["count"] >= MAX_DAILY_CALLS:
-                print(f"[chat_service] Daily API limit reached ({MAX_DAILY_CALLS} calls) — usando Groq")
-                respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
-            else:
-                # Use model from env var, default to claude-3-5-haiku-20241022
-                model = (settings.anthropic_model or "claude-3-5-haiku-20241022").strip()
-                if not model:
-                    model = "claude-3-5-haiku-20241022"
-                print(f"[chat] Usando modelo: {model} | contexto: {len(contexto_json)} chars")
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=25.0)
-                response = client.messages.create(
-                    model=model,
-                    max_tokens=700,
-                    temperature=0.7,
-                    system=prompt,
-                    messages=historial_msgs,
-                )
-                _daily_api_calls["count"] += 1
-                respuesta = response.content[0].text if response.content else ""
-                if not respuesta:
-                    respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
-                print(f"[chat] OK — API call #{_daily_api_calls['count']}/{MAX_DAILY_CALLS} today")
-        except anthropic.AuthenticationError as exc:
-            print(f"[chat_service] ANTHROPIC_API_KEY inválida o expirada: {exc}")
-            respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
-        except anthropic.NotFoundError as exc:
-            print(f"[chat_service] Modelo no encontrado: {exc}")
-            respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
-        except Exception as exc:
-            print(f"[chat_service] Claude error: {type(exc).__name__}: {exc}")
-            respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
+    # ── AI: Groq llama-3.1-8b-instant (FREE, 14400 req/day) → static fallback ──
+    print(f"[chat] Groq | contexto: {len(contexto_json)} chars")
+    respuesta = _chat_via_groq(prompt, historial_msgs) or _respuesta_fallback(contexto)
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
