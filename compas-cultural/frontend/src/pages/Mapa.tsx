@@ -31,7 +31,7 @@ export default function Mapa() {
         <div className="mb-6">
           <h1 className="text-2xl font-heading font-black tracking-tight uppercase">Mapa Cultural</h1>
           <p className="text-sm font-mono mt-1 uppercase tracking-wider">
-            96 espacios culturales activos en el Valle de Aburrá
+            Espacios culturales activos en el Valle de Aburrá
           </p>
         </div>
         <div className="overflow-hidden border-2 border-black">

@@ -80,7 +80,7 @@ export default function CulturalMap() {
   const [showAllCats, setShowAllCats] = useState(false)
 
   useEffect(() => {
-    getEspacios({ limit: 500 }).then(setEspacios).catch(console.error)
+    getEspacios({ limit: 1000 }).then(setEspacios).catch(console.error)
   }, [])
 
   const filtered = useMemo(() =>
