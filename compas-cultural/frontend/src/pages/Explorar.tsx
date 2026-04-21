@@ -95,18 +95,6 @@ export default function Explorar() {
     return result
   }, [eventos, catFilter, muniFilter, textFilter])
 
-  const reloadExplorar = () => {
-    Promise.all([
-      getEspacios({ limit: 500 }),
-      getEventos({ limit: 200 }),
-      getEventosHoy(),
-    ]).then(([esp, ev, hoy]) => {
-      setEspacios(esp)
-      setEventos(ev)
-      setEventosHoy(hoy)
-    }).catch(() => {})
-  }
-
   const filteredEspacios = useMemo(() => {
     let result = espacios
     if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || e.categorias?.includes(catFilter))
