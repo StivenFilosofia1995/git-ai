@@ -89,13 +89,29 @@ def _slugify(text: str) -> str:
 
 
 async def _fetch_page(url: str) -> tuple[str, str | None]:
-    """Fetch page content with httpx and extract text with BS4. Returns (text, og_image_url)."""
+    """Fetch page content. For Instagram, skips direct fetch (429/login wall) and uses Meta API."""
+
+    # ── Instagram: never fetch directly — go straight to Meta API + fallbacks ──
+    if "instagram.com" in url:
+        ig_handle = _extract_ig_handle(url)
+        rich_content = ""
+        try:
+            from app.services.auto_scraper import _fetch_instagram_profile as _ig_fetch
+            rich_content = await _ig_fetch(ig_handle) or ""
+        except Exception as e:
+            print(f"[scraper_llm] IG fetch failed for @{ig_handle}: {e}")
+        text = f"Instagram profile: @{ig_handle}\n\n{rich_content}" if rich_content else f"Instagram profile: @{ig_handle}\nNo se pudo obtener contenido del perfil."
+        return text[:8000], None
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-        resp = await client.get(url, headers=headers)
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise RuntimeError(f"Error al descargar la URL: {e}") from e
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -109,7 +125,6 @@ async def _fetch_page(url: str) -> tuple[str, str | None]:
         if twitter_tag and twitter_tag.get("content"):
             og_image = twitter_tag["content"]
 
-    # Extract OG description for Instagram pages (often the only useful data)
     og_desc = ""
     og_desc_tag = soup.find("meta", property="og:description")
     if og_desc_tag and og_desc_tag.get("content"):
@@ -119,31 +134,15 @@ async def _fetch_page(url: str) -> tuple[str, str | None]:
     if og_title_tag and og_title_tag.get("content"):
         og_title = og_title_tag["content"]
 
-    # Remove scripts, styles, nav, footer
     for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
         tag.decompose()
 
     text = soup.get_text(separator="\n", strip=True)
 
-    # For Instagram URLs, the page is usually a login wall — enrich with OG meta
-    # AND try the Meta Graph API / public profile scrapers for real post content.
-    if "instagram.com" in url:
-        ig_handle = _extract_ig_handle(url)
-        text = f"Instagram profile: @{ig_handle}\nOG Title: {og_title}\nOG Description: {og_desc}\n\n{text}"
-        # Try to enrich with real posts via auto_scraper's robust IG fetcher
-        try:
-            from app.services.auto_scraper import _fetch_instagram_profile as _ig_fetch
-            rich_content = await _ig_fetch(ig_handle)
-            if rich_content and len(rich_content) > 200:
-                text = f"Instagram profile: @{ig_handle}\nOG Title: {og_title}\nOG Description: {og_desc}\n\n[POSTS RECIENTES]\n{rich_content}"
-        except Exception:
-            pass  # keep OG-only content
-
-    # For Facebook pages/events, extract as much as possible from OG meta + text
+    # For Facebook pages, prepend OG meta
     if "facebook.com" in url:
         text = f"Facebook page: {url}\nOG Title: {og_title}\nOG Description: {og_desc}\n\n{text}"
 
-    # Limit to 8000 chars to stay within Claude context
     return text[:8000], og_image
 
 
