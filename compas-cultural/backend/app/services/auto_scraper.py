@@ -1,7 +1,7 @@
 """
 Auto-scraper: sistema automático de scraping para todos los lugares registrados.
 Recorre periódicamente los sitios web e Instagram de cada lugar,
-extrae eventos futuros con Claude y los inserta en la BD.
+extrae eventos futuros con Groq (llama-3.3-70b) y los inserta en la BD.
 """
 import json
 import re
@@ -11,20 +11,18 @@ from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-import anthropic
 import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
+from app.services.groq_client import groq_chat, MODEL_SMART
 
 CO_TZ = ZoneInfo("America/Bogota")
 
 def _now_co() -> datetime:
     """Current datetime in Colombia (America/Bogota), timezone-aware."""
     return datetime.now(CO_TZ)
-
-_CLIENT = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 # ── Prompt para extraer eventos de una página ────────────────────────────
 EVENT_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
@@ -299,18 +297,15 @@ async def _fetch_instagram_profile(handle: str) -> Optional[str]:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Claude extraction
+# Groq extraction
 # ──────────────────────────────────────────────────────────────────────────
 def _extract_events_with_claude(prompt: str) -> list[dict]:
-    """Send content to Claude and extract event list."""
+    """Send content to Groq (llama-3.3-70b) and extract event list."""
     try:
-        response = _CLIENT.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=4096,
-            temperature=0.1,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.content[0].text.strip()
+        raw = groq_chat(prompt, model=MODEL_SMART, max_tokens=4096, temperature=0)
+        if not raw:
+            print("  ⚠ Groq returned empty response")
+            return []
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*", "", raw)
             raw = re.sub(r"\s*```$", "", raw)
@@ -321,10 +316,10 @@ def _extract_events_with_claude(prompt: str) -> list[dict]:
             fixed = re.sub(r",\s*([}\]])", r"\1", raw)
             data = json.loads(fixed)
         events = data.get("eventos", [])
-        print(f"    📊 Claude extrajo {len(events)} evento(s)")
+        print(f"    📊 Groq extrajo {len(events)} evento(s)")
         return events
     except Exception as e:
-        print(f"  ⚠ Claude extraction error: {e}")
+        print(f"  ⚠ Groq extraction error: {e}")
         return []
 
 
