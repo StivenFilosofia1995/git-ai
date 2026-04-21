@@ -40,38 +40,67 @@ def groq_chat(
     temperature: float = 0,
     json_mode: bool = False,
 ) -> Optional[str]:
-    """Send a text prompt to Groq and return the response text."""
+    """
+    Send a text prompt to Groq and return the response text.
+
+    Auto-fallback chain:
+      - If 70b (MODEL_SMART) hits daily TPD limit  → retry with 8b (MODEL_FAST)
+      - If 8b hits per-minute TPM limit             → truncate prompt and retry
+      - If request too large (413)                  → truncate to 4000 chars and retry
+    """
     client = _get_client()
     if not client:
         return None
 
-    kwargs = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    if json_mode:
-        kwargs["response_format"] = {"type": "json_object"}
-
-    try:
+    def _call(m: str, p: str) -> Optional[str]:
+        kwargs: dict = {
+            "model": m,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": p}],
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
         resp = client.chat.completions.create(**kwargs)
         return resp.choices[0].message.content.strip()
-    except Exception as e:
-        err_str = str(e)
-        # Rate limit on fast model → retry with smart model (different daily quota)
-        if "429" in err_str and model == MODEL_FAST:
-            print(f"  [GROQ] 429 on {MODEL_FAST}, retrying with {MODEL_SMART}")
-            try:
-                kwargs["model"] = MODEL_SMART
-                # Smart model doesn't support json_object reliably with small prompts
-                resp2 = client.chat.completions.create(**kwargs)
-                return resp2.choices[0].message.content.strip()
-            except Exception as e2:
-                print(f"  [GROQ] Error ({MODEL_SMART}): {e2}")
-                return None
-        print(f"  [GROQ] Error ({model}): {e}")
-        return None
+
+    # Build fallback sequence: requested model first, then MODEL_FAST as backup
+    models_to_try = [model] if model == MODEL_FAST else [model, MODEL_FAST]
+
+    for attempt_model in models_to_try:
+        effective_prompt = prompt
+        # Hard limit for 8b: 5800 chars (~1450 tokens) to stay under 6K TPM
+        if attempt_model == MODEL_FAST and len(prompt) > 5800:
+            effective_prompt = prompt[:5800]
+        try:
+            return _call(attempt_model, effective_prompt)
+        except Exception as e:
+            err_str = str(e)
+            is_tpd = "tokens per day" in err_str or "TPD" in err_str
+            is_tpm = "tokens per minute" in err_str or "TPM" in err_str
+            is_too_large = "Request too large" in err_str or "413" in err_str
+
+            if is_tpd and attempt_model != MODEL_FAST:
+                # Daily quota exhausted on big model → fall through to 8b
+                print(f"  [GROQ] {attempt_model} daily limit hit → fallback to {MODEL_FAST}")
+                continue
+
+            if is_tpm or is_too_large:
+                # Per-minute or size limit → truncate hard and retry once
+                trunc = min(len(effective_prompt), 4000)
+                print(f"  [GROQ] {attempt_model} size limit → truncating to {trunc} chars")
+                try:
+                    return _call(attempt_model, effective_prompt[:trunc])
+                except Exception as e2:
+                    print(f"  [GROQ] Error ({attempt_model} truncated): {e2}")
+                    if attempt_model != MODEL_FAST:
+                        continue  # try 8b next
+                    return None
+
+            print(f"  [GROQ] Error ({attempt_model}): {e}")
+            return None
+
+    return None
 
 
 def groq_vision(

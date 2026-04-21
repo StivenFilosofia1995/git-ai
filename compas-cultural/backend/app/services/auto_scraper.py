@@ -16,7 +16,9 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
-from app.services.groq_client import groq_chat, MODEL_SMART
+from app.services.groq_client import groq_chat, MODEL_FAST, MODEL_SMART
+from app.services.html_event_extractor import extract_events_code
+from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -129,31 +131,43 @@ HEADERS = {
 }
 
 
-async def _fetch_website(url: str) -> Optional[str]:
-    """Fetch and extract text from a website. Also extracts og:image meta tag."""
+async def _fetch_website_raw(url: str) -> Optional[str]:
+    """Fetch raw HTML from a website (for code-first extraction)."""
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=20,
+            verify=False,  # handle SSL mismatches gracefully
+        ) as client:
             resp = await client.get(url, headers=HEADERS)
             resp.raise_for_status()
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Extract og:image for potential event images
-        og_image = None
-        og_tag = soup.find("meta", property="og:image")
-        if og_tag and og_tag.get("content"):
-            og_image = og_tag["content"]
-
-        for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "svg"]):
-            tag.decompose()
-
-        text = soup.get_text(separator="\n", strip=True)
-        if og_image:
-            text = f"[OG_IMAGE: {og_image}]\n{text}"
-        return text[:8000] if text else None
+        return resp.text
     except Exception as e:
         print(f"  ⚠ Error fetching {url}: {e}")
         return None
+
+
+def _html_to_text(html: str) -> str:
+    """Convert HTML to plain text, keeping og:image annotation."""
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        soup = BeautifulSoup(html, "html.parser")
+    og_tag = soup.find("meta", property="og:image")
+    og_image = og_tag["content"] if og_tag and og_tag.get("content") else None
+    for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "svg"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+    if og_image:
+        text = f"[OG_IMAGE: {og_image}]\n{text}"
+    return text
+
+
+async def _fetch_website(url: str) -> Optional[str]:
+    """Fetch and extract text from a website (used by agenda sources)."""
+    html = await _fetch_website_raw(url)
+    if not html:
+        return None
+    return _html_to_text(html)[:6000]
 
 
 async def _fetch_instagram_via_meta_api(handle: str) -> Optional[str]:
@@ -335,118 +349,75 @@ async def _scrape_lugar(lugar: dict) -> dict:
     nombre = lugar["nombre"]
     categoria = lugar.get("categoria_principal", "otro")
     municipio = lugar.get("municipio", "medellin")
-    now_co = _now_co()   # timezone-aware Colombia time
+    now_co = _now_co()
     now_iso = now_co.isoformat()
     anio = now_co.year
     all_events: list[dict] = []
 
-    # 1. Scrape website
+    # ── 1. Scrape website ──────────────────────────────────────────────────
     sitio = lugar.get("sitio_web")
     if sitio:
         print(f"  🌐 Scraping web: {sitio}")
-        content = await _fetch_website(sitio)
-        if content and len(content) > 100:
-            print(f"    📄 Contenido: {len(content)} chars")
-            prompt = EVENT_EXTRACTION_PROMPT.format(
-                fecha_actual=now_iso,
-                anio_actual=anio,
-                nombre_lugar=nombre,
-                lugar_id=lugar_id,
-                categoria=categoria,
-                municipio=municipio,
-                fuente_tipo="sitio_web",
-                fuente_url=sitio,
-                contenido=content,
-            )
-            events = _extract_events_with_claude(prompt)
-            for ev in events:
-                ev["_fuente"] = "sitio_web"
-                ev["_fuente_url"] = sitio
-            all_events.extend(events)
+        # Fetch raw HTML for code-first extraction
+        html = await _fetch_website_raw(sitio)
 
-    # 2. Scrape Instagram
+        # Try Playwright for JS-heavy sites (if installed)
+        if html and needs_playwright(sitio):
+            print(f"    🎭 JS-heavy site — usando Playwright...")
+            html_js = await fetch_with_playwright(sitio)
+            if html_js and len(html_js) > len(html or ""):
+                html = html_js
+
+        if html and len(html) > 200:
+            print(f"    📄 HTML: {len(html)} chars")
+
+            # 1a. Code-first extraction (ZERO AI tokens)
+            events_code = extract_events_code(html, sitio, nombre, categoria, municipio)
+            if events_code:
+                for ev in events_code:
+                    ev["_fuente"] = "sitio_web"
+                    ev["_fuente_url"] = sitio
+                all_events.extend(events_code)
+                print(f"    ✅ Código: {len(events_code)} evento(s) extraídos")
+            else:
+                # 1b. Groq fallback only if code found nothing
+                # Truncate to max 1500 chars to conserve tokens (≈375 tokens)
+                text = _html_to_text(html)
+                short_text = text[:1500]
+                if short_text and len(short_text) > 100:
+                    print(f"    🤖 Groq fallback (1500 chars)...")
+                    prompt = EVENT_EXTRACTION_PROMPT.format(
+                        fecha_actual=now_iso, anio_actual=anio,
+                        nombre_lugar=nombre, lugar_id=lugar_id,
+                        categoria=categoria, municipio=municipio,
+                        fuente_tipo="sitio_web", fuente_url=sitio,
+                        contenido=short_text,
+                    )
+                    events_groq = _extract_events_with_claude(prompt)
+                    for ev in events_groq:
+                        ev["_fuente"] = "sitio_web"
+                        ev["_fuente_url"] = sitio
+                    all_events.extend(events_groq)
+
+    # ── 2. Scrape Instagram ────────────────────────────────────────────────
     ig_handle = lugar.get("instagram_handle")
     if ig_handle:
         print(f"  📸 Scraping IG: {ig_handle}")
         content = await _fetch_instagram_profile(ig_handle)
         if content and len(content) > 100:
             print(f"    📄 Contenido IG: {len(content)} chars")
+            # Instagram posts are unstructured → use Groq (truncated)
             prompt = IG_PROFILE_PROMPT.format(
-                fecha_actual=now_iso,
-                anio_actual=anio,
-                nombre_lugar=nombre,
-                instagram_handle=ig_handle,
-                categoria=categoria,
-                municipio=municipio,
-                contenido=content,
+                fecha_actual=now_iso, anio_actual=anio,
+                nombre_lugar=nombre, instagram_handle=ig_handle,
+                categoria=categoria, municipio=municipio,
+                contenido=content[:1500],
             )
-            events = _extract_events_with_claude(prompt)
-            for ev in events:
+            events_ig = _extract_events_with_claude(prompt)
+            for ev in events_ig:
                 ev["_fuente"] = "instagram"
                 ev["_fuente_url"] = f"https://instagram.com/{ig_handle.lstrip('@')}"
-            all_events.extend(events)
-
-    # 3. Fallback: if scraping found 0 events, use Claude's knowledge to generate likely events
-    if not all_events:
-        web_context = ""
-        if sitio:
-            web_context = f"\nTiene sitio web: {sitio}"
-        if ig_handle:
-            web_context = f"{web_context}\nTiene Instagram: @{ig_handle}"
-
-        print(f"  🧠 0 eventos encontrados — generando con Claude AI para: {nombre}")
-        search_prompt = f"""Eres un experto en la escena cultural del Valle de Aburrá (Medellín y municipios cercanos), Colombia.
-Necesito que generes eventos REALISTAS para este espacio cultural:
-
-Nombre: {nombre}
-Categoría: {categoria}
-Municipio: {municipio}
-Barrio: {lugar.get('barrio', 'desconocido')}{web_context}
-
-Fecha actual: {now_iso}
-Año actual: {anio}
-
-INSTRUCCIONES IMPORTANTES:
-- Genera entre 2 y 5 eventos FUTUROS (después de {now_iso}) que sean PROBABLES para este tipo de espacio.
-- Basa los eventos en lo que este tipo de lugar ({categoria}) normalmente ofrece en Medellín.
-- Usa fechas dentro de los próximos 14 días.
-- Los títulos deben ser específicos y atractivos, NO genéricos.
-
-Ejemplos por categoría:
-- librería/editorial → presentaciones de libros, clubes de lectura, tertulias literarias, firmas de autor
-- café_cultural → jam sessions, micrófono abierto, noches de poesía, DJ sets acústicos
-- teatro → funciones, temporadas, talleres de actuación, monólogos
-- galería → inauguraciones, exposiciones, charlas con artistas
-- hip_hop/rap → batallas de freestyle, cyphers, talleres de producción
-- bar_cultural → conciertos en vivo, noches de jazz, noches de salsa, DJ sets
-- casa_cultura → talleres comunitarios, cine foro, exposiciones locales
-- danza → presentaciones, talleres, ensayos abiertos
-- colectivo → encuentros, jams, talleres, intervenciones urbanas
-- música → conciertos, jam sessions, open mic
-
-Responde en JSON exacto:
-{{
-  "eventos": [
-    {{
-      "titulo": "nombre específico del evento",
-      "categoria_principal": "{categoria}",
-      "categorias": ["lista de categorías"],
-      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
-      "fecha_fin": null,
-      "descripcion": "descripción atractiva y realista (máx 300 chars)",
-      "precio": "valor o 'Entrada libre'",
-      "es_gratuito": true/false,
-      "es_recurrente": true/false,
-      "imagen_url": null
-    }}
-  ]
-}}
-Responde SOLO JSON."""
-        events = _extract_events_with_claude(search_prompt)
-        for ev in events:
-            ev["_fuente"] = "claude_knowledge"
-            ev["_fuente_url"] = sitio or (f"https://instagram.com/{ig_handle.lstrip('@')}" if ig_handle else None)
-        all_events.extend(events)
+            all_events.extend(events_ig)
 
     # 4. Insert events into DB
     stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
@@ -869,7 +840,7 @@ async def scrape_agenda_sources() -> dict:
                 nombre_fuente=src["nombre"],
                 fuente_url=src["url"],
                 municipio=src["municipio"],
-                contenido=content[:12000],
+                contenido=content[:1500],  # max 1500 chars ≈ 375 tokens
             )
             events = _extract_events_with_claude(prompt)
             total["fuentes"] += 1
