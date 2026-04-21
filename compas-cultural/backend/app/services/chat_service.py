@@ -207,7 +207,8 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
 
 def _chat_via_groq(system_prompt: str, messages: list) -> str | None:
     """Use Groq (FREE) as AI engine for chat.
-    Sends system prompt + conversation history to llama-3.3-70b-versatile.
+    Uses llama-3.1-8b-instant: 14,400 req/day (vs 1,000/day of 70b).
+    Enough for ~1,400 active users/day on the same free key.
     Returns response text or None if Groq is unavailable/fails.
     """
     if not settings.groq_api_key:
@@ -220,7 +221,7 @@ def _chat_via_groq(system_prompt: str, messages: list) -> str | None:
         )
         full_messages = [{"role": "system", "content": system_prompt}] + messages
         resp = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=full_messages,
             max_tokens=700,
             temperature=0.7,
@@ -228,7 +229,7 @@ def _chat_via_groq(system_prompt: str, messages: list) -> str | None:
         )
         text = resp.choices[0].message.content.strip() if resp.choices else ""
         if text:
-            print("[chat] Groq llama-3.3-70b OK")
+            print("[chat] Groq llama-3.1-8b OK")
         return text or None
     except Exception as e:
         print(f"[chat_service] Groq error: {e}")
