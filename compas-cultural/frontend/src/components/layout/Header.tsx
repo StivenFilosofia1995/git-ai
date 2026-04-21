@@ -35,6 +35,17 @@ export default function Header() {
               Preguntale a ETÉREA
             </Link>
 
+            {/* Botón donación Vaki */}
+            <a
+              href="https://vaki.co/es/vaki/O9pVekXen6m94eLNwMzp"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 border-2 border-black bg-yellow-300 text-black text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-yellow-400 transition-all duration-200"
+              title="Apoyá el proyecto en Vaki"
+            >
+              ♥ Apoyar
+            </a>
+
             {!loading && (
               user ? (
                 <div className="flex items-center gap-3">

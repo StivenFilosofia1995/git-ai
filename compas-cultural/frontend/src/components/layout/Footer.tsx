@@ -22,9 +22,19 @@ export default function Footer() {
               </Link>
             ))}
           </div>
-          <p className="text-[11px] font-mono font-bold uppercase tracking-wider text-black">
-            Medellín · Valle de Aburrá · 2026
-          </p>
+          <div className="flex flex-col items-start md:items-end gap-2">
+            <a
+              href="https://vaki.co/es/vaki/O9pVekXen6m94eLNwMzp"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 border-2 border-black bg-yellow-300 text-black text-[11px] font-mono font-bold uppercase tracking-wider hover:bg-yellow-400 transition-all duration-200"
+            >
+              ♥ Apoyar en Vaki
+            </a>
+            <p className="text-[10px] font-mono text-black/60 uppercase tracking-wider">
+              Ayudanos a sostener y mejorar la plataforma
+            </p>
+          </div>
         </div>
       </div>
     </footer>
