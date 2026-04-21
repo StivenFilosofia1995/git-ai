@@ -3,8 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import SearchResults from '../components/search/SearchResults'
 import EventCard from '../components/agenda/EventCard'
-import BuscarConAI from '../components/ui/BuscarConAI'
-import { buscar, getEspacios, getEventos, getEventosHoy, getZonas, scrapeZona, type Espacio, type Evento, type Zona, type ResultadoBusqueda } from '../lib/api'
+import { buscar, getEspacios, getEventos, getEventosHoy, getZonas, enviarMensajeChat, type Espacio, type Evento, type Zona, type ResultadoBusqueda, type ChatMessage } from '../lib/api'
 
 const CAT_TABS = [
   { value: '', label: 'Todo' },
@@ -46,6 +45,9 @@ export default function Explorar() {
   const [textFilter, setTextFilter] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('todo')
   const [error, setError] = useState<string | null>(null)
+  const [aiQuery, setAiQuery] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiResponse, setAiResponse] = useState<string | null>(null)
 
   useEffect(() => {
     const cargar = async () => {
@@ -228,17 +230,46 @@ export default function Explorar() {
                   )}
                 </div>
               </div>
-              <div className="mt-3">
-                <BuscarConAI
-                  label="Buscar eventos con AI"
-                  onSearch={async () => {
-                    const muni = muniFilter || 'medellin'
-                    const res = await scrapeZona(muni, 15)
-                    return res.message
-                  }}
-                  onComplete={reloadExplorar}
+              <form
+                className="mt-3 flex gap-0 max-w-md"
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  if (!aiQuery.trim() || aiLoading) return
+                  setAiLoading(true)
+                  setAiResponse(null)
+                  try {
+                    const historial: ChatMessage[] = []
+                    const res = await enviarMensajeChat(aiQuery, historial)
+                    setAiResponse(res.respuesta)
+                  } catch {
+                    setAiResponse('No pude consultar en este momento. Intentá de nuevo.')
+                  } finally {
+                    setAiLoading(false)
+                  }
+                }}
+              >
+                <input
+                  type="text"
+                  value={aiQuery}
+                  onChange={e => setAiQuery(e.target.value)}
+                  placeholder="Preguntale a ETÉREA... ¿qué hay hoy de jazz?"
+                  className="flex-1 px-3 py-2 text-xs font-mono border-2 border-black border-r-0 focus:outline-none placeholder:text-neutral-400"
                 />
-              </div>
+                <button
+                  type="submit"
+                  disabled={aiLoading || !aiQuery.trim()}
+                  className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black px-3 py-2 bg-black text-white hover:bg-neutral-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1.5"
+                >
+                  {aiLoading ? (
+                    <><span className="w-2 h-2 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" /> Buscando...</>
+                  ) : '🔍 Preguntar'}
+                </button>
+              </form>
+              {aiResponse && (
+                <div className="mt-2 max-w-md text-xs font-mono leading-relaxed border border-black/20 px-3 py-2.5 bg-neutral-50 whitespace-pre-wrap">
+                  {aiResponse}
+                </div>
+              )}
             </div>
             <div className="flex gap-6 text-center flex-wrap">
               <div>
