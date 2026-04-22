@@ -264,18 +264,21 @@ export interface StatsResponse {
   espacios: number
   eventos: number
   zonas: number
+  colectivos: number
 }
 
 export async function getStats(): Promise<StatsResponse> {
-  const [esp, ev, z] = await Promise.all([
+  const [esp, ev, z, col] = await Promise.all([
     supabase.from('lugares').select('id', { count: 'exact', head: true }),
     supabase.from('eventos').select('id', { count: 'exact', head: true }),
     supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
+    supabase.from('lugares').select('id', { count: 'exact', head: true }).eq('tipo', 'colectivo'),
   ])
   return {
     espacios: esp.count ?? 0,
     eventos: ev.count ?? 0,
     zonas: z.count ?? 0,
+    colectivos: col.count ?? 0,
   }
 }
 

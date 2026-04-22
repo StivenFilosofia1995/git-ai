@@ -1,7 +1,7 @@
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getEspacios, scrapeZona, type Espacio } from '../lib/api'
+import { getEspacios, getStats, scrapeZona, type Espacio } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import BuscarConAI from '../components/ui/BuscarConAI'
 
@@ -24,8 +24,13 @@ const TIPOS_COLECTIVO = [
 export default function Colectivos() {
   const { user } = useAuth()
   const [colectivos, setColectivos] = useState<Espacio[]>([])
+  const [totalColectivos, setTotalColectivos] = useState(0)
   const [filtro, setFiltro] = useState('')
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getStats().then(s => setTotalColectivos(s.colectivos)).catch(() => {})
+  }, [])
 
   useEffect(() => {
     setLoading(true)
@@ -82,7 +87,7 @@ export default function Colectivos() {
                 <span>→</span>
               </Link>
               <span className="inline-flex items-center px-4 py-3 border-2 border-black font-mono text-xs font-bold uppercase tracking-wider">
-                {colectivos.length} activos
+                {totalColectivos || colectivos.length} activos
               </span>
             </div>
             <div className="mt-6">

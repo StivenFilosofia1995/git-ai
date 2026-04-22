@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import SearchResults from '../components/search/SearchResults'
 import EventCard from '../components/agenda/EventCard'
-import { buscar, getEspacios, getEventos, getEventosHoy, getZonas, enviarMensajeChat, type Espacio, type Evento, type Zona, type ResultadoBusqueda, type ChatMessage } from '../lib/api'
+import { buscar, getEspacios, getEventos, getEventosHoy, getZonas, getStats, enviarMensajeChat, type Espacio, type Evento, type Zona, type ResultadoBusqueda, type ChatMessage, type StatsResponse } from '../lib/api'
 
 const CAT_TABS = [
   { value: '', label: 'Todo' },
@@ -45,6 +45,7 @@ export default function Explorar() {
   const [textFilter, setTextFilter] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('todo')
   const [error, setError] = useState<string | null>(null)
+  const [stats, setStats] = useState<StatsResponse>({ espacios: 0, eventos: 0, zonas: 0, colectivos: 0 })
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResponse, setAiResponse] = useState<string | null>(null)
@@ -58,16 +59,18 @@ export default function Explorar() {
           const response = await buscar(query)
           setResultados(response.resultados)
         } else {
-          const [esp, ev, hoy, z] = await Promise.all([
+          const [esp, ev, hoy, z, st] = await Promise.all([
             getEspacios({ limit: 500 }),
             getEventos({ limit: 200 }),
             getEventosHoy(),
             getZonas(),
+            getStats(),
           ])
           setEspacios(esp)
           setEventos(ev)
           setEventosHoy(hoy)
           setZonas(z)
+          setStats(st)
         }
       } catch {
         setError('No fue posible cargar los datos.')
@@ -261,15 +264,15 @@ export default function Explorar() {
             </div>
             <div className="flex gap-6 text-center flex-wrap">
               <div>
-                <div className="text-3xl font-heading font-black">{eventos.length}</div>
+                <div className="text-3xl font-heading font-black">{stats.eventos || eventos.length}</div>
                 <div className="text-[9px] font-mono font-bold tracking-[0.2em]">EVENTOS</div>
               </div>
               <div>
-                <div className="text-3xl font-heading font-black">{espacios.length}</div>
+                <div className="text-3xl font-heading font-black">{stats.espacios || espacios.length}</div>
                 <div className="text-[9px] font-mono font-bold tracking-[0.2em]">ESPACIOS</div>
               </div>
               <div>
-                <div className="text-3xl font-heading font-black">{zonas.length}</div>
+                <div className="text-3xl font-heading font-black">{stats.zonas || zonas.length}</div>
                 <div className="text-[9px] font-mono font-bold tracking-[0.2em]">ZONAS</div>
               </div>
               <div>
