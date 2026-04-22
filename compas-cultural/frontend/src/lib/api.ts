@@ -155,18 +155,41 @@ export async function getEspacio(slug: string): Promise<Espacio> {
 }
 
 export async function getEventosHoy(): Promise<Evento[]> {
-  // Uses backend which applies Colombia TZ correctly (UTC-5)
-  // Includes multi-day events in progress
-  return apiGet<Evento[]>('/eventos/hoy')
+  const today = new Date().toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', today)
+    .lte('fecha_inicio', today + 'T23:59:59')
+    .order('fecha_inicio')
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function getEventosFeed(limit = 20): Promise<Evento[]> {
-  return apiGet<Evento[]>(`/eventos/feed?limit=${limit}`)
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', now)
+    .order('fecha_inicio')
+    .limit(limit)
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function getEventosSemana(): Promise<Evento[]> {
-  // Uses backend which applies Colombia TZ correctly (UTC-5)
-  return apiGet<Evento[]>('/eventos/semana')
+  const now = new Date()
+  const endOfWeek = new Date(now)
+  endOfWeek.setDate(endOfWeek.getDate() + 7)
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', now.toISOString().slice(0, 10))
+    .lte('fecha_inicio', endOfWeek.toISOString().slice(0, 10) + 'T23:59:59')
+    .order('fecha_inicio')
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function getEvento(slug: string): Promise<Evento> {
@@ -180,7 +203,13 @@ export async function getEvento(slug: string): Promise<Evento> {
 }
 
 export async function getEventosByEspacio(espacioId: string): Promise<Evento[]> {
-  return apiGet<Evento[]>(`/eventos/espacio/${encodeURIComponent(espacioId)}`)
+  const { data, error } = await supabase
+    .from('eventos')
+    .select('*')
+    .eq('espacio_id', espacioId)
+    .order('fecha_inicio', { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function scrapeLugar(lugarId: string): Promise<{ status: string; message: string }> {
@@ -198,28 +227,17 @@ export async function getEventos(params?: {
 }): Promise<Evento[]> {
   const limit = params?.limit ?? 100
   const offset = params?.offset ?? 0
-
-  // Build today-midnight ISO string in Colombia timezone so events from
-  // today onwards are included regardless of where the client is.
-  const todayBogota = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Bogota',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-  // Attach Colombia UTC offset (-05:00) so Supabase/PostgreSQL compares
-  // properly against timestamptz values.
-  const todayIso = `${todayBogota}T00:00:00-05:00`
+  const today = new Date().toISOString().slice(0, 10)
 
   let query = supabase
     .from('eventos')
     .select('*')
-    .gte('fecha_inicio', todayIso)
-    .order('fecha_inicio')
+    .gte('fecha_inicio', today)
+    .order('fecha_inicio', { ascending: true })
     .range(offset, offset + limit - 1)
 
   if (params?.categoria) {
-    query = query.contains('categorias', [params.categoria])
+    query = query.eq('categoria_principal', params.categoria)
   }
 
   const { data, error } = await query

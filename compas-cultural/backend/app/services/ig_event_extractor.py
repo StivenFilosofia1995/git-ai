@@ -215,6 +215,8 @@ def _extract_hour(text: str) -> tuple[int, int]:
         h += 12
     elif mer in ("am", "a") and h == 12:
         h = 0
+    elif not mer and 1 <= h <= 11:
+        h += 12  # No meridiem: cultural events are almost always evening
     if not (0 <= h <= 23):
         h = 19
     return h, mi
