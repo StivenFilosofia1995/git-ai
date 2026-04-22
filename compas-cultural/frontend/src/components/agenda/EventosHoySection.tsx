@@ -52,7 +52,7 @@ export default function EventosHoySection() {
             <span className="text-[10px] font-mono font-bold tracking-[0.3em] uppercase">{label}</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-heading font-black uppercase tracking-tighter">
-            {label === 'HOY' ? '\u00bfQu\u00e9 hay hoy?' : 'Cultura viva'}
+            {label === 'HOY' ? '¿Qué hay hoy en el Valle de Aburrá?' : 'Cultura viva'}
           </h2>
         </div>
         <Link

@@ -4,7 +4,6 @@ import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import EventosHoySection from '../components/agenda/EventosHoySection'
 import HomeChatSection from '../components/chat/HomeChatSection'
-import ColtejerWireframe from '../components/illustrations/ColtejerWireframe'
 import { getEventos, getEventosHoy, getEventosSemana, getZonas, getStats, scrapeZona, type Evento, type Zona } from '../lib/api'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
@@ -92,7 +91,7 @@ export default function Agenda() {
   const [stats, setStats] = useState({ espacios: 0, eventos: 0, zonas: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('todos')
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>('hoy')
   const [catFilter, setCatFilter] = useState('')
   const [zonaFilter, setZonaFilter] = useState('')
   const [textFilter, setTextFilter] = useState('')
@@ -223,9 +222,9 @@ export default function Agenda() {
           }}
           aria-hidden="true"
         />
-        <div className="relative max-w-7xl mx-auto px-6 pt-24 pb-16 lg:pt-32 lg:pb-24">
-          <div className="flex items-start justify-between gap-12">
-            <div className="max-w-2xl">
+        <div className="relative max-w-7xl mx-auto px-6 pt-24 pb-0 lg:pt-28">
+          <div className="flex items-start gap-8 lg:gap-12">
+            <div className="flex-1 min-w-0 pb-16 lg:pb-24">
               {/* Live badge */}
               <div className="flex items-center gap-3 mb-10">
                 <span className="block w-3 h-3 bg-black animate-pulse" />
@@ -288,9 +287,9 @@ export default function Agenda() {
               </p>
             </div>
 
-            {/* Coltejer wireframe */}
-            <div className="hidden lg:block flex-shrink-0 -mr-8 mt-8">
-              <ColtejerWireframe />
+            {/* Chat AI — extremo derecho del hero */}
+            <div className="hidden lg:flex flex-col flex-shrink-0 w-[400px] xl:w-[460px]">
+              <HomeChatSection />
             </div>
           </div>
         </div>
@@ -321,16 +320,6 @@ export default function Agenda() {
           aria-hidden="true"
         />
         <EventosHoySection />
-      </div>
-
-      {/* ─── CHAT AI ─────────────────────────────────────────────────────────── */}
-      <div className="relative max-w-7xl mx-auto px-6">
-        <div
-          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat bg-contain"
-          style={{ backgroundImage: 'url(/medellin-ilustracion.png)', opacity: 0.04 }}
-          aria-hidden="true"
-        />
-        <HomeChatSection />
       </div>
 
       {/* ─── MAPA CULTURAL ───────────────────────────────────────────────────── */}
@@ -373,7 +362,7 @@ export default function Agenda() {
               <span className="text-[10px] font-mono font-bold tracking-[0.3em] uppercase">Agenda completa</span>
             </div>
             <h2 className="text-4xl md:text-5xl font-heading font-black tracking-tight uppercase">
-              Próximos eventos
+              Buscar eventos
             </h2>
           </div>
           <BuscarConAI
