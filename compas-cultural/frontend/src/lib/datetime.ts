@@ -84,22 +84,15 @@ function getBogotaClockParts(value: Date) {
   }
 }
 
-function isAutomatedSource(source?: string | null): boolean {
-  const normalized = (source ?? '').toLowerCase()
-  return normalized.startsWith('auto_scraper_') || normalized.startsWith('smart_listener_') || normalized === 'sitio_web' || normalized === 'rss'
-}
-
 export function hasReliableEventTime(value: EventDateInput): boolean {
   const context = getInputContext(value)
   const parsed = parseEventDate(context.fecha_inicio)
   if (!parsed) return false
 
+  // Only hide true midnight (00:00:00) — these are date-only entries with no
+  // time scraped. Any other time, including 19:00 defaults, is shown as-is.
   const { hour, minute, second } = getBogotaClockParts(parsed)
   if (hour === 0 && minute === 0 && second === 0) {
-    return false
-  }
-
-  if (isAutomatedSource(context.fuente) && minute === 0 && second === 0 && hour > 0 && hour < 7) {
     return false
   }
 

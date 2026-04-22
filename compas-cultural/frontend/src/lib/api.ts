@@ -196,12 +196,35 @@ export async function getEventos(params?: {
   offset?: number
   categoria?: string
 }): Promise<Evento[]> {
-  // Use backend — filters by today Colombia TZ, orders ascending
   const limit = params?.limit ?? 100
   const offset = params?.offset ?? 0
-  let path = `/eventos?limit=${limit}&offset=${offset}`
-  if (params?.categoria) path += `&categoria=${encodeURIComponent(params.categoria)}`
-  return apiGet<Evento[]>(path)
+
+  // Build today-midnight ISO string in Colombia timezone so events from
+  // today onwards are included regardless of where the client is.
+  const todayBogota = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+  // Attach Colombia UTC offset (-05:00) so Supabase/PostgreSQL compares
+  // properly against timestamptz values.
+  const todayIso = `${todayBogota}T00:00:00-05:00`
+
+  let query = supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', todayIso)
+    .order('fecha_inicio')
+    .range(offset, offset + limit - 1)
+
+  if (params?.categoria) {
+    query = query.contains('categorias', [params.categoria])
+  }
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Evento[]
 }
 
 export async function buscar(q: string): Promise<BusquedaResponse> {
