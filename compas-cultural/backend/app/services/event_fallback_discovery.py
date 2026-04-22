@@ -44,13 +44,15 @@ def _build_google_queries(
     if not base:
         base = "eventos culturales Medellin"
 
-    region = municipio or "Medellin"
+    region = municipio or "Valle de Aburrá"
     return [
         f"{base} agenda cultural {region}",
         f"{base} concierto teatro taller {region}",
         f"site:instagram.com {base} evento {region}",
         f"site:facebook.com events {base} {region}",
         f"{base} abril mayo junio {region}",
+        f"agenda cultural gratis {region} hoy",
+        f"eventos hoy mañana fin de semana {region}",
     ]
 
 
@@ -67,28 +69,56 @@ async def _google_search_urls(query: str, max_results: int = 8) -> list[str]:
         "num": min(max_results, 10),
     }
 
+    urls: list[str] = []
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
             resp = await client.get("https://www.google.com/search", params=params, headers=headers)
             resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "lxml")
+            for a in soup.select("a[href]"):
+                href = a.get("href", "")
+                if href.startswith("/url?q="):
+                    href = href.split("/url?q=", 1)[1].split("&", 1)[0]
+                if not href.startswith("http"):
+                    continue
+                if any(skip in href for skip in ["google.com", "webcache", "accounts.google"]):
+                    continue
+                if href not in urls:
+                    urls.append(href)
+                if len(urls) >= max_results:
+                    break
     except Exception:
-        return []
+        pass
 
-    soup = BeautifulSoup(resp.text, "lxml")
-    urls: list[str] = []
-    for a in soup.select("a[href]"):
-        href = a.get("href", "")
-        if href.startswith("/url?q="):
-            href = href.split("/url?q=", 1)[1].split("&", 1)[0]
-        if not href.startswith("http"):
-            continue
-        if any(skip in href for skip in ["google.com", "webcache", "accounts.google"]):
-            continue
-        if href not in urls:
-            urls.append(href)
-        if len(urls) >= max_results:
-            break
+    # Fallback: DuckDuckGo HTML (más estable cuando Google bloquea scraping).
+    if len(urls) < max_results:
+        ddg_params = {"q": query}
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                ddg = await client.get("https://duckduckgo.com/html/", params=ddg_params, headers=headers)
+                ddg.raise_for_status()
+                soup = BeautifulSoup(ddg.text, "lxml")
+                for a in soup.select("a.result__a[href]"):
+                    href = a.get("href", "")
+                    if not href.startswith("http"):
+                        continue
+                    if href not in urls:
+                        urls.append(href)
+                    if len(urls) >= max_results:
+                        break
+        except Exception:
+            pass
     return urls
+
+
+VALLE_ABURRA_MUNICIPIOS = [
+    "medellin",
+    "envigado",
+    "itagui",
+    "bello",
+    "sabaneta",
+    "la estrella",
+]
 
 
 async def _fetch_text_from_url(url: str) -> Optional[str]:
@@ -154,6 +184,34 @@ def _resolve_colectivo_by_slug(slug: Optional[str]) -> Optional[dict]:
         return None
 
 
+def _find_candidate_lugares(
+    *,
+    municipio: Optional[str],
+    categoria: Optional[str],
+    texto: Optional[str],
+    limit: int = 6,
+) -> list[dict]:
+    """Find likely matching lugares for user search filters.
+
+    This allows the public discovery flow to scrape places relevant to what
+    users typed, not only a generic zona sample.
+    """
+    try:
+        query = supabase.table("lugares").select(
+            "id,nombre,slug,municipio,categoria_principal"
+        )
+        if municipio:
+            query = query.eq("municipio", municipio)
+        if categoria:
+            query = query.eq("categoria_principal", categoria)
+        if texto:
+            query = query.ilike("nombre", f"%{texto[:80]}%")
+        resp = query.limit(limit).execute()
+        return resp.data or []
+    except Exception:
+        return []
+
+
 def _parse_iso_maybe(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -164,6 +222,17 @@ def _parse_iso_maybe(value: Optional[str]) -> Optional[datetime]:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=CO_TZ)
     return dt.astimezone(CO_TZ)
+
+
+def _enrich_event_description(descripcion: Optional[str], fecha: datetime) -> str:
+    base = (descripcion or "").strip()
+    if not base:
+        base = "Evento cultural detectado durante la búsqueda web."
+    hora_confirmada = not (fecha.hour == 0 and fecha.minute == 0)
+    if "hora del evento" in base.lower():
+        return base
+    hora_label = fecha.astimezone(CO_TZ).strftime("%H:%M") if hora_confirmada else "por confirmar"
+    return f"Hora del evento: {hora_label}. {base}".strip()
 
 
 def _insert_discovered_event(
@@ -214,7 +283,7 @@ def _insert_discovered_event(
         "municipio": municipio,
         "barrio": ev.get("barrio") or (colectivo or {}).get("barrio"),
         "nombre_lugar": nombre_lugar,
-        "descripcion": ev.get("descripcion"),
+        "descripcion": _enrich_event_description(ev.get("descripcion"), fecha),
         "precio": ev.get("precio"),
         "es_gratuito": ev.get("es_gratuito", False),
         "es_recurrente": ev.get("es_recurrente", False),
@@ -248,6 +317,7 @@ async def discover_events_for_filters(
         "nuevos": 0,
         "duplicados": 0,
         "errores": 0,
+        "lugares_scrapeados": 0,
         "consultas": [],
         "urls_analizadas": 0,
         "colectivo": None,
@@ -260,21 +330,49 @@ async def discover_events_for_filters(
     if colectivo:
         stats["colectivo"] = colectivo.get("slug")
 
+    # 0) Scrape lugares que coinciden con lo que buscó el usuario.
+    #    Esto hace que la búsqueda "con AI" también actualice agendas de
+    #    espacios relevantes para toda la plataforma.
+    candidate_lugares = _find_candidate_lugares(
+        municipio=municipio,
+        categoria=categoria,
+        texto=texto,
+        limit=6,
+    )
+    seen_lugar_ids: set[str] = set()
+    if colectivo and colectivo.get("id"):
+        seen_lugar_ids.add(colectivo["id"])
+
+    for lugar in candidate_lugares:
+        lugar_id = lugar.get("id")
+        if not lugar_id or lugar_id in seen_lugar_ids:
+            continue
+        seen_lugar_ids.add(lugar_id)
+        try:
+            single = await asyncio.wait_for(scrape_single_lugar(lugar_id), timeout=20)
+            stats["lugares_scrapeados"] += 1
+            stats["nuevos"] += int(single.get("nuevos", 0) or 0)
+            stats["duplicados"] += int(single.get("duplicados", 0) or 0)
+        except Exception:
+            stats["errores"] += 1
+
     try:
-        if colectivo and colectivo.get("id"):
+        if colectivo and colectivo.get("id") and colectivo["id"] not in seen_lugar_ids:
             single = await asyncio.wait_for(scrape_single_lugar(colectivo["id"]), timeout=25)
+            stats["lugares_scrapeados"] += 1
             stats["nuevos"] += int(single.get("nuevos", 0) or 0)
             stats["duplicados"] += int(single.get("duplicados", 0) or 0)
     except Exception:
         stats["errores"] += 1
 
-    try:
-        if municipio:
-            zona = await asyncio.wait_for(scrape_zona(municipio, limit=5), timeout=25)
+    municipios_objetivo = [municipio] if municipio else VALLE_ABURRA_MUNICIPIOS
+    for mun in municipios_objetivo:
+        try:
+            zona = await asyncio.wait_for(scrape_zona(mun, limit=5), timeout=25)
             stats["nuevos"] += int(zona.get("eventos_nuevos", 0) or 0)
             stats["duplicados"] += int(zona.get("duplicados", 0) or 0)
-    except Exception:
-        stats["errores"] += 1
+        except Exception:
+            stats["errores"] += 1
 
     # If we already got events from internal sources, still return quickly.
     if stats["nuevos"] > 0:

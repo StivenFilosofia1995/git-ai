@@ -21,6 +21,7 @@ from app.services.groq_client import groq_chat, parse_json_response, MODEL_SMART
 from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 from app.services.event_ocr import extract_hour_from_image_url
+from app.services.rss_scraper import get_or_discover_feed, parse_rss_events
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -156,6 +157,26 @@ def _parse_iso_to_co(value: Optional[str]) -> Optional[datetime]:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=CO_TZ)
     return parsed.astimezone(CO_TZ)
+
+
+def _enrich_event_description(
+    descripcion: Optional[str],
+    fecha: datetime,
+    *,
+    hora_confirmada: bool,
+) -> str:
+    """Ensure stored descriptions include explicit schedule context."""
+    base = (descripcion or "").strip()
+    if not base:
+        base = "Evento cultural en el Valle de Aburrá."
+    if hora_confirmada:
+        hora_txt = fecha.astimezone(CO_TZ).strftime("%H:%M")
+        pref = f"Hora del evento: {hora_txt}."
+    else:
+        pref = "Hora del evento: por confirmar."
+    if "hora del evento" in base.lower():
+        return base
+    return f"{pref} {base}".strip()
 
 
 def _normalize_site_url(raw: Optional[str]) -> Optional[str]:
@@ -711,7 +732,11 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "municipio": municipio,
                 "barrio": lugar.get("barrio"),
                 "nombre_lugar": nombre,
-                "descripcion": ev.get("descripcion"),
+                "descripcion": _enrich_event_description(
+                    ev.get("descripcion"),
+                    fecha,
+                    hora_confirmada=not (fecha.hour == 0 and fecha.minute == 0),
+                ),
                 "precio": ev.get("precio"),
                 "es_gratuito": ev.get("es_gratuito", False),
                 "es_recurrente": ev.get("es_recurrente", False),
@@ -1034,6 +1059,18 @@ AGENDA_SOURCES = [
         "categoria_default": "teatro",
         "municipio": "medellin",
     },
+    {
+        "nombre": "Parque Explora - Agenda",
+        "url": "https://www.parqueexplora.org/agenda/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Museo de Antioquia - Programación",
+        "url": "https://museodeantioquia.co/agenda/",
+        "categoria_default": "galeria",
+        "municipio": "medellin",
+    },
 ]
 
 AGENDA_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
@@ -1146,6 +1183,21 @@ async def scrape_agenda_sources() -> dict:
                     events = _extract_events_with_groq(prompt)
                     if events:
                         print(f"  🧠 Groq: {len(events)} evento(s)")
+                if not events:
+                    feed_url = await get_or_discover_feed(src["url"])
+                    if feed_url:
+                        rss_events = await parse_rss_events(
+                            feed_url,
+                            {
+                                "id": None,
+                                "nombre": src["nombre"],
+                                "municipio": src["municipio"],
+                                "categoria_principal": src["categoria_default"],
+                            },
+                        )
+                        if rss_events:
+                            events = rss_events
+                            print(f"  📰 RSS: {len(events)} evento(s) desde {feed_url}")
             else:
                 print(f"  ⚠ Sin eventos de código para {src['nombre']} (sin fallback AI)")  
             if not events:
@@ -1204,7 +1256,11 @@ async def scrape_agenda_sources() -> dict:
                         "municipio": ev.get("municipio", src["municipio"]),
                         "barrio": ev.get("barrio"),
                         "nombre_lugar": ev.get("nombre_lugar"),
-                        "descripcion": ev.get("descripcion"),
+                        "descripcion": _enrich_event_description(
+                            ev.get("descripcion"),
+                            fecha,
+                            hora_confirmada=not (fecha.hour == 0 and fecha.minute == 0),
+                        ),
                         "precio": ev.get("precio"),
                         "es_gratuito": ev.get("es_gratuito", False),
                         "es_recurrente": ev.get("es_recurrente", False),
@@ -1319,4 +1375,3 @@ async def cleanup_past_events() -> dict:
         detalle={"eliminados": removed},
     )
     return {"eliminados": removed}
-

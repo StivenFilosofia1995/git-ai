@@ -94,11 +94,20 @@ function getBogotaClockParts(value: Date) {
   }).formatToParts(value)
 
   const lookup = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  const rawHour = Number(lookup.hour ?? '0')
+  const normalizedHour = Number.isFinite(rawHour) ? rawHour % 24 : 0
   return {
-    hour: Number(lookup.hour ?? '0'),
+    hour: normalizedHour,
     minute: Number(lookup.minute ?? '0'),
     second: Number(lookup.second ?? '0'),
   }
+}
+
+function isMidnightMarker(value: string | null | undefined): boolean {
+  const parsed = parseEventDate(value)
+  if (!parsed) return false
+  const { hour, minute, second } = getBogotaClockParts(parsed)
+  return hour === 0 && minute === 0 && second === 0
 }
 
 /**
@@ -111,7 +120,11 @@ export function hasReliableEventTime(value: EventDateInput): boolean {
   const context = getInputContext(value)
 
   // 1. Si el backend marca explícitamente, respetamos (nuevo flujo).
-  if (context.hora_confirmada === true) return true
+  if (context.hora_confirmada === true) {
+    // Defensa extra: algunos navegadores pueden formatear medianoche como 24:00
+    // y terminar mostrando 12:00 a. m. para eventos sin hora real.
+    return !isMidnightMarker(context.fecha_inicio)
+  }
   if (context.hora_confirmada === false) return false
 
   // 2. Fallback legacy: analizar por heurística (compatibilidad con datos viejos).
