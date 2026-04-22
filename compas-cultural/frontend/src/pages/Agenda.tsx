@@ -84,6 +84,26 @@ const CAT_OPTIONS = [
   { value: 'conferencia', label: 'Conferencias' },
 ]
 
+function normalizeText(value: string | null | undefined): string {
+  if (!value) return ''
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildZonaTokens(zonaNombre: string): string[] {
+  const base = normalizeText(zonaNombre)
+  if (!base) return []
+  const noParen = base.replace(/\(.*?\)/g, '').trim()
+  const noDash = noParen.replace(/\s+-\s+/g, ' ').trim()
+  const parts = noParen.split(/\s+-\s+/).map(t => t.trim()).filter(Boolean)
+  return Array.from(new Set([base, noParen, noDash, ...parts].filter(Boolean)))
+}
+
 export default function Agenda() {
   const [eventos, setEventos] = useState<Evento[]>([])
   const [zonas, setZonas] = useState<Zona[]>([])
@@ -110,12 +130,13 @@ export default function Agenda() {
   const reloadEventos = () => {
     const cargar = async () => {
       try {
+        const municipioParam = municipioFilter || undefined
         if (timeFilter === 'hoy') {
           setEventos(await getEventosHoy())
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana())
         } else {
-          setEventos(await getEventos({ limit: 200 }))
+          setEventos(await getEventos({ limit: 2000, municipio: municipioParam }))
         }
       } catch { /* silent */ }
     }
@@ -132,12 +153,13 @@ export default function Agenda() {
       setLoading(true)
       setError(null)
       try {
+        const municipioParam = municipioFilter || undefined
         if (timeFilter === 'hoy') {
-          setEventos(await getEventosHoy())
+          setEventos(await getEventos({ limit: 1200, municipio: municipioParam }))
         } else if (timeFilter === 'semana') {
-          setEventos(await getEventosSemana())
+          setEventos(await getEventos({ limit: 1200, municipio: municipioParam }))
         } else {
-          setEventos(await getEventos({ limit: 200 }))
+          setEventos(await getEventos({ limit: 2000, municipio: municipioParam }))
         }
       } catch {
         setError('No fue posible cargar la agenda cultural.')
@@ -146,7 +168,7 @@ export default function Agenda() {
       }
     }
     void cargar()
-  }, [timeFilter])
+  }, [timeFilter, municipioFilter])
 
   const filtered = useMemo(() => {
     let result = eventos
@@ -154,7 +176,8 @@ export default function Agenda() {
       result = result.filter(e => e.categoria_principal === catFilter)
     }
     if (municipioFilter) {
-      result = result.filter(e => e.municipio === municipioFilter)
+      const m = normalizeText(municipioFilter)
+      result = result.filter(e => normalizeText(e.municipio).includes(m))
     }
     if (precioFilter === 'gratuito') {
       result = result.filter(e => e.es_gratuito)
@@ -164,10 +187,12 @@ export default function Agenda() {
     if (zonaFilter) {
       const zona = zonas.find(z => z.slug === zonaFilter)
       if (zona) {
-        result = result.filter(e =>
-          e.barrio?.toLowerCase().includes(zona.nombre.toLowerCase()) ||
-          e.nombre_lugar?.toLowerCase().includes(zona.nombre.toLowerCase())
-        )
+        const zonaTokens = buildZonaTokens(zona.nombre)
+        result = result.filter(e => {
+          const barrio = normalizeText(e.barrio)
+          const lugar = normalizeText(e.nombre_lugar)
+          return zonaTokens.some(t => barrio.includes(t) || lugar.includes(t))
+        })
       }
     }
     if (textFilter.trim()) {

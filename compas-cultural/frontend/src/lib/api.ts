@@ -224,8 +224,9 @@ export async function getEventos(params?: {
   limit?: number
   offset?: number
   categoria?: string
+  municipio?: string
 }): Promise<Evento[]> {
-  const limit = params?.limit ?? 100
+  const limit = params?.limit ?? 500
   const offset = params?.offset ?? 0
   const today = new Date().toISOString().slice(0, 10)
 
@@ -238,6 +239,9 @@ export async function getEventos(params?: {
 
   if (params?.categoria) {
     query = query.eq('categoria_principal', params.categoria)
+  }
+  if (params?.municipio) {
+    query = query.ilike('municipio', `%${params.municipio}%`)
   }
 
   const { data, error } = await query
