@@ -309,6 +309,7 @@ def _caption_to_event(
 
     # Apply extracted hour
     hm = _extract_hour(caption)
+    hora_detectada = hm is not None
     if hm is not None:
         h, mi = hm
         try:
@@ -344,6 +345,7 @@ def _caption_to_event(
         "es_gratuito": es_gratuito,
         "es_recurrente": False,
         "imagen_url": image_url,
+        "_hora_detectada": hora_detectada,
         "_fuente": "instagram",
     }
 

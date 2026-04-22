@@ -119,6 +119,19 @@ def _now_co() -> datetime:
     """Current datetime in Colombia (America/Bogota), timezone-aware."""
     return datetime.now(CO_TZ)
 
+
+def _parse_iso_to_co(value: Optional[str]) -> Optional[datetime]:
+    """Parse ISO datetime and normalize to Colombia timezone."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=CO_TZ)
+    return parsed.astimezone(CO_TZ)
+
 # ── Prompt para extraer eventos de una página ────────────────────────────
 EVENT_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
 Analiza el contenido de esta página/perfil y extrae TODOS los EVENTOS culturales mencionados.
@@ -539,7 +552,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
             print(f"    ⚠ Sin contenido de IG para {ig_handle}")
 
     # 4. Insert events into DB
-    stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
+    stats = {"nuevos": 0, "duplicados": 0, "errores": 0, "corregidos_hora": 0}
     # For multi-day events: keep if fecha_fin >= today (still running).
     # Only skip single-day events whose fecha_inicio < today.
     hoy_inicio = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -588,18 +601,42 @@ async def _scrape_lugar(lugar: dict) -> dict:
             fecha_date_str = fecha.strftime("%Y-%m-%d")
             slug_with_date = f"{slug}-{fecha_date_str}"
 
-            existing = supabase.table("eventos").select("id").eq("slug", slug_with_date).execute()
+            existing = supabase.table("eventos").select("id,fecha_inicio,fuente_url").eq("slug", slug_with_date).execute()
             if existing.data:
+                current = existing.data[0]
+                if ev.get("_fuente") == "instagram" and ev.get("_hora_detectada"):
+                    existing_fecha = _parse_iso_to_co(current.get("fecha_inicio"))
+                    nueva_fecha = fecha.astimezone(CO_TZ)
+                    if existing_fecha and (existing_fecha.hour != nueva_fecha.hour or existing_fecha.minute != nueva_fecha.minute):
+                        supabase.table("eventos").update({
+                            "fecha_inicio": fecha.isoformat(),
+                            "fuente_url": ev.get("_fuente_url") or current.get("fuente_url"),
+                            "imagen_url": ev.get("imagen_url"),
+                        }).eq("id", current["id"]).execute()
+                        stats["corregidos_hora"] += 1
+                        print(f"    🕒 Hora corregida: {titulo} -> {nueva_fecha.strftime('%H:%M')}")
                 stats["duplicados"] += 1
                 continue
             # Also check plain slug (legacy entries without date suffix)
-            existing_plain = supabase.table("eventos").select("id").eq("slug", slug).execute()
+            existing_plain = supabase.table("eventos").select("id,fecha_inicio,fuente_url").eq("slug", slug).execute()
             if existing_plain.data:
                 # Check if the existing event has the same date — if so it's a true duplicate
                 existing_event = supabase.table("eventos").select("fecha_inicio").eq("slug", slug).single().execute()
                 if existing_event.data:
                     ex_date = existing_event.data.get("fecha_inicio", "")[:10]
                     if ex_date == fecha_date_str:
+                        legacy = existing_plain.data[0]
+                        if ev.get("_fuente") == "instagram" and ev.get("_hora_detectada"):
+                            existing_fecha = _parse_iso_to_co(legacy.get("fecha_inicio"))
+                            nueva_fecha = fecha.astimezone(CO_TZ)
+                            if existing_fecha and (existing_fecha.hour != nueva_fecha.hour or existing_fecha.minute != nueva_fecha.minute):
+                                supabase.table("eventos").update({
+                                    "fecha_inicio": fecha.isoformat(),
+                                    "fuente_url": ev.get("_fuente_url") or legacy.get("fuente_url"),
+                                    "imagen_url": ev.get("imagen_url"),
+                                }).eq("id", legacy["id"]).execute()
+                                stats["corregidos_hora"] += 1
+                                print(f"    🕒 Hora corregida (legacy): {titulo} -> {nueva_fecha.strftime('%H:%M')}")
                         stats["duplicados"] += 1
                         continue
                 # Different date — use slug_with_date as slug
@@ -688,7 +725,7 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
     if limit:
         lugares = lugares[:limit]
 
-    total_stats = {"lugares_procesados": 0, "eventos_nuevos": 0, "duplicados": 0, "errores": 0}
+    total_stats = {"lugares_procesados": 0, "eventos_nuevos": 0, "duplicados": 0, "errores": 0, "corregidos_hora": 0}
     start_time = _now_co()
 
     for i, lugar in enumerate(lugares):
@@ -699,12 +736,13 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
             total_stats["eventos_nuevos"] += stats["nuevos"]
             total_stats["duplicados"] += stats["duplicados"]
             total_stats["errores"] += stats["errores"]
+            total_stats["corregidos_hora"] += stats.get("corregidos_hora", 0)
 
             _log_scraping(
                 fuente=lugar.get("sitio_web") or lugar.get("instagram_handle", "unknown"),
                 registros_nuevos=stats["nuevos"],
                 errores=stats["errores"],
-                detalle={"lugar": lugar["nombre"], "duplicados": stats["duplicados"]},
+                detalle={"lugar": lugar["nombre"], "duplicados": stats["duplicados"], "corregidos_hora": stats.get("corregidos_hora", 0)},
             )
 
             # Rate limit: small delay between lugares to avoid hammering
@@ -727,6 +765,7 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
     print(f"   AUTO-SCRAPER completado en {elapsed:.0f}s")
     print(f"   Lugares: {total_stats['lugares_procesados']}")
     print(f"   Eventos nuevos: {total_stats['eventos_nuevos']}")
+    print(f"   Horas corregidas: {total_stats['corregidos_hora']}")
     print(f"   Duplicados: {total_stats['duplicados']}")
     print(f"   Errores: {total_stats['errores']}")
     print("═══════════════════════════════════════════════════\n")
