@@ -1,3 +1,10 @@
+"""
+API /eventos
+Fixes 2026-04:
+- Añadidos filtros colectivo_slug y texto en GET /
+- Nuevo endpoint GET /proximas-semanas?dias=21
+- Resto se mantiene igual (hoy, feed, semana, espacio, slug, publicar).
+"""
 from fastapi import APIRouter, Query, HTTPException, Request
 from typing import Annotated, List, Optional
 from datetime import datetime
@@ -14,11 +21,23 @@ def get_eventos(
     barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
+    colectivo_slug: Optional[str] = None,
+    texto: Optional[str] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
+    """Listar eventos con filtros robustos."""
     return evento_service.get_eventos(
-        fecha_desde, fecha_hasta, municipio, barrio, categoria, es_gratuito, limit, offset
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        municipio=municipio,
+        barrio=barrio,
+        categoria=categoria,
+        es_gratuito=es_gratuito,
+        limit=limit,
+        offset=offset,
+        colectivo_slug=colectivo_slug,
+        texto=texto,
     )
 
 
@@ -40,15 +59,16 @@ async def publicar_evento(body: dict, request: Request):
     from zoneinfo import ZoneInfo
     now_co = datetime.now(ZoneInfo("America/Bogota"))
     fecha = evento.fecha_inicio
-    # Make naive datetimes timezone-aware (assume Bogotá)
     if fecha.tzinfo is None:
         fecha = fecha.replace(tzinfo=ZoneInfo("America/Bogota"))
     if fecha < now_co:
         raise HTTPException(status_code=400, detail="La fecha del evento debe ser futura")
-    # Reject dates more than 1 year in the future (likely errors)
+
     from datetime import timedelta
     if fecha > now_co + timedelta(days=365):
-        raise HTTPException(status_code=400, detail="La fecha no puede ser mayor a 1 año en el futuro")
+        raise HTTPException(
+            status_code=400, detail="La fecha no puede ser mayor a 1 año en el futuro"
+        )
 
     # Generate slug
     text = unicodedata.normalize("NFD", evento.titulo.lower().strip())
@@ -66,12 +86,14 @@ async def publicar_evento(body: dict, request: Request):
         or (request.client.host if request.client else None)
     )
 
+    # Eventos publicados manualmente tienen hora confirmada (el usuario la puso).
     evento_data = {
         "titulo": evento.titulo[:200],
         "slug": slug,
         "espacio_id": evento.espacio_id,
         "fecha_inicio": evento.fecha_inicio.isoformat(),
         "fecha_fin": evento.fecha_fin.isoformat() if evento.fecha_fin else None,
+        "hora_confirmada": True,
         "categorias": [evento.categoria_principal],
         "categoria_principal": evento.categoria_principal,
         "municipio": evento.municipio,
@@ -110,7 +132,16 @@ def get_eventos_feed(limit: Annotated[int, Query(ge=1, le=50)] = 20):
 
 @router.get("/semana")
 def get_eventos_semana():
+    """Eventos hasta el domingo de la próxima semana (7–14 días)."""
     return evento_service.get_eventos_semana()
+
+
+@router.get("/proximas-semanas")
+def get_eventos_proximas_semanas(
+    dias: Annotated[int, Query(ge=7, le=90)] = 21,
+):
+    """Eventos de los próximos N días (default 21)."""
+    return evento_service.get_eventos_proximas_semanas(dias)
 
 
 @router.get("/espacio/{espacio_id}")

@@ -1,3 +1,14 @@
+"""
+evento_service.py
+=================
+Servicio de consulta de eventos. Fixes aplicados en 2026-04:
+- `get_eventos_semana()` cubre hasta el domingo de la PRÓXIMA semana
+  (antes solo 7 días rolling → perdía viernes-sábado-domingo).
+- Nueva función `get_eventos_proximas_semanas(dias)` para ventana extendida.
+- `get_eventos()` acepta filtros robustos: colectivo_slug, texto, OR de categorías.
+- Fix paginación Supabase (eliminado .limit() redundante tras .range()).
+- Filtro municipio con fallback a nombre_lugar / barrio.
+"""
 from typing import List, Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -22,6 +33,27 @@ def _today_iso() -> str:
     return ahora.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
 
+def _sunday_of_next_week_iso() -> str:
+    """Fin de semana próxima (domingo 23:59:59) en zona Colombia.
+    
+    Esto garantiza que 'esta semana' cubra:
+    - Fin de semana actual (vie-sáb-dom)
+    - Toda la semana próxima (lun-vie)
+    - Fin de semana próximo (sáb-dom)
+    Rango total: 7 a 14 días según día actual.
+    """
+    ahora = _now_co()
+    # weekday(): 0=lun, 6=dom
+    dias_a_domingo_esta_semana = 6 - ahora.weekday()
+    fin = ahora.replace(hour=23, minute=59, second=59, microsecond=0)
+    fin = fin + timedelta(days=dias_a_domingo_esta_semana + 7)
+    return fin.isoformat()
+
+
+# ══════════════════════════════════════════════════════════════
+# Listado con filtros
+# ══════════════════════════════════════════════════════════════
+
 def get_eventos(
     fecha_desde: Optional[datetime] = None,
     fecha_hasta: Optional[datetime] = None,
@@ -31,31 +63,93 @@ def get_eventos(
     es_gratuito: Optional[bool] = None,
     limit: int = 20,
     offset: int = 0,
+    colectivo_slug: Optional[str] = None,
+    texto: Optional[str] = None,
 ) -> List[dict]:
+    """
+    Listar eventos futuros con filtros robustos.
+    
+    Filtros:
+      - municipio: match exacto O fallback a nombre_lugar/barrio (ilike)
+      - categoria: match en categoria_principal O en array categorias
+      - colectivo_slug: resuelve slug → espacio_id
+      - texto: búsqueda en titulo/descripcion/nombre_lugar
+    """
     query = supabase.table("eventos").select("*").gte("fecha_inicio", _today_iso())
 
     if fecha_desde:
         query = query.gte("fecha_inicio", fecha_desde.isoformat())
     if fecha_hasta:
         query = query.lte("fecha_inicio", fecha_hasta.isoformat())
+
     if municipio:
-        query = query.eq("municipio", municipio)
+        # Fallback robusto: si el evento no tiene municipio pero el nombre del lugar
+        # o el barrio contiene el municipio, también entra.
+        # Previene el bug "filtro municipio → 0 eventos" cuando scrapers olvidan llenar municipio.
+        query = query.or_(
+            f"municipio.eq.{municipio},"
+            f"nombre_lugar.ilike.%{municipio}%,"
+            f"barrio.ilike.%{municipio}%"
+        )
+
     if barrio:
         query = query.ilike("barrio", f"%{barrio}%")
+
     if categoria:
-        query = query.contains("categorias", [categoria])
+        # Match en campo string principal O en array (heterogeneidad de scrapers)
+        query = query.or_(
+            f"categoria_principal.eq.{categoria},"
+            f"categorias.cs.{{{categoria}}}"
+        )
+
     if es_gratuito is not None:
         query = query.eq("es_gratuito", es_gratuito)
 
-    response = query.order("fecha_inicio").limit(limit).range(offset, offset + limit - 1).execute()
-    return response.data
+    if colectivo_slug:
+        # Resolver slug → espacio_id. Si no existe, devolver lista vacía.
+        try:
+            lugar_resp = (
+                supabase.table("lugares")
+                .select("id")
+                .eq("slug", colectivo_slug)
+                .execute()
+            )
+            if lugar_resp.data:
+                query = query.eq("espacio_id", lugar_resp.data[0]["id"])
+            else:
+                return []
+        except Exception:
+            return []
 
+    if texto:
+        texto_clean = texto.replace(",", " ").strip()[:100]
+        if texto_clean:
+            query = query.or_(
+                f"titulo.ilike.%{texto_clean}%,"
+                f"descripcion.ilike.%{texto_clean}%,"
+                f"nombre_lugar.ilike.%{texto_clean}%"
+            )
+
+    # FIX: Supabase PostgREST — usar range() SIN limit() adicional.
+    # El .limit() tras .range() rompía paginación en supabase-py.
+    response = (
+        query.order("fecha_inicio")
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    return response.data or []
+
+
+# ══════════════════════════════════════════════════════════════
+# Vistas temporales
+# ══════════════════════════════════════════════════════════════
 
 def get_eventos_hoy() -> List[dict]:
+    """Eventos que ocurren HOY (inician hoy o en curso multi-día)."""
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_fin = hoy_inicio + timedelta(days=1)
-    hoy_iso = hoy_inicio.isoformat()      # preserves -05:00 offset
+    hoy_iso = hoy_inicio.isoformat()
     manana_iso = hoy_fin.isoformat()
 
     # Events that START today
@@ -81,7 +175,7 @@ def get_eventos_hoy() -> List[dict]:
     seen_ids = {e["id"] for e in eventos}
     for ev in (resp_en_curso.data or []):
         if ev["id"] not in seen_ids:
-            ev["_en_curso"] = True  # flag so frontend can show "En curso"
+            ev["_en_curso"] = True
             eventos.append(ev)
             seen_ids.add(ev["id"])
 
@@ -89,19 +183,50 @@ def get_eventos_hoy() -> List[dict]:
 
 
 def get_eventos_semana() -> List[dict]:
+    """Eventos desde hoy hasta el domingo de la PRÓXIMA semana.
+    
+    Cobertura total: 7–14 días (antes era 7 días rolling, lo que dejaba 
+    fuera vie-sáb-dom cuando se consultaba en miércoles-jueves).
+    """
+    hoy_iso = _today_iso()
+    fin_iso = _sunday_of_next_week_iso()
+    response = (
+        supabase.table("eventos")
+        .select("*")
+        .gte("fecha_inicio", hoy_iso)
+        .lte("fecha_inicio", fin_iso)
+        .order("fecha_inicio")
+        .limit(500)
+        .execute()
+    )
+    return response.data or []
+
+
+def get_eventos_proximas_semanas(dias: int = 21) -> List[dict]:
+    """Ventana extendida: eventos desde hoy hasta N días en el futuro (default 21)."""
+    if dias < 1:
+        dias = 1
+    if dias > 90:
+        dias = 90
+
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
-    semana_fin = hoy_inicio + timedelta(days=7)
+    fin = hoy_inicio + timedelta(days=dias)
     response = (
         supabase.table("eventos")
         .select("*")
         .gte("fecha_inicio", hoy_inicio.isoformat())
-        .lte("fecha_inicio", semana_fin.isoformat())
+        .lte("fecha_inicio", fin.isoformat())
         .order("fecha_inicio")
+        .limit(500)
         .execute()
     )
-    return response.data
+    return response.data or []
 
+
+# ══════════════════════════════════════════════════════════════
+# Consulta individual
+# ══════════════════════════════════════════════════════════════
 
 def get_evento_by_slug(slug: str) -> dict:
     response = (
@@ -115,8 +240,8 @@ def get_evento_by_slug(slug: str) -> dict:
 
 
 def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
-    # Use start of today (not current time) so events earlier today are included
-    hoy_iso = _now_co().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    """Eventos futuros + en curso de un espacio específico."""
+    hoy_iso = _today_iso()
     response = (
         supabase.table("eventos")
         .select("*")
@@ -128,7 +253,6 @@ def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
     )
     eventos = response.data or []
 
-    # Also include ongoing multi-day events for this espacio
     resp_en_curso = (
         supabase.table("eventos")
         .select("*")
@@ -142,11 +266,15 @@ def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
     for ev in (resp_en_curso.data or []):
         if ev["id"] not in seen_ids:
             ev["_en_curso"] = True
-            eventos.insert(0, ev)  # show ongoing first
+            eventos.insert(0, ev)
             seen_ids.add(ev["id"])
 
     return eventos
 
+
+# ══════════════════════════════════════════════════════════════
+# Feed diverso
+# ══════════════════════════════════════════════════════════════
 
 def get_eventos_feed(limit: int = 20) -> List[dict]:
     """
@@ -162,7 +290,6 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     proxima_semana = hoy_inicio + timedelta(days=14)
 
-    # Fetch a larger pool to pick from
     response = (
         supabase.table("eventos")
         .select("*")
@@ -172,9 +299,8 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
         .limit(200)
         .execute()
     )
-    pool = response.data
+    pool = response.data or []
     if not pool:
-        # Fallback: next 30 events whenever they are
         response = (
             supabase.table("eventos")
             .select("*")
@@ -183,35 +309,29 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
             .limit(30)
             .execute()
         )
-        pool = response.data
+        pool = response.data or []
 
     if len(pool) <= limit:
         return pool
 
-    # Score diversity: prefer events with images, different categories, sooner dates
     cat_count: Counter = Counter()
     muni_count: Counter = Counter()
     result = []
 
-    # Prioritize events with images
     with_img = [e for e in pool if e.get("imagen_url")]
     without_img = [e for e in pool if not e.get("imagen_url")]
 
-    # Shuffle within groups for variety
     random.shuffle(with_img)
     random.shuffle(without_img)
 
-    # Interleave: prefer with-image but include some without
     candidates = with_img + without_img
 
     for ev in candidates:
         cat = ev.get("categoria_principal", "otro")
         muni = ev.get("municipio", "medellin")
 
-        # Max 3 per category
         if cat_count[cat] >= 3:
             continue
-        # Max 6 per municipio (unless only one municipio has events)
         if muni_count[muni] >= 6 and len(muni_count) > 1:
             continue
 
@@ -222,6 +342,5 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
         if len(result) >= limit:
             break
 
-    # Sort final result by date
     result.sort(key=lambda e: e.get("fecha_inicio", ""))
     return result
