@@ -236,10 +236,22 @@ export default function Agenda() {
 
               {/* Title — same as image */}
               <h1 className="font-heading font-black tracking-tighter leading-[0.9] mb-8">
-                <span className="block text-[3.5rem] md:text-[5rem] lg:text-[6.5rem] text-black">Cultura</span>
                 <span
-                  className="block text-[4rem] md:text-[6rem] lg:text-[8rem] text-black"
-                  style={{ WebkitTextStroke: '2px black', WebkitTextFillColor: 'transparent' }}
+                  className="block text-black"
+                  style={{ fontSize: 'clamp(2.5rem, 8vw, 6.5rem)', fontFamily: "'Sora', 'Arial Black', sans-serif", fontWeight: 900 }}
+                >
+                  Cultura
+                </span>
+                <span
+                  className="block text-black"
+                  style={{
+                    fontSize: 'clamp(3rem, 10vw, 8rem)',
+                    fontFamily: "'Sora', 'Arial Black', sans-serif",
+                    fontWeight: 900,
+                    WebkitTextStroke: '2px black',
+                    WebkitTextFillColor: 'transparent',
+                    color: 'transparent',
+                  }}
                 >
                   ETÉREA
                 </span>
