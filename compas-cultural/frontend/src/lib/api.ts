@@ -155,15 +155,9 @@ export async function getEspacio(slug: string): Promise<Espacio> {
 }
 
 export async function getEventosHoy(): Promise<Evento[]> {
-  const today = new Date().toISOString().slice(0, 10)
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .gte('fecha_inicio', today)
-    .lte('fecha_inicio', today + 'T23:59:59')
-    .order('fecha_inicio')
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  // Uses backend which applies Colombia TZ correctly (UTC-5)
+  // Includes multi-day events in progress
+  return apiGet<Evento[]>('/eventos/hoy')
 }
 
 export async function getEventosFeed(limit = 20): Promise<Evento[]> {
@@ -179,17 +173,8 @@ export async function getEventosFeed(limit = 20): Promise<Evento[]> {
 }
 
 export async function getEventosSemana(): Promise<Evento[]> {
-  const now = new Date()
-  const endOfWeek = new Date(now)
-  endOfWeek.setDate(endOfWeek.getDate() + 7)
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .gte('fecha_inicio', now.toISOString().slice(0, 10))
-    .lte('fecha_inicio', endOfWeek.toISOString().slice(0, 10) + 'T23:59:59')
-    .order('fecha_inicio')
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  // Uses backend which applies Colombia TZ correctly (UTC-5)
+  return apiGet<Evento[]>('/eventos/semana')
 }
 
 export async function getEvento(slug: string): Promise<Evento> {
@@ -225,17 +210,12 @@ export async function getEventos(params?: {
   offset?: number
   categoria?: string
 }): Promise<Evento[]> {
-  let query = supabase
-    .from('eventos')
-    .select('*')
-    .order('fecha_inicio', { ascending: false })
-    .range(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 200) - 1)
-
-  if (params?.categoria) query = query.eq('categoria_principal', params.categoria)
-
-  const { data, error } = await query
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  // Use backend — filters by today Colombia TZ, orders ascending
+  const limit = params?.limit ?? 100
+  const offset = params?.offset ?? 0
+  let path = `/eventos?limit=${limit}&offset=${offset}`
+  if (params?.categoria) path += `&categoria=${encodeURIComponent(params.categoria)}`
+  return apiGet<Evento[]>(path)
 }
 
 export async function buscar(q: string): Promise<BusquedaResponse> {

@@ -107,7 +107,7 @@ export default function Agenda() {
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana())
         } else {
-          setEventos(await getEventos({ limit: 60 }))
+          setEventos(await getEventos({ limit: 100 }))
         }
       } catch { /* silent */ }
     }
@@ -129,7 +129,7 @@ export default function Agenda() {
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana())
         } else {
-          setEventos(await getEventos({ limit: 60 }))
+          setEventos(await getEventos({ limit: 100 }))
         }
       } catch {
         setError('No fue posible cargar la agenda cultural.')
