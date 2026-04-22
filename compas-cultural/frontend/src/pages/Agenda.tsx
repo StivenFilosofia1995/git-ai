@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode
 import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import HomeChatSection from '../components/chat/HomeChatSection'
-import { getEventos, getEventosHoy, getEventosSemana, getEventosProximasSemanas, getZonas, getStats, scrapeZona, type Evento, type Zona } from '../lib/api'
+import { discoverEventosAI, getEventos, getEventosHoy, getEventosSemana, getEventosProximasSemanas, getZonas, getStats, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
@@ -121,11 +121,23 @@ export default function Agenda() {
   const fechaActual = useColombiaClock()
 
   const runZonaScrape = async (limit = 15) => {
-    const municipio = municipioFilter || 'medellin'
-    const res = await scrapeZona(municipio, limit)
-    const nuevos = (res.result?.eventos_nuevos as number | undefined) ?? 0
+    const municipio = municipioFilter || undefined
+    const zona = zonas.find(z => z.slug === zonaFilter)
+    const texto = [textFilter, zona?.nombre].filter(Boolean).join(' ').trim() || undefined
+    const res = await discoverEventosAI({
+      municipio,
+      categoria: catFilter || undefined,
+      texto,
+      max_queries: 4,
+      max_results_per_query: Math.min(10, Math.max(4, Math.floor(limit / 2))),
+    })
+    const nuevos =
+      (res.result?.eventos_nuevos as number | undefined) ??
+      (res.result?.nuevos as number | undefined) ??
+      0
     const duplicados = (res.result?.duplicados as number | undefined) ?? 0
-    return `Búsqueda completada en ${municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
+    const scope = municipio ? `en ${municipio}` : 'con tus filtros'
+    return `Búsqueda completada ${scope}: ${nuevos} nuevos, ${duplicados} ya existentes.`
   }
 
   const reloadEventos = () => {

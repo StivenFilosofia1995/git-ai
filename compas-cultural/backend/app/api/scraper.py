@@ -5,6 +5,7 @@ import asyncio
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from app.config import settings
 from app.services.auto_scraper import run_auto_scraper, scrape_single_lugar, scrape_zona, enrich_event_images, scrape_agenda_sources, scrape_compas_urbano
+from app.services.event_fallback_discovery import discover_events_for_filters
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
 
@@ -87,6 +88,38 @@ async def trigger_zona_scraper_publico(
     return {
         "status": "completed",
         "message": f"Búsqueda completada: {result.get('eventos_nuevos', 0)} eventos nuevos en {municipio}.",
+        "result": result,
+    }
+
+
+@router.post("/discover-events/publico")
+async def trigger_discover_events_publico(
+    municipio: str | None = Query(default=None),
+    categoria: str | None = Query(default=None),
+    colectivo_slug: str | None = Query(default=None),
+    texto: str | None = Query(default=None),
+    max_queries: int = Query(default=4, ge=1, le=8),
+    max_results_per_query: int = Query(default=6, ge=1, le=10),
+):
+    """Descubrimiento inteligente público cuando no hay resultados en filtros.
+
+    Ejecuta scraping interno por lugar/zona y fallback web (Google) con extracción
+    de eventos. Todo lo encontrado se normaliza y se guarda en la tabla eventos.
+    """
+    result = await discover_events_for_filters(
+        municipio=municipio,
+        categoria=categoria,
+        colectivo_slug=colectivo_slug,
+        texto=texto,
+        max_queries=max_queries,
+        max_results_per_query=max_results_per_query,
+    )
+    return {
+        "status": "completed",
+        "message": (
+            f"Descubrimiento completado: {result.get('nuevos', 0)} nuevos, "
+            f"{result.get('duplicados', 0)} duplicados."
+        ),
         "result": result,
     }
 

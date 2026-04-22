@@ -218,6 +218,29 @@ export async function scrapeZona(municipio: string, limit = 10): Promise<{ statu
   return apiPost<{ status: string; message: string; result: Record<string, unknown> }>(`/scraper/zona/${encodeURIComponent(municipio)}/publico?limit=${limit}`, {})
 }
 
+export interface DiscoverEventosParams {
+  municipio?: string
+  categoria?: string
+  colectivo_slug?: string
+  texto?: string
+  max_queries?: number
+  max_results_per_query?: number
+}
+
+export async function discoverEventosAI(params: DiscoverEventosParams): Promise<{ status: string; message: string; result: Record<string, unknown> }> {
+  const search = new URLSearchParams()
+  if (params.municipio) search.set('municipio', params.municipio)
+  if (params.categoria) search.set('categoria', params.categoria)
+  if (params.colectivo_slug) search.set('colectivo_slug', params.colectivo_slug)
+  if (params.texto) search.set('texto', params.texto)
+  if (params.max_queries) search.set('max_queries', String(params.max_queries))
+  if (params.max_results_per_query) search.set('max_results_per_query', String(params.max_results_per_query))
+
+  const qs = search.toString()
+  const path = `/scraper/discover-events/publico${qs ? `?${qs}` : ''}`
+  return apiPost<{ status: string; message: string; result: Record<string, unknown> }>(path, {})
+}
+
 export async function getEventos(params?: {
   limit?: number
   offset?: number

@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
-import { getZona, getZonaCulturaHoy, scrapeZona, type Zona, type Evento, type Espacio } from '../lib/api'
+import { discoverEventosAI, getZona, getZonaCulturaHoy, type Zona, type Evento, type Espacio } from '../lib/api'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import { getEventDateParts } from '../lib/datetime'
 
@@ -78,8 +78,15 @@ export default function ZonaDetalle() {
                 <BuscarConAI
                   label="Buscar eventos en esta zona"
                   onSearch={async () => {
-                    const res = await scrapeZona(zona.municipio, 10)
-                    const nuevos = (res.result?.eventos_nuevos as number | undefined) ?? 0
+                    const res = await discoverEventosAI({
+                      municipio: zona.municipio,
+                      texto: zona.nombre,
+                      max_queries: 4,
+                      max_results_per_query: 6,
+                    })
+                    const nuevos = (res.result?.eventos_nuevos as number | undefined)
+                      ?? (res.result?.nuevos as number | undefined)
+                      ?? 0
                     const duplicados = (res.result?.duplicados as number | undefined) ?? 0
                     return `Búsqueda completada en ${zona.municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
                   }}
@@ -194,8 +201,15 @@ export default function ZonaDetalle() {
                   <BuscarConAI
                     label="Buscar eventos con AI"
                     onSearch={async () => {
-                      const res = await scrapeZona(zona.municipio, 15)
-                      const nuevos = (res.result?.eventos_nuevos as number | undefined) ?? 0
+                      const res = await discoverEventosAI({
+                        municipio: zona.municipio,
+                        texto: zona.nombre,
+                        max_queries: 5,
+                        max_results_per_query: 8,
+                      })
+                      const nuevos = (res.result?.eventos_nuevos as number | undefined)
+                        ?? (res.result?.nuevos as number | undefined)
+                        ?? 0
                       const duplicados = (res.result?.duplicados as number | undefined) ?? 0
                       return `Búsqueda completada en ${zona.municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
                     }}
