@@ -215,21 +215,19 @@ export default function Agenda() {
       </Helmet>
 
       {/* ─── HERO ─────────────────────────────────────────────────────────────── */}
-      <section className="relative bg-white border-b-2 border-black overflow-hidden">
-        {/* Ilustración Medellín como fondo/marca de agua */}
-        <div
-          className="absolute inset-0 bg-right-bottom bg-no-repeat pointer-events-none"
-          style={{
-            backgroundImage: 'url(/medellin-ilustracion.png)',
-            backgroundSize: 'contain',
-            backgroundPosition: 'right bottom',
-            opacity: 0.11,
-          }}
+      <section className="relative bg-white border-b-2 border-black overflow-hidden min-h-[260px]">
+        {/* Ilustración Medellín — img real para garantizar carga */}
+        <img
+          src="/medellin-ilustracion.png"
+          alt=""
           aria-hidden="true"
+          className="absolute right-0 bottom-0 h-full w-auto max-w-[55%] object-contain object-right-bottom pointer-events-none select-none"
+          style={{ opacity: 0.18 }}
         />
+        {/* Gradiente izquierdo — texto legible */}
         <div
           className="absolute inset-0 pointer-events-none"
-          style={{ background: 'linear-gradient(to right, rgba(255,255,255,1) 35%, rgba(255,255,255,0) 70%)' }}
+          style={{ background: 'linear-gradient(to right, rgba(255,255,255,1) 45%, rgba(255,255,255,0.6) 65%, rgba(255,255,255,0) 85%)' }}
           aria-hidden="true"
         />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-20 pb-10 lg:pt-28 lg:pb-14">
@@ -310,9 +308,9 @@ export default function Agenda() {
             </div>
             <h2
               className="font-black tracking-tight uppercase leading-none"
-              style={{ fontSize: 'clamp(1.6rem, 4vw, 3rem)', fontFamily: "'Sora', 'Arial Black', sans-serif" }}
+              style={{ fontSize: 'clamp(1.8rem, 5vw, 3.2rem)', fontFamily: "'Sora', 'Arial Black', sans-serif" }}
             >
-              ¿Qué hay hoy en el Valle de Aburrá?
+              Hoy en el Valle
             </h2>
           </div>
           <BuscarConAI
@@ -347,8 +345,8 @@ export default function Agenda() {
           </div>
         </div>
 
-        {/* Filtros */}
-        <div className="flex flex-wrap gap-0 mb-8 items-center">
+        {/* Filtros — Fila 1: Tiempo + Precio + Municipio */}
+        <div className="flex flex-wrap gap-0 mb-3 items-center">
           {/* Time */}
           <div className="flex">
             {(Object.keys(TIME_LABELS) as TimeFilter[]).map((key) => (
@@ -363,29 +361,8 @@ export default function Agenda() {
               </button>
             ))}
           </div>
-          <div className="w-[2px] h-7 bg-black hidden sm:block mx-3" />
-          {/* Categoría */}
-          <select
-            value={catFilter}
-            onChange={e => setCatFilter(e.target.value)}
-            className="px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px] sm:ml-0"
-          >
-            {CAT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          {/* Municipio */}
-          <select
-            value={municipioFilter}
-            onChange={e => setMunicipioFilter(e.target.value)}
-            className="px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px]"
-          >
-            {MUNICIPIOS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
           {/* Precio */}
-          <div className="flex -ml-[2px]">
+          <div className="flex ml-2">
             {([ ['', 'PRECIO'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
               <button
                 key={val}
@@ -398,12 +375,22 @@ export default function Agenda() {
               </button>
             ))}
           </div>
+          {/* Municipio */}
+          <select
+            value={municipioFilter}
+            onChange={e => setMunicipioFilter(e.target.value)}
+            className="ml-2 px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
+          >
+            {MUNICIPIOS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
           {/* Zona */}
           {zonas.length > 0 && (
             <select
               value={zonaFilter}
               onChange={e => setZonaFilter(e.target.value)}
-              className="px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px]"
+              className="ml-2 px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
             >
               <option value="">Todas las zonas</option>
               {zonas.map(z => (
@@ -416,9 +403,27 @@ export default function Agenda() {
               onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setPrecioFilter('') }}
               className="text-[11px] font-mono font-bold uppercase tracking-wider ml-3 underline hover:no-underline"
             >
-              Limpiar
+              ✕ Limpiar
             </button>
           )}
+        </div>
+
+        {/* Filtros — Fila 2: Categorías scrollables */}
+        <div
+          className="flex gap-2 overflow-x-auto pb-2 mb-6 -mx-4 px-4 sm:mx-0 sm:px-0"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {CAT_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setCatFilter(opt.value)}
+              className={`flex-shrink-0 px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black whitespace-nowrap transition-all ${
+                catFilter === opt.value ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'
+              }`}
+            >
+              {opt.value === '' ? '★ TODAS' : opt.label}
+            </button>
+          ))}
         </div>
 
         {/* Loading skeleton */}
