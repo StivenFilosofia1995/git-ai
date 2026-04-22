@@ -212,7 +212,8 @@ def normalizar_evento(raw: dict) -> Optional[dict]:
     except (ValueError, TypeError):
         return None
 
-    now_co = datetime.utcnow() - timedelta(hours=5)
+    from zoneinfo import ZoneInfo
+    now_co = datetime.now(ZoneInfo("America/Bogota"))
     # Discard if more than 7 days in the past
     if fecha < now_co - timedelta(days=7):
         return None

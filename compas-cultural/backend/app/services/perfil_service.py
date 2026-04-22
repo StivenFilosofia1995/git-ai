@@ -260,7 +260,8 @@ def obtener_eventos_zona_hoy(zona_id: int) -> List[dict]:
     municipio = zona.get("municipio", "medellin")
     nombre_zona = zona.get("nombre", "").lower()
 
-    ahora_co = datetime.utcnow() - timedelta(hours=5)
+    from zoneinfo import ZoneInfo
+    ahora_co = datetime.now(ZoneInfo("America/Bogota"))
     hoy = ahora_co.date().isoformat()
     manana = (ahora_co.date() + timedelta(days=1)).isoformat()
 
