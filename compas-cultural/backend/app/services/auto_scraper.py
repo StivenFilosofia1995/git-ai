@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
+from app.services.groq_client import groq_chat, parse_json_response, MODEL_SMART
 from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 
@@ -159,7 +160,7 @@ Reglas:
 - Extrae todos los eventos culturales que encuentres (conciertos, teatro, cine, talleres, charlas, exposiciones, festivales, danza, etc.).
 - Si no hay eventos claros, responde: {{"eventos": []}}
 - Para fechas ambiguas, infiere la más probable usando {anio_actual}.
-- Para horas ambiguas, usa 19:00:00 como default.
+- NO inventes la hora: si el contenido no trae hora explícita, usa 00:00:00.
 - Si el contenido incluye [OG_IMAGE: url], usa esa URL como imagen_url del evento principal.
 - Si el contenido incluye [IMAGE_URL: url] o [PERMALINK: url], usa la IMAGE_URL como imagen_url del evento asociado.
 - Responde SOLO con el JSON, sin texto adicional.
@@ -199,9 +200,39 @@ Responde en JSON exacto:
 }}
 
 - Eventos FUTUROS únicamente.
+- NO inventes la hora: si el contenido no trae hora explícita, usa 00:00:00.
 - Si no encuentras eventos claros, responde: {{"eventos": []}}
 - Responde SOLO JSON.
 """
+
+
+def _extract_events_with_groq(prompt: str) -> list[dict]:
+    """Extract events from real scraped content using Groq JSON output."""
+    if not settings.groq_api_key:
+        return []
+    try:
+        clean_prompt = _sanitize_text(prompt) or ""
+        if not clean_prompt:
+            return []
+
+        raw = groq_chat(clean_prompt, model=MODEL_SMART, max_tokens=4096, temperature=0, json_mode=True)
+        if not raw:
+            raw = groq_chat(clean_prompt, model=MODEL_SMART, max_tokens=4096, temperature=0)
+        if not raw:
+            return []
+
+        data = parse_json_response(raw)
+        if data is None:
+            fixed = re.sub(r",\s*([}\]])", r"\1", raw)
+            data = parse_json_response(fixed)
+        if data is None:
+            return []
+
+        events = data.get("eventos", []) if isinstance(data, dict) else []
+        return events if isinstance(events, list) else []
+    except Exception as e:
+        print(f"  ⚠ Groq extraction error: {e}")
+        return []
 
 
 def _slugify(text: str) -> str:
@@ -395,31 +426,56 @@ async def _scrape_lugar(lugar: dict) -> dict:
 
     # ── 1. Scrape website ──────────────────────────────────────────────────
     sitio = lugar.get("sitio_web")
+    sitio_is_ig = bool(sitio and "instagram.com" in sitio.lower())
     if sitio:
-        print(f"  🌐 Scraping web: {sitio}")
-        # Fetch raw HTML for code-first extraction
-        html = await _fetch_website_raw(sitio)
+        if sitio_is_ig:
+            print(f"  ℹ sitio_web es Instagram URL — se usa flujo IG: {sitio}")
+        else:
+            print(f"  🌐 Scraping web: {sitio}")
+            # Fetch raw HTML for code-first extraction
+            html = await _fetch_website_raw(sitio)
 
         # Try Playwright for JS-heavy sites (if installed)
-        if html and needs_playwright(sitio):
-            print(f"    🎭 JS-heavy site — usando Playwright...")
-            html_js = await fetch_with_playwright(sitio)
-            if html_js and len(html_js) > len(html or ""):
-                html = html_js
+            if html and needs_playwright(sitio):
+                print(f"    🎭 JS-heavy site — usando Playwright...")
+                html_js = await fetch_with_playwright(sitio)
+                if html_js and len(html_js) > len(html or ""):
+                    html = html_js
 
-        if html and len(html) > 200:
-            print(f"    📄 HTML: {len(html)} chars")
+            if html and len(html) > 200:
+                print(f"    📄 HTML: {len(html)} chars")
 
-            # 1a. Code-first extraction (ZERO AI tokens)
-            events_code = extract_events_code(html, sitio, nombre, categoria, municipio)
-            if events_code:
-                for ev in events_code:
-                    ev["_fuente"] = "sitio_web"
-                    ev["_fuente_url"] = sitio
-                all_events.extend(events_code)
-                print(f"    ✅ Código: {len(events_code)} evento(s) extraídos")
-            else:
-                print(f"    ⚠ Sin eventos de código para {sitio} (sin fallback AI)")
+                # 1a. Code-first extraction (ZERO AI tokens)
+                events_code = extract_events_code(html, sitio, nombre, categoria, municipio)
+                if events_code:
+                    for ev in events_code:
+                        ev["_fuente"] = "sitio_web"
+                        ev["_fuente_url"] = sitio
+                    all_events.extend(events_code)
+                    print(f"    ✅ Código: {len(events_code)} evento(s) extraídos")
+                else:
+                    print(f"    ⚠ Sin eventos de código para {sitio} — intentando Groq fallback")
+                    text = _html_to_text(html)
+                    short_text = text[:4000]
+                    if short_text and len(short_text) > 100:
+                        prompt = EVENT_EXTRACTION_PROMPT.format(
+                            fecha_actual=now_iso,
+                            anio_actual=anio,
+                            nombre_lugar=nombre,
+                            lugar_id=lugar_id,
+                            categoria=categoria,
+                            municipio=municipio,
+                            fuente_tipo="sitio_web",
+                            fuente_url=sitio,
+                            contenido=short_text,
+                        )
+                        events_groq = _extract_events_with_groq(prompt)
+                        for ev in events_groq:
+                            ev["_fuente"] = "sitio_web"
+                            ev["_fuente_url"] = sitio
+                        if events_groq:
+                            print(f"    🧠 Groq: {len(events_groq)} evento(s)")
+                            all_events.extend(events_groq)
 
     # ── 2. Scrape Instagram (código puro — CERO tokens AI) ────────────────
     ig_handle = lugar.get("instagram_handle")
@@ -457,6 +513,28 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 ev["_fuente_url"] = ev.pop("_permalink", None) or ig_url
             all_events.extend(events_ig)
             print(f"    📊 Código extrajo {len(events_ig)} evento(s) de IG")
+
+            # If regex/date extractor found nothing, use LLM on real captions as fallback.
+            if not events_ig and settings.groq_api_key:
+                from app.services.instagram_pw_scraper import profile_to_scraper_text
+                ig_text = profile_to_scraper_text(profile, clean_handle)[:5000]
+                if ig_text and len(ig_text) > 100:
+                    prompt = IG_PROFILE_PROMPT.format(
+                        fecha_actual=now_iso,
+                        anio_actual=anio,
+                        nombre_lugar=nombre,
+                        instagram_handle=clean_handle,
+                        categoria=categoria,
+                        municipio=municipio,
+                        contenido=ig_text,
+                    )
+                    ig_groq = _extract_events_with_groq(prompt)
+                    for ev in ig_groq:
+                        ev["_fuente"] = "instagram"
+                        ev["_fuente_url"] = ig_url
+                    if ig_groq:
+                        print(f"    🧠 Groq IG: {len(ig_groq)} evento(s)")
+                        all_events.extend(ig_groq)
         else:
             print(f"    ⚠ Sin contenido de IG para {ig_handle}")
 
@@ -923,6 +1001,22 @@ async def scrape_agenda_sources() -> dict:
                 )
                 if events:
                     print(f"  ✅ Código: {len(events)} evento(s)")
+                elif settings.groq_api_key:
+                    text = _html_to_text(html_raw)[:4000]
+                    prompt = EVENT_EXTRACTION_PROMPT.format(
+                        fecha_actual=now_iso,
+                        anio_actual=anio,
+                        nombre_lugar=src["nombre"],
+                        lugar_id=src["nombre"],
+                        categoria=src["categoria_default"],
+                        municipio=src["municipio"],
+                        fuente_tipo="agenda",
+                        fuente_url=src["url"],
+                        contenido=text,
+                    )
+                    events = _extract_events_with_groq(prompt)
+                    if events:
+                        print(f"  🧠 Groq: {len(events)} evento(s)")
             else:
                 print(f"  ⚠ Sin eventos de código para {src['nombre']} (sin fallback AI)")  
             if not events:
