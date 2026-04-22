@@ -159,6 +159,26 @@ def _parse_iso_to_co(value: Optional[str]) -> Optional[datetime]:
     return parsed.astimezone(CO_TZ)
 
 
+def _enrich_event_description(
+    descripcion: Optional[str],
+    fecha: datetime,
+    *,
+    hora_confirmada: bool,
+) -> str:
+    """Ensure stored descriptions include explicit schedule context."""
+    base = (descripcion or "").strip()
+    if not base:
+        base = "Evento cultural en el Valle de Aburrá."
+    if hora_confirmada:
+        hora_txt = fecha.astimezone(CO_TZ).strftime("%H:%M")
+        pref = f"Hora del evento: {hora_txt}."
+    else:
+        pref = "Hora del evento: por confirmar."
+    if "hora del evento" in base.lower():
+        return base
+    return f"{pref} {base}".strip()
+
+
 def _normalize_site_url(raw: Optional[str]) -> Optional[str]:
     """Normalize website URL values from DB, dropping placeholders like 'null'."""
     if not raw:
@@ -712,7 +732,11 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "municipio": municipio,
                 "barrio": lugar.get("barrio"),
                 "nombre_lugar": nombre,
-                "descripcion": ev.get("descripcion"),
+                "descripcion": _enrich_event_description(
+                    ev.get("descripcion"),
+                    fecha,
+                    hora_confirmada=not (fecha.hour == 0 and fecha.minute == 0),
+                ),
                 "precio": ev.get("precio"),
                 "es_gratuito": ev.get("es_gratuito", False),
                 "es_recurrente": ev.get("es_recurrente", False),
@@ -1232,7 +1256,11 @@ async def scrape_agenda_sources() -> dict:
                         "municipio": ev.get("municipio", src["municipio"]),
                         "barrio": ev.get("barrio"),
                         "nombre_lugar": ev.get("nombre_lugar"),
-                        "descripcion": ev.get("descripcion"),
+                        "descripcion": _enrich_event_description(
+                            ev.get("descripcion"),
+                            fecha,
+                            hora_confirmada=not (fecha.hour == 0 and fecha.minute == 0),
+                        ),
                         "precio": ev.get("precio"),
                         "es_gratuito": ev.get("es_gratuito", False),
                         "es_recurrente": ev.get("es_recurrente", False),
