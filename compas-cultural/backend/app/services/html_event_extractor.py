@@ -435,8 +435,8 @@ def _parse_comfenalco(soup: BeautifulSoup, now: datetime) -> list[dict]:
             href = link.get("href", "")
             fecha = parse_date(href.replace("+", " ").replace("-", " "), year)
         if not fecha or fecha.date() < now.date():
-            # Default to next week if we found the event but no date
-            fecha = now.replace(hour=19, minute=0, second=0, microsecond=0) + timedelta(days=7)
+            # Sin fecha parseable → descartar. No inventamos.
+            continue
         # Image
         img_tag = link.find_previous("img") or (link.parent.find("img") if link.parent else None)
         img_url = _to_absolute("https://www.comfenalcoantioquia.com.co", (img_tag.get("src") or img_tag.get("data-src")) if img_tag else None)

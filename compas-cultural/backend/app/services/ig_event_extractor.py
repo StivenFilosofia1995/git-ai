@@ -160,7 +160,8 @@ def _resolve_daynum_date(text: str, now: datetime) -> Optional[datetime]:
     for delta in range(0, 14):
         d = now + timedelta(days=delta)
         if d.day == day_num:
-            return d.replace(hour=19, minute=0, second=0, microsecond=0, tzinfo=CO_TZ)
+            # Hora 00:00 = marcador de 'hora no confirmada' (no inventamos).
+            return d.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=CO_TZ)
 
     # Fallback: next occurrence of that weekday
     if wd is not None:
@@ -215,8 +216,11 @@ def _extract_hour(text: str) -> Optional[tuple[int, int]]:
         h += 12
     elif mer in ("am", "a") and h == 12:
         h = 0
+    # REMOVIDO: asumir PM para 1-11 sin meridiano INVENTA horas.
+    # Si la hora es ambigua (1-11 sin am/pm), devolvemos None para que
+    # la capa superior marque hora_confirmada=False.
     elif not mer and 1 <= h <= 11:
-        h += 12
+        return None
     if not (0 <= h <= 23):
         return None
     return h, mi

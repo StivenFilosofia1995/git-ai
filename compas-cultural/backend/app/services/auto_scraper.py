@@ -31,13 +31,17 @@ EVENT_KEYWORDS = [
 ]
 
 
-def _extract_time(text: str) -> tuple[int, int]:
-    """Extract event time from free text. Defaults to 19:00 when unclear."""
+def _extract_time(text: str) -> Optional[tuple[int, int]]:
+    """Extract event time from free text.
+
+    CRITICAL: Returns None when unclear. NEVER invents a default time.
+    Callers must handle None (store 00:00:00 with hora_confirmada=False).
+    """
     if not text:
-        return 19, 0
+        return None
     m = re.search(r"(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?m?\.?)?", text, re.I)
     if not m:
-        return 19, 0
+        return None
 
     hour = int(m.group(1))
     minute = int(m.group(2))
@@ -46,8 +50,8 @@ def _extract_time(text: str) -> tuple[int, int]:
         hour += 12
     elif mer in ("am", "a") and hour == 12:
         hour = 0
-    if hour > 23:
-        return 19, 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
     return hour, minute
 
 
@@ -297,7 +301,8 @@ async def _fetch_website_raw(url: str) -> Optional[str]:
     try:
         async with httpx.AsyncClient(
             follow_redirects=True, timeout=20,
-            verify=False,  # handle SSL mismatches gracefully
+            # verify=True por defecto: si una fuente falla por SSL,
+            # se loggea y se salta, en vez de deshabilitar verificación global.
         ) as client:
             resp = await client.get(url, headers=HEADERS)
             resp.raise_for_status()
@@ -620,7 +625,8 @@ async def _scrape_lugar(lugar: dict) -> dict:
                         if fecha_fin is None or fecha_fin < hoy_inicio:
                             continue
                 except (ValueError, TypeError):
-                    fecha = now_co + timedelta(days=7)
+                    # No inventar fecha: descartar evento.
+                    continue
             else:
                 continue  # Skip events without date
 
@@ -678,6 +684,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "espacio_id": lugar_id,
                 "fecha_inicio": fecha.isoformat(),
                 "fecha_fin": fecha_fin.isoformat() if fecha_fin else None,
+                "hora_confirmada": not (fecha.hour == 0 and fecha.minute == 0),
                 "categorias": ev.get("categorias", [categoria]),
                 "categoria_principal": ev.get("categoria_principal", categoria),
                 "municipio": municipio,
@@ -1031,7 +1038,7 @@ Reglas:
 - Incluye SOLO eventos que ocurran DESPUÉS de {fecha_actual}.
 - Prioriza agenda alternativa, underground, independiente.
 - Si no hay eventos claros, responde: {{"eventos": []}}
-- Para horas ambiguas, usa 19:00:00 como default.
+- NO inventes horas. Si el contenido NO trae hora explícita, usa 00:00:00. NUNCA pongas 19:00 por defecto — es mejor un evento sin hora que una hora falsa.
 - Si el contenido incluye [OG_IMAGE: url], usa esa URL como imagen_url del evento principal.
 - Responde SOLO con el JSON, sin texto adicional.
 """
@@ -1121,7 +1128,8 @@ async def scrape_agenda_sources() -> dict:
                                 if fecha_fin_ag is None or fecha_fin_ag < hoy_inicio_ag:
                                     continue
                         except (ValueError, TypeError):
-                            fecha = now_co + timedelta(days=7)
+                            # No inventar fecha: descartar evento.
+                            continue
                     else:
                         continue
 
@@ -1136,6 +1144,7 @@ async def scrape_agenda_sources() -> dict:
                         "slug": slug,
                         "fecha_inicio": fecha.isoformat(),
                         "fecha_fin": fecha_fin_ag.isoformat() if fecha_fin_ag else None,
+                        "hora_confirmada": not (fecha.hour == 0 and fecha.minute == 0),
                         "categorias": ev.get("categorias", [src["categoria_default"]]),
                         "categoria_principal": ev.get("categoria_principal", src["categoria_default"]),
                         "municipio": ev.get("municipio", src["municipio"]),
