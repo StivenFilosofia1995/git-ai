@@ -1,9 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 
 const LINKS = [
-  { to: '/', label: 'INICIO', icon: '■' },
-  { to: '/explorar', label: 'EXPLORAR', icon: '◆' },
-  { to: '/agenda', label: 'AGENDA', icon: '▲' },
+  { to: '/', label: 'AGENDA', icon: '▲' },
   { to: '/colectivos', label: 'COLECTIVOS', icon: '◇' },
   { to: '/nosotros', label: 'NOSOTROS', icon: '●' },
 ]
