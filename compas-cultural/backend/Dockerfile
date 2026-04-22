@@ -2,19 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system deps (gcc for C extensions + Playwright/Chromium deps)
+# System build deps only (gcc for C extensions).
+# Playwright --with-deps will install its own Chromium system libraries.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev \
-    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-    libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright Chromium (headless browser for JS-heavy sites)
-RUN playwright install chromium
+# Install Python packages AND Playwright browser in the same layer so the
+# browser binary always matches the installed playwright package version.
+# --with-deps installs Chromium's system libraries automatically.
+RUN pip install --no-cache-dir -r requirements.txt \
+    && playwright install --with-deps chromium
 
 COPY . .
 
