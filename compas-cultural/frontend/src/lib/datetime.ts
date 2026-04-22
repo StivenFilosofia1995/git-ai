@@ -1,19 +1,36 @@
+/**
+ * datetime.ts
+ * Fixes 2026-04:
+ * - Respeta el campo backend `hora_confirmada` (nuevo).
+ * - Trata 19:00:00 exacto con fuente auto_scraper/agenda como legacy no confiable
+ *   (durante período transicional, hasta que todos los eventos sean re-scrapeados).
+ * - Cuando hora no es confiable, formatEventTime devuelve "Hora por confirmar".
+ */
 const CO_TZ = 'America/Bogota'
 
 const HAS_TIMEZONE_RE = /(Z|[+-]\d{2}:\d{2})$/
 const LOCAL_ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/
 
 type DateFormatOptions = Intl.DateTimeFormatOptions
-type EventDateInput = string | null | undefined | { fecha_inicio?: string | null; fuente?: string | null }
+type EventDateInput =
+  | string
+  | null
+  | undefined
+  | {
+      fecha_inicio?: string | null
+      fuente?: string | null
+      hora_confirmada?: boolean | null
+    }
 
 function getInputContext(value: EventDateInput) {
   if (typeof value === 'string' || value == null) {
-    return { fecha_inicio: value ?? null, fuente: null }
+    return { fecha_inicio: value ?? null, fuente: null, hora_confirmada: null }
   }
 
   return {
     fecha_inicio: value.fecha_inicio ?? null,
     fuente: value.fuente ?? null,
+    hora_confirmada: value.hora_confirmada ?? null,
   }
 }
 
@@ -84,33 +101,50 @@ function getBogotaClockParts(value: Date) {
   }
 }
 
+/**
+ * Una hora es "confiable" (mostrable) SI Y SOLO SI:
+ * 1. El backend marca explícitamente hora_confirmada=true, o
+ * 2. El backend NO provee el campo (legacy) Y la hora no es 00:00:00 NI
+ *    es un default sospechoso (19:00:00 con fuente de scraper).
+ */
 export function hasReliableEventTime(value: EventDateInput): boolean {
   const context = getInputContext(value)
+
+  // 1. Si el backend marca explícitamente, respetamos (nuevo flujo).
+  if (context.hora_confirmada === true) return true
+  if (context.hora_confirmada === false) return false
+
+  // 2. Fallback legacy: analizar por heurística (compatibilidad con datos viejos).
   const parsed = parseEventDate(context.fecha_inicio)
   if (!parsed) return false
 
-  const fuente = (context.fuente ?? '').toLowerCase()
-  // Conservative policy: never show hour for sources that are generated/fallback
-  // or for legacy IG rows that did not carry explicit-hour markers.
-  if (
-    fuente.includes('_groq') ||
-    fuente.includes('instagram_sin_hora') ||
-    fuente === 'auto_scraper_instagram'
-  ) {
+  const { hour, minute, second } = getBogotaClockParts(parsed)
+
+  // 2a. 00:00:00 = "sin hora extraída" (marcador universal).
+  if (hour === 0 && minute === 0 && second === 0) {
     return false
   }
 
-  // Only hide true midnight (00:00:00) — these are date-only entries with no
-  // time scraped. Any other time, including 19:00 defaults, is shown as-is.
-  const { hour, minute, second } = getBogotaClockParts(parsed)
-  if (hour === 0 && minute === 0 && second === 0) {
+  // 2b. 19:00:00 exacto con fuente de scraper = legacy default inventado.
+  // Transicional: hasta que el nuevo scraper re-procese todo, ocultamos estas horas.
+  if (
+    hour === 19 &&
+    minute === 0 &&
+    second === 0 &&
+    context.fuente &&
+    /auto_scraper|agenda|scraping/i.test(context.fuente)
+  ) {
     return false
   }
 
   return true
 }
 
-export function formatEventDate(value: string | null | undefined, options: DateFormatOptions, fallback = 'Por confirmar'): string {
+export function formatEventDate(
+  value: string | null | undefined,
+  options: DateFormatOptions,
+  fallback = 'Por confirmar',
+): string {
   const parsed = parseEventDate(value)
   if (!parsed) return fallback
 
@@ -123,7 +157,11 @@ export function formatEventDate(value: string | null | undefined, options: DateF
 export function formatEventTime(value: EventDateInput, fallback = 'Hora por confirmar'): string {
   const context = getInputContext(value)
   if (!hasReliableEventTime(value)) return fallback
-  return formatEventDate(context.fecha_inicio, { hour: '2-digit', minute: '2-digit' }, fallback)
+  return formatEventDate(
+    context.fecha_inicio,
+    { hour: '2-digit', minute: '2-digit' },
+    fallback,
+  )
 }
 
 export function getEventDateParts(value: EventDateInput) {
@@ -131,9 +169,20 @@ export function getEventDateParts(value: EventDateInput) {
   const horaConfiable = hasReliableEventTime(value)
 
   return {
-    diaCorto: formatEventDate(context.fecha_inicio, { weekday: 'short', day: 'numeric', month: 'short' }),
-    diaLargo: formatEventDate(context.fecha_inicio, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
-    hora: horaConfiable ? formatEventDate(context.fecha_inicio, { hour: '2-digit', minute: '2-digit' }) : null,
+    diaCorto: formatEventDate(context.fecha_inicio, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    }),
+    diaLargo: formatEventDate(context.fecha_inicio, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }),
+    hora: horaConfiable
+      ? formatEventDate(context.fecha_inicio, { hour: '2-digit', minute: '2-digit' })
+      : null,
     horaConfiable,
   }
 }

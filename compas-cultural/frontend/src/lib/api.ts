@@ -49,6 +49,7 @@ export interface Evento {
   fuente_url?: string | null
   lat?: number | null
   lng?: number | null
+  hora_confirmada?: boolean | null
 }
 
 export interface Zona {
@@ -179,17 +180,14 @@ export async function getEventosFeed(limit = 20): Promise<Evento[]> {
 }
 
 export async function getEventosSemana(): Promise<Evento[]> {
-  const now = new Date()
-  const endOfWeek = new Date(now)
-  endOfWeek.setDate(endOfWeek.getDate() + 7)
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .gte('fecha_inicio', now.toISOString().slice(0, 10))
-    .lte('fecha_inicio', endOfWeek.toISOString().slice(0, 10) + 'T23:59:59')
-    .order('fecha_inicio')
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  // Usa endpoint backend que cubre hasta el domingo de la próxima semana
+  // (7-14 días). Antes usaba Supabase directo con ventana fija de 7 días,
+  // lo que dejaba fuera vie-sáb-dom al consultar miércoles-jueves.
+  return apiGet<Evento[]>('/eventos/semana')
+}
+
+export async function getEventosProximasSemanas(dias = 21): Promise<Evento[]> {
+  return apiGet<Evento[]>(`/eventos/proximas-semanas?dias=${dias}`)
 }
 
 export async function getEvento(slug: string): Promise<Evento> {

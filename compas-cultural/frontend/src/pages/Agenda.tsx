@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode
 import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import HomeChatSection from '../components/chat/HomeChatSection'
-import { getEventos, getEventosHoy, getEventosSemana, getZonas, getStats, scrapeZona, type Evento, type Zona } from '../lib/api'
+import { getEventos, getEventosHoy, getEventosSemana, getEventosProximasSemanas, getZonas, getStats, scrapeZona, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
@@ -44,7 +44,7 @@ function useColombiaClock() {
 }
 
 
-type TimeFilter = 'hoy' | 'semana' | 'todos'
+type TimeFilter = 'hoy' | 'semana' | 'proximas' | 'todos'
 type PrecioFilter = '' | 'gratuito' | 'pago'
 
 const MUNICIPIOS = [
@@ -60,8 +60,9 @@ const MUNICIPIOS = [
 
 const TIME_LABELS: Record<TimeFilter, string> = {
   hoy: 'HOY',
-  semana: 'ESTA SEMANA',
-  todos: 'PRÓXIMOS',
+  semana: 'SEMANA + PRÓXIMA',
+  proximas: 'PRÓX 3 SEMANAS',
+  todos: 'TODOS',
 }
 
 const CAT_OPTIONS = [
@@ -135,6 +136,8 @@ export default function Agenda() {
           setEventos(await getEventosHoy())
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana())
+        } else if (timeFilter === 'proximas') {
+          setEventos(await getEventosProximasSemanas(21))
         } else {
           setEventos(await getEventos({ limit: 2000, municipio: municipioParam }))
         }
@@ -157,7 +160,9 @@ export default function Agenda() {
         if (timeFilter === 'hoy') {
           setEventos(await getEventos({ limit: 1200, municipio: municipioParam }))
         } else if (timeFilter === 'semana') {
-          setEventos(await getEventos({ limit: 1200, municipio: municipioParam }))
+          setEventos(await getEventosSemana())
+        } else if (timeFilter === 'proximas') {
+          setEventos(await getEventosProximasSemanas(21))
         } else {
           setEventos(await getEventos({ limit: 2000, municipio: municipioParam }))
         }
@@ -222,7 +227,8 @@ export default function Agenda() {
 
   function getTimeLabel(t: TimeFilter): string {
     if (t === 'hoy') return ' hoy'
-    if (t === 'semana') return ' esta semana'
+    if (t === 'semana') return ' esta semana y la próxima'
+    if (t === 'proximas') return ' en las próximas 3 semanas'
     return ' próximos'
   }
 
