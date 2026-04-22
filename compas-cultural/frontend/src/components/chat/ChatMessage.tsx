@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { type Evento, type Espacio } from '../../lib/api'
+import { getEventDateParts } from '../../lib/datetime'
 
 function stripMarkdown(text: string): string {
   return text
@@ -44,9 +45,7 @@ export default function ChatMessage({ mensaje, eventos, espacios }: ChatMessageP
         {!isUsuario && eventos && eventos.length > 0 && (
           <div className="space-y-1 p-2 pb-0">
             {eventos.map((ev) => {
-              const fecha = new Date(ev.fecha_inicio)
-              const dia = fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })
-              const hora = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+              const { diaCorto: dia, hora } = getEventDateParts(ev.fecha_inicio)
               return (
                 <Link
                   key={ev.id}

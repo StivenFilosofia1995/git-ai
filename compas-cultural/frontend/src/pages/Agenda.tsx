@@ -4,6 +4,7 @@ import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import HomeChatSection from '../components/chat/HomeChatSection'
 import { getEventos, getEventosHoy, getEventosSemana, getZonas, getStats, scrapeZona, type Evento, type Zona } from '../lib/api'
+import { formatEventDate } from '../lib/datetime'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 
@@ -22,7 +23,6 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
   }
 }
 
-const CO_TZ = 'America/Bogota'
 const ITEMS_PER_PAGE = 24
 
 /** Current date/time string in Colombia timezone */
@@ -33,7 +33,7 @@ function useColombiaClock() {
     return () => clearInterval(id)
   }, [])
   return now.toLocaleDateString('es-CO', {
-    timeZone: CO_TZ,
+    timeZone: 'America/Bogota',
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -198,8 +198,7 @@ export default function Agenda() {
 
   // Group events by date — force Colombia timezone
   const grouped = paged.reduce<Record<string, Evento[]>>((acc, ev) => {
-    const dateKey = new Date(ev.fecha_inicio).toLocaleDateString('es-CO', {
-      timeZone: CO_TZ,
+    const dateKey = formatEventDate(ev.fecha_inicio, {
       weekday: 'long', day: 'numeric', month: 'long'
     })
     if (!acc[dateKey]) acc[dateKey] = []

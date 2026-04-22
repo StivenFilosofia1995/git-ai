@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { enviarMensajeChat, getEvento, type ChatMessage, type ChatResponse, type Evento } from '../../lib/api'
+import { getEventDateParts } from '../../lib/datetime'
 
 function stripMarkdown(text: string): string {
   return text
@@ -139,9 +140,7 @@ export default function AISearchBar() {
             {eventos.length > 0 && (
               <div className="space-y-2 mb-4">
                 {eventos.map((ev) => {
-                  const fecha = new Date(ev.fecha_inicio)
-                  const dia = fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
-                  const hora = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+                  const { diaCorto: dia, hora } = getEventDateParts(ev.fecha_inicio)
                   return (
                     <Link
                       key={ev.id}

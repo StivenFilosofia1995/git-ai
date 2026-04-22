@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { getZona, getZonaCulturaHoy, scrapeZona, type Zona, type Evento, type Espacio } from '../lib/api'
 import BuscarConAI from '../components/ui/BuscarConAI'
+import { formatEventDate } from '../lib/datetime'
 
 export default function ZonaDetalle() {
   const { slug } = useParams()
@@ -124,7 +125,7 @@ export default function ZonaDetalle() {
                           {ev.titulo}
                         </h3>
                         <p className="text-[11px] font-mono opacity-60 group-hover:opacity-100">
-                          {new Date(ev.fecha_inicio).toLocaleDateString('es-CO', {
+                          {formatEventDate(ev.fecha_inicio, {
                             weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                           })}
                         </p>

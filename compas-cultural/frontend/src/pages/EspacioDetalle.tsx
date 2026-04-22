@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, scrapeLugar, type Espacio, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import ReviewSection from '../components/ui/ReviewSection'
+import { formatEventDate } from '../lib/datetime'
 
 export default function EspacioDetalle() {
   const { slug } = useParams()
@@ -165,7 +166,6 @@ export default function EspacioDetalle() {
             ) : (
               <div className="space-y-0 border-2 border-black">
                 {eventos.map(ev => {
-                  const fecha = new Date(ev.fecha_inicio)
                   const enCurso = (ev as Evento & { _en_curso?: boolean })._en_curso
                   return (
                     <Link
@@ -180,11 +180,11 @@ export default function EspacioDetalle() {
                           )}
                           <p className="font-heading font-bold uppercase tracking-wider text-sm">{ev.titulo}</p>
                           <p className="text-xs font-mono mt-1">
-                            {fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
+                            {formatEventDate(ev.fecha_inicio, { weekday: 'short', day: 'numeric', month: 'short' })}
                             {' · '}
-                            {fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                            {formatEventDate(ev.fecha_inicio, { hour: '2-digit', minute: '2-digit' })}
                             {ev.fecha_fin && (
-                              <> → {new Date(ev.fecha_fin).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}</>
+                              <> → {formatEventDate(ev.fecha_fin, { day: 'numeric', month: 'short' })}</>
                             )}
                           </p>
                         </div>

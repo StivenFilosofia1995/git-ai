@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getEventosHoy, getEventosFeed, type Evento } from '../../lib/api'
+import { getEventDateParts } from '../../lib/datetime'
 
 export default function EventosHoySection() {
   const [eventos, setEventos] = useState<Evento[]>([])
@@ -73,9 +74,7 @@ export default function EventosHoySection() {
 }
 
 function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
-  const fecha = new Date(evento.fecha_inicio)
-  const hora = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
-  const dia = fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
+  const { diaCorto: dia, hora } = getEventDateParts(evento.fecha_inicio)
   const cat = evento.categoria_principal
   const enCurso = (evento as Evento & { _en_curso?: boolean })._en_curso
 

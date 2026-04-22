@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { type Evento } from '../../lib/api'
+import { getEventDateParts } from '../../lib/datetime'
 
 interface EventCardProps {
   evento: Evento
@@ -30,9 +31,7 @@ const CAT_COLORS: Record<string, string> = {
 }
 
 export default function EventCard({ evento, compact }: Readonly<EventCardProps>) {
-  const fecha = new Date(evento.fecha_inicio)
-  const dia = fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
-  const hora = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+  const { diaCorto: dia, hora } = getEventDateParts(evento.fecha_inicio)
   const cat = evento.categoria_principal
   const placeholderColor = CAT_COLORS[cat] ?? '#0a0a0a'
 

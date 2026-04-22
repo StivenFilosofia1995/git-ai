@@ -161,15 +161,7 @@ export async function getEventosHoy(): Promise<Evento[]> {
 }
 
 export async function getEventosFeed(limit = 20): Promise<Evento[]> {
-  const now = new Date().toISOString()
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .gte('fecha_inicio', now)
-    .order('fecha_inicio')
-    .limit(limit)
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  return apiGet<Evento[]>(`/eventos/feed?limit=${limit}`)
 }
 
 export async function getEventosSemana(): Promise<Evento[]> {
@@ -188,13 +180,7 @@ export async function getEvento(slug: string): Promise<Evento> {
 }
 
 export async function getEventosByEspacio(espacioId: string): Promise<Evento[]> {
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .eq('espacio_id', espacioId)
-    .order('fecha_inicio', { ascending: false })
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  return apiGet<Evento[]>(`/eventos/espacio/${encodeURIComponent(espacioId)}`)
 }
 
 export async function scrapeLugar(lugarId: string): Promise<{ status: string; message: string }> {

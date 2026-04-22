@@ -2,6 +2,7 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { enviarMensajeChat, getEvento, getEspacio, type ChatMessage, type Evento, type Espacio } from '../lib/api'
+import { getEventDateParts } from '../lib/datetime'
 
 function stripMarkdown(text: string): string {
   return text
@@ -147,9 +148,7 @@ export default function Chat() {
                     {mensaje.rol === 'compas' && mensaje.eventos && mensaje.eventos.length > 0 && (
                       <div className="space-y-2 p-3 pb-0">
                         {mensaje.eventos.map((ev) => {
-                          const fecha = new Date(ev.fecha_inicio)
-                          const dia = fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
-                          const hora = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+                          const { diaCorto: dia, hora } = getEventDateParts(ev.fecha_inicio)
                           return (
                             <Link
                               key={ev.id}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
 import { obtenerRecomendaciones, getEventosFeed, type Evento } from '../../lib/api'
+import { formatEventDate } from '../../lib/datetime'
 
 export default function RecomendacionesSection() {
   const { user } = useAuth()
@@ -89,7 +90,7 @@ export default function RecomendacionesSection() {
                   {ev.titulo}
                 </h3>
                 <p className="text-[11px] font-mono opacity-60 group-hover:opacity-100">
-                  {new Date(ev.fecha_inicio).toLocaleDateString('es-CO', {
+                  {formatEventDate(ev.fecha_inicio, {
                     weekday: 'short', day: 'numeric', month: 'short'
                   })}
                   {ev.nombre_lugar ? ` · ${ev.nombre_lugar}` : ''}

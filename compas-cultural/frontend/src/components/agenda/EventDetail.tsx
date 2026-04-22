@@ -1,3 +1,5 @@
+import { getEventDateParts } from '../../lib/datetime'
+
 interface EventDetailProps {
   evento: {
     titulo: string
@@ -11,17 +13,7 @@ interface EventDetailProps {
 }
 
 export default function EventDetail({ evento }: Readonly<EventDetailProps>) {
-  const fecha = new Date(evento.fecha_inicio)
-  const fechaFormateada = fecha.toLocaleDateString('es-CO', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  })
-  const hora = fecha.toLocaleTimeString('es-CO', {
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  const { diaLargo: fechaFormateada, hora } = getEventDateParts(evento.fecha_inicio)
 
   return (
     <div className="border-2 border-black p-6">
@@ -31,7 +23,7 @@ export default function EventDetail({ evento }: Readonly<EventDetailProps>) {
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
           <span className="font-mono font-bold">FECHA</span>
-          <p>{fechaFormateada}</p>
+          <p className="capitalize">{fechaFormateada}</p>
           <p>{hora}</p>
         </div>
         <div>

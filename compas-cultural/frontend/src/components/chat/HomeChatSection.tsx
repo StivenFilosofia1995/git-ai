@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { enviarMensajeChat, getEvento, getEspacio, getZonas, registrarBusqueda, type ChatMessage, type Evento, type Espacio, type Zona } from '../../lib/api'
 import { useAuth } from '../../lib/AuthContext'
+import { getEventDateParts } from '../../lib/datetime'
 
 function stripMarkdown(text: string): string {
   return text
@@ -247,9 +248,7 @@ export default function HomeChatSection() {
                     {msg.eventos && msg.eventos.length > 0 && (
                       <div className="space-y-1.5 p-3 pb-0">
                         {msg.eventos.map(ev => {
-                          const fecha = new Date(ev.fecha_inicio)
-                          const dia = fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
-                          const hora = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+                          const { diaCorto: dia, hora } = getEventDateParts(ev.fecha_inicio)
                           return (
                             <Link
                               key={ev.id}

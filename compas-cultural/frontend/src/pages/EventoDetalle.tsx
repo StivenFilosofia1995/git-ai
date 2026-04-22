@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { getEvento, registrarInteraccion, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import ReviewSection from '../components/ui/ReviewSection'
+import { getEventDateParts } from '../lib/datetime'
 
 export default function EventoDetalle() {
   const { slug } = useParams()
@@ -34,14 +35,7 @@ export default function EventoDetalle() {
   if (error) return <div className="max-w-3xl mx-auto px-4 py-12 font-mono border-2 border-black p-4">{error}</div>
   if (!evento) return <div className="max-w-3xl mx-auto px-4 py-12 font-mono">Evento no encontrado</div>
 
-  const fecha = new Date(evento.fecha_inicio)
-  const fechaStr = fecha.toLocaleDateString('es-CO', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-  const horaStr = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+  const { diaLargo: fechaStr, hora: horaStr } = getEventDateParts(evento.fecha_inicio)
   const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
   const mapsUrl = evento.lat && evento.lng
     ? `https://www.google.com/maps?q=${evento.lat},${evento.lng}`
