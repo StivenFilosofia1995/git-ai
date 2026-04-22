@@ -173,34 +173,32 @@ async def _fetch_website(url: str) -> Optional[str]:
 async def _fetch_instagram_via_meta_api(handle: str) -> Optional[str]:
     """
     Fetch Instagram posts via Meta Graph API (Instagram Business/Creator API).
-    Returns captions + media URLs for Claude to analyze.
-    
-    Requires:
-    - META_ACCESS_TOKEN in .env (Page token or long-lived user token)
-    - The IG account must be a Business/Creator account connected to a FB Page
-    
-    API flow:
-    1. Search for IG user by username → get ig_user_id
-    2. Fetch recent media from that user → get captions + image URLs
+    Returns captions + media URLs as text (for Groq fallback).
+    """
+    profile = await _fetch_ig_profile_via_meta_api(handle)
+    if not profile:
+        return None
+    from app.services.instagram_pw_scraper import profile_to_scraper_text
+    return profile_to_scraper_text(profile, handle)
+
+
+async def _fetch_ig_profile_via_meta_api(handle: str) -> Optional[dict]:
+    """
+    Fetch Instagram profile via Meta Graph API.
+    Returns structured dict: {captions, image_urls, permalink_urls, biography, external_url}
+    Same shape as instagram_pw_scraper.fetch_ig_profile() for use with ig_event_extractor.
     """
     access_token = settings.meta_access_token
-    if not access_token:
+    my_ig_id = settings.meta_ig_business_account_id
+    if not access_token or not my_ig_id:
         return None
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            my_ig_id = settings.meta_ig_business_account_id
-            if not my_ig_id:
-                return None
-
-            # Instagram Business Discovery API
-            # Docs: https://developers.facebook.com/docs/instagram-api/guides/business-discovery
-            # The username goes in the field path: business_discovery.fields(...)  
-            # with an additional query param or inline reference.
             media_fields = "caption,timestamp,media_url,permalink,media_type,thumbnail_url"
             fields_param = (
                 f"business_discovery.fields("
-                f"username,biography,"
+                f"username,biography,website,"
                 f"media.limit(15){{{media_fields}}}"
                 f")"
             )
@@ -219,41 +217,35 @@ async def _fetch_instagram_via_meta_api(handle: str) -> Optional[str]:
 
             data = resp.json()
             discovery = data.get("business_discovery", {})
-            bio = discovery.get("biography", "")
             media_data = discovery.get("media", {}).get("data", [])
 
-            if not media_data:
+            if not media_data and not discovery.get("biography"):
                 return None
 
-            # Build structured content with image URLs for Claude
-            parts = []
-            if bio:
-                parts.append(f"BIO: {bio}")
+            profile: dict = {
+                "biography": discovery.get("biography", ""),
+                "external_url": discovery.get("website"),
+                "captions": [],
+                "image_urls": [],
+                "permalink_urls": [],
+            }
 
             for post in media_data:
                 caption = post.get("caption", "")
-                media_url = post.get("media_url", "")
-                timestamp = post.get("timestamp", "")
-                media_type = post.get("media_type", "")
-                permalink = post.get("permalink", "")
+                if caption and len(caption) > 10:
+                    profile["captions"].append(caption)
+                    media_url = post.get("media_url", "")
+                    if post.get("media_type") == "VIDEO":
+                        media_url = post.get("thumbnail_url", media_url)
+                    profile["image_urls"].append(media_url or "")
+                    profile["permalink_urls"].append(post.get("permalink", ""))
 
-                post_text = f"[POST {timestamp}]"
-                if media_type in ("IMAGE", "CAROUSEL_ALBUM"):
-                    post_text += f" [IMAGE_URL: {media_url}]"
-                elif media_type == "VIDEO":
-                    thumb = post.get("thumbnail_url", media_url)
-                    post_text += f" [VIDEO_THUMBNAIL: {thumb}]"
-                if permalink:
-                    post_text += f" [PERMALINK: {permalink}]"
-                post_text += f"\n{caption}"
-                parts.append(post_text)
-
-            content = "\n---\n".join(parts)
-            return content[:8000]
+            return profile if (profile["captions"] or profile["biography"]) else None
 
     except Exception as e:
         print(f"    ⚠ Meta Graph API error: {e}")
         return None
+
 
 
 async def _fetch_instagram_profile(handle: str) -> Optional[str]:
@@ -391,6 +383,8 @@ async def _scrape_lugar(lugar: dict) -> dict:
         from app.services.ig_event_extractor import extract_events_from_ig_profile
 
         clean_handle = ig_handle.lstrip("@").strip()
+
+        # Scraper puro (Playwright/httpx — sin APIs externas)
         profile = await fetch_ig_profile(clean_handle)
 
         if profile and (profile.get("captions") or profile.get("biography")):

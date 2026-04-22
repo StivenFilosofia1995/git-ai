@@ -2,7 +2,6 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode } from 'react'
 import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
-import EventosHoySection from '../components/agenda/EventosHoySection'
 import HomeChatSection from '../components/chat/HomeChatSection'
 import { getEventos, getEventosHoy, getEventosSemana, getZonas, getStats, scrapeZona, type Evento, type Zona } from '../lib/api'
 
@@ -180,6 +179,20 @@ export default function Agenda() {
   // Reset to page 1 whenever filters change
   useEffect(() => { setPage(1) }, [catFilter, zonaFilter, textFilter, municipioFilter, precioFilter, timeFilter])
 
+  function getEmptyMsg(cat: string, zona: string, municipio: string, precio: PrecioFilter, time: TimeFilter): string {
+    if (cat || zona) return 'No hay eventos con esos filtros.'
+    if (municipio) return `No hay eventos en ${MUNICIPIOS.find(m => m.value === municipio)?.label ?? municipio}.`
+    if (precio === 'gratuito') return 'No hay eventos gratuitos hoy.'
+    if (time === 'hoy') return 'No hay eventos registrados para hoy.'
+    return 'No hay eventos próximos.'
+  }
+
+  function getTimeLabel(t: TimeFilter): string {
+    if (t === 'hoy') return ' hoy'
+    if (t === 'semana') return ' esta semana'
+    return ' próximos'
+  }
+
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE)
 
@@ -203,95 +216,70 @@ export default function Agenda() {
 
       {/* ─── HERO ─────────────────────────────────────────────────────────────── */}
       <section className="relative bg-white border-b-2 border-black overflow-hidden">
-        {/* Ilustración de fondo — Medellín */}
+        {/* Ilustración Medellín como fondo/marca de agua */}
         <div
-          className="absolute inset-0 bg-right-bottom bg-no-repeat"
+          className="absolute inset-0 bg-right-bottom bg-no-repeat pointer-events-none"
           style={{
             backgroundImage: 'url(/medellin-ilustracion.png)',
             backgroundSize: 'contain',
             backgroundPosition: 'right bottom',
-            opacity: 0.12,
+            opacity: 0.11,
           }}
           aria-hidden="true"
         />
-        {/* Gradiente izquierdo para que el texto respire limpio */}
         <div
-          className="absolute inset-0"
-          style={{
-            background: 'linear-gradient(to right, rgba(255,255,255,1) 40%, rgba(255,255,255,0) 75%)',
-          }}
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'linear-gradient(to right, rgba(255,255,255,1) 35%, rgba(255,255,255,0) 70%)' }}
           aria-hidden="true"
         />
-        <div className="relative max-w-7xl mx-auto px-6 pt-24 pb-0 lg:pt-28">
-          <div className="flex items-start gap-8 lg:gap-12">
-            <div className="flex-1 min-w-0 pb-16 lg:pb-24">
-              {/* Live badge */}
-              <div className="flex items-center gap-3 mb-10">
-                <span className="block w-3 h-3 bg-black animate-pulse" />
-                <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
-                  Medellín · Valle de Aburrá · Live
-                </span>
-              </div>
-
-              {/* Title — same as image */}
-              <h1 className="font-heading font-black tracking-tighter leading-[0.9] mb-8">
-                <span
-                  className="block text-black"
-                  style={{ fontSize: 'clamp(2.5rem, 8vw, 6.5rem)', fontFamily: "'Sora', 'Arial Black', sans-serif", fontWeight: 900 }}
-                >
-                  Cultura
-                </span>
-                <span
-                  className="block text-black"
-                  style={{
-                    fontSize: 'clamp(3rem, 10vw, 8rem)',
-                    fontFamily: "'Sora', 'Arial Black', sans-serif",
-                    fontWeight: 900,
-                    WebkitTextStroke: '2px black',
-                    WebkitTextFillColor: 'transparent',
-                    color: 'transparent',
-                  }}
-                >
-                  ETÉREA
-                </span>
-              </h1>
-
-              {/* Description */}
-              <p className="text-black max-w-md text-base leading-relaxed mb-4 font-mono">
-                Teatro · Jazz · Hip-hop · Galerías ·{' '}
-                Spoken Word · Arte Underground
-                — actualizado en tiempo real.
-              </p>
-              <p className="text-black/60 max-w-md text-sm leading-relaxed mb-10 font-mono">
-                Encuentra todo el mapa cultural de Medellín, oficial y no oficial.
-                Soy una IA que trae toda la agenda.
-              </p>
-
-              {/* Real-time counters */}
-              <div className="flex gap-8">
-                {[
-                  { n: stats.espacios, label: 'ESPACIOS' },
-                  { n: stats.eventos, label: 'EVENTOS' },
-                  { n: stats.zonas || zonas.length, label: 'ZONAS' },
-                ].map(d => (
-                  <div key={d.label}>
-                    <div className="text-3xl font-heading font-black">{d.n || '—'}</div>
-                    <div className="text-[9px] font-mono font-bold tracking-[0.2em] mt-1">{d.label}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Clock */}
-              <p className="text-[10px] font-mono uppercase tracking-wider mt-6 opacity-50">
-                {fechaActual}
-              </p>
-            </div>
-
-            {/* Chat AI — extremo derecho del hero */}
-            <div className="hidden lg:flex flex-col flex-shrink-0 w-[400px] xl:w-[460px]">
-              <HomeChatSection />
-            </div>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-20 pb-10 lg:pt-28 lg:pb-14">
+          {/* Live badge */}
+          <div className="flex items-center gap-3 mb-8">
+            <span className="block w-3 h-3 bg-black animate-pulse" />
+            <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
+              Medellín · Valle de Aburrá · Live
+            </span>
           </div>
+          {/* Title */}
+          <h1 className="font-black tracking-tighter leading-[0.88] mb-6">
+            <span
+              className="block text-black"
+              style={{ fontSize: 'clamp(2.4rem, 7vw, 6rem)', fontFamily: "'Sora', 'Arial Black', sans-serif", fontWeight: 900 }}
+            >
+              Cultura
+            </span>
+            <span
+              className="block"
+              style={{
+                fontSize: 'clamp(2.8rem, 9vw, 7.5rem)',
+                fontFamily: "'Sora', 'Arial Black', sans-serif",
+                fontWeight: 900,
+                WebkitTextStroke: '2px black',
+                WebkitTextFillColor: 'transparent',
+                color: 'transparent',
+              }}
+            >
+              ETÉREA
+            </span>
+          </h1>
+          <p className="text-black/70 max-w-lg text-sm leading-relaxed mb-8 font-mono">
+            Teatro · Jazz · Hip-hop · Galerías · Spoken Word · Arte Underground
+            — actualizado en tiempo real.
+          </p>
+          {/* Counters */}
+          <div className="flex gap-8 mb-4">
+            {[
+              { n: stats.espacios, label: 'ESPACIOS' },
+              { n: stats.eventos, label: 'EVENTOS' },
+              { n: stats.zonas || zonas.length, label: 'ZONAS' },
+            ].map(d => (
+              <div key={d.label}>
+                <div className="text-3xl font-black" style={{ fontFamily: "'Sora', 'Arial Black', sans-serif" }}>{d.n || '—'}</div>
+                <div className="text-[9px] font-mono font-bold tracking-[0.2em] mt-0.5">{d.label}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] font-mono uppercase tracking-wider opacity-40">{fechaActual}</p>
         </div>
       </section>
 
@@ -311,58 +299,20 @@ export default function Agenda() {
         </div>
       </div>
 
-      {/* ─── ¿QUÉ HAY HOY? ───────────────────────────────────────────────────── */}
-      <div className="relative max-w-7xl mx-auto px-6">
-        {/* Marca de agua */}
-        <div
-          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat bg-contain"
-          style={{ backgroundImage: 'url(/medellin-ilustracion.png)', opacity: 0.04 }}
-          aria-hidden="true"
-        />
-        <EventosHoySection />
-      </div>
-
-      {/* ─── MAPA CULTURAL ───────────────────────────────────────────────────── */}
-      <div className="relative max-w-7xl mx-auto px-6 py-16 border-t-2 border-black">
-        <div
-          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat bg-contain"
-          style={{ backgroundImage: 'url(/medellin-ilustracion.png)', opacity: 0.04 }}
-          aria-hidden="true"
-        />
-        <div className="flex items-center gap-3 mb-8">
-          <span className="w-4 h-4 bg-black" />
-          <h2 className="text-2xl font-heading font-black uppercase tracking-wider">Mapa Cultural</h2>
-          <span className="text-[11px] font-mono font-bold uppercase tracking-wider opacity-50">Valle de Aburrá</span>
-        </div>
-        <div className="border-2 border-black overflow-hidden">
-          <MapErrorBoundary>
-            <Suspense fallback={
-              <div className="w-full h-[500px] bg-gray-50 flex items-center justify-center">
-                <p className="font-mono text-sm text-gray-400 animate-pulse">Cargando mapa…</p>
-              </div>
-            }>
-              <CulturalMap />
-            </Suspense>
-          </MapErrorBoundary>
-        </div>
-      </div>
-
-      {/* ─── AGENDA / FILTROS ────────────────────────────────────────────────── */}
-      <div className="relative max-w-7xl mx-auto px-6 pb-20">
-        <div
-          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat"
-          style={{ backgroundImage: 'url(/medellin-ilustracion.png)', backgroundSize: '80%', opacity: 0.035 }}
-          aria-hidden="true"
-        />
-        {/* Section header */}
-        <div className="flex items-end justify-between mb-6 flex-wrap gap-4 border-t-2 border-black pt-16">
+      {/* ─── AGENDA: ¿QUÉ HAY HOY? + BUSCADOR + GRID ─────────────────────────── */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-8">
+        {/* Encabezado de sección */}
+        <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
           <div>
-            <div className="flex items-center gap-3 mb-3">
+            <div className="flex items-center gap-2 mb-2">
               <span className="w-3 h-3 bg-black" />
-              <span className="text-[10px] font-mono font-bold tracking-[0.3em] uppercase">Agenda completa</span>
+              <span className="text-[10px] font-mono font-bold tracking-[0.3em] uppercase">Agenda cultural</span>
             </div>
-            <h2 className="text-4xl md:text-5xl font-heading font-black tracking-tight uppercase">
-              Buscar eventos
+            <h2
+              className="font-black tracking-tight uppercase leading-none"
+              style={{ fontSize: 'clamp(1.6rem, 4vw, 3rem)', fontFamily: "'Sora', 'Arial Black', sans-serif" }}
+            >
+              ¿Qué hay hoy en el Valle de Aburrá?
             </h2>
           </div>
           <BuscarConAI
@@ -375,16 +325,16 @@ export default function Agenda() {
           />
         </div>
 
-        {/* Text search */}
-        <div className="mb-6">
+        {/* Buscador de texto */}
+        <div className="mb-4">
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">🔍</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none">🔍</span>
             <input
               type="text"
               value={textFilter}
               onChange={e => setTextFilter(e.target.value)}
               placeholder="Filtrar por nombre, lugar, barrio, categoría..."
-              className="w-full pl-9 pr-4 py-2.5 text-xs font-mono border-2 border-black focus:outline-none focus:ring-0 placeholder:text-neutral-400"
+              className="w-full pl-9 pr-10 py-2.5 text-xs font-mono border-2 border-black focus:outline-none focus:ring-0 placeholder:text-neutral-400 bg-white"
             />
             {textFilter && (
               <button
@@ -397,63 +347,63 @@ export default function Agenda() {
           </div>
         </div>
 
-        {/* Filters row */}
-        <div className="flex flex-wrap gap-0 mb-10 items-center">
-          <div className="flex gap-0">
+        {/* Filtros */}
+        <div className="flex flex-wrap gap-0 mb-8 items-center">
+          {/* Time */}
+          <div className="flex">
             {(Object.keys(TIME_LABELS) as TimeFilter[]).map((key) => (
               <button
                 key={key}
                 onClick={() => setTimeFilter(key)}
-                className={`px-5 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black transition-all duration-200 -ml-[2px] first:ml-0 ${
-                  timeFilter === key ? 'bg-black text-white' : 'bg-white text-black hover:bg-black hover:text-white'
+                className={`px-4 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all -ml-[2px] first:ml-0 ${
+                  timeFilter === key ? 'bg-black text-white z-10' : 'bg-white text-black hover:bg-gray-100'
                 }`}
               >
                 {TIME_LABELS[key]}
               </button>
             ))}
           </div>
-
-          <div className="w-[2px] h-8 bg-black hidden md:block mx-4" />
-
+          <div className="w-[2px] h-7 bg-black hidden sm:block mx-3" />
+          {/* Categoría */}
           <select
             value={catFilter}
             onChange={e => setCatFilter(e.target.value)}
-            className="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
+            className="px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px] sm:ml-0"
           >
             {CAT_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
-
+          {/* Municipio */}
           <select
             value={municipioFilter}
             onChange={e => setMunicipioFilter(e.target.value)}
-            className="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px]"
+            className="px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px]"
           >
             {MUNICIPIOS.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
-
-          <div className="flex gap-0 -ml-[2px]">
+          {/* Precio */}
+          <div className="flex -ml-[2px]">
             {([ ['', 'PRECIO'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
               <button
                 key={val}
                 onClick={() => setPrecioFilter(val)}
-                className={`px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black transition-all duration-200 -ml-[2px] first:ml-0 ${
-                  precioFilter === val ? 'bg-black text-white' : 'bg-white text-black hover:bg-black hover:text-white'
+                className={`px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all -ml-[2px] first:ml-0 ${
+                  precioFilter === val ? 'bg-black text-white z-10' : 'bg-white text-black hover:bg-gray-100'
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
-
+          {/* Zona */}
           {zonas.length > 0 && (
             <select
               value={zonaFilter}
               onChange={e => setZonaFilter(e.target.value)}
-              className="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px]"
+              className="px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none -ml-[2px]"
             >
               <option value="">Todas las zonas</option>
               {zonas.map(z => (
@@ -461,36 +411,33 @@ export default function Agenda() {
               ))}
             </select>
           )}
-
           {(catFilter || zonaFilter || textFilter || municipioFilter || precioFilter) && (
             <button
               onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setPrecioFilter('') }}
-              className="text-xs font-mono font-bold uppercase tracking-wider ml-4 hover:text-black transition-colors underline"
+              className="text-[11px] font-mono font-bold uppercase tracking-wider ml-3 underline hover:no-underline"
             >
-              Limpiar filtros
+              Limpiar
             </button>
           )}
         </div>
 
+        {/* Loading skeleton */}
         {loading && (
-          <div className="space-y-4">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="animate-pulse border-2 border-black p-4 h-20" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {['sk1','sk2','sk3','sk4','sk5','sk6','sk7','sk8'].map(k => (
+              <div key={k} className="animate-pulse border-2 border-black h-32 bg-gray-50" />
             ))}
           </div>
         )}
 
-        {error && <p className="text-black text-sm font-mono border-2 border-black p-4">{error}</p>}
+        {error && (
+          <p className="text-black text-sm font-mono border-2 border-black p-4">{error}</p>
+        )}
 
         {!loading && !error && filtered.length === 0 && (
-          <div className="text-center py-16 border-2 border-dashed border-black space-y-4">
+          <div className="text-center py-14 border-2 border-dashed border-black space-y-4">
             <p className="font-mono text-sm uppercase tracking-wider">
-              {(() => {
-                if (catFilter || zonaFilter) return 'No hay eventos con esos filtros.'
-                if (municipioFilter) return `No hay eventos en ${MUNICIPIOS.find(m => m.value === municipioFilter)?.label ?? municipioFilter}.`
-                if (precioFilter === 'gratuito') return 'No hay eventos gratuitos próximos.'
-                return 'No hay eventos próximos.'
-              })()}
+              {getEmptyMsg(catFilter, zonaFilter, municipioFilter, precioFilter, timeFilter)}
             </p>
             <div className="flex justify-center">
               <BuscarConAI
@@ -505,33 +452,48 @@ export default function Agenda() {
           </div>
         )}
 
+        {/* Grid compacto de eventos */}
         {!loading && !error && filtered.length > 0 && (
-          <div className="space-y-8">
-            <p className="text-[11px] font-mono font-bold uppercase tracking-wider">
-              {filtered.length} evento{filtered.length === 1 ? '' : 's'} encontrado{filtered.length === 1 ? '' : 's'}
-              {totalPages > 1 && ` — página ${page} de ${totalPages}`}
+          <>
+            <p className="text-[11px] font-mono font-bold uppercase tracking-wider mb-4">
+              {filtered.length} evento{filtered.length === 1 ? '' : 's'}
+              {getTimeLabel(timeFilter)}
+              {totalPages > 1 && ` — pág. ${page} / ${totalPages}`}
             </p>
 
-            {Object.entries(grouped).map(([dateLabel, dayEvents]) => (
-              <div key={dateLabel}>
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="w-3 h-3 bg-black" />
-                  <h3 className="text-sm font-mono font-bold uppercase tracking-wider">{dateLabel}</h3>
-                  <span className="text-[11px] font-mono font-bold">{dayEvents.length} evento{dayEvents.length > 1 ? 's' : ''}</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {dayEvents.map((ev) => (
-                    <EventCard key={ev.id} evento={ev} />
-                  ))}
-                </div>
-                <div className="border-t-2 border-black mt-6" />
+            {/* HOY: grid plano sin agrupar por fecha */}
+            {timeFilter === 'hoy' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {paged.map(ev => (
+                  <EventCard key={ev.id} evento={ev} />
+                ))}
               </div>
-            ))}
+            ) : (
+              /* Semana/Todos: agrupado por fecha */
+              <div className="space-y-6">
+                {Object.entries(grouped).map(([dateLabel, dayEvents]) => (
+                  <div key={dateLabel}>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="w-2.5 h-2.5 bg-black" />
+                      <h3 className="text-xs font-mono font-bold uppercase tracking-wider">{dateLabel}</h3>
+                      <span className="text-[11px] font-mono opacity-60">{dayEvents.length} evento{dayEvents.length > 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {dayEvents.map(ev => (
+                        <EventCard key={ev.id} evento={ev} />
+                      ))}
+                    </div>
+                    <div className="border-t border-black/20 mt-5" />
+                  </div>
+                ))}
+              </div>
+            )}
 
+            {/* Paginación */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between border-2 border-black p-3">
+              <div className="flex items-center justify-between border-2 border-black p-3 mt-8">
                 <button
-                  onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                  onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 480, behavior: 'smooth' }) }}
                   disabled={page === 1}
                   className="text-xs font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 disabled:opacity-30 hover:bg-black hover:text-white transition-all disabled:cursor-not-allowed"
                 >
@@ -539,7 +501,7 @@ export default function Agenda() {
                 </button>
                 <span className="text-xs font-mono font-bold uppercase tracking-wider">{page} / {totalPages}</span>
                 <button
-                  onClick={() => { setPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                  onClick={() => { setPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 480, behavior: 'smooth' }) }}
                   disabled={page === totalPages}
                   className="text-xs font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 disabled:opacity-30 hover:bg-black hover:text-white transition-all disabled:cursor-not-allowed"
                 >
@@ -547,8 +509,42 @@ export default function Agenda() {
                 </button>
               </div>
             )}
-          </div>
+          </>
         )}
+      </div>
+
+      {/* ─── MAPA CULTURAL ───────────────────────────────────────────────────── */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 border-t-2 border-black">
+        <div className="flex items-center gap-3 mb-6">
+          <span className="w-4 h-4 bg-black" />
+          <h2 className="text-xl font-black uppercase tracking-wider" style={{ fontFamily: "'Sora', 'Arial Black', sans-serif" }}>
+            Mapa Cultural
+          </h2>
+          <span className="text-[11px] font-mono font-bold uppercase tracking-wider opacity-40">Valle de Aburrá</span>
+        </div>
+        <div className="border-2 border-black overflow-hidden">
+          <MapErrorBoundary>
+            <Suspense fallback={
+              <div className="w-full h-[420px] bg-gray-50 flex items-center justify-center">
+                <p className="font-mono text-sm text-gray-400 animate-pulse">Cargando mapa…</p>
+              </div>
+            }>
+              <CulturalMap />
+            </Suspense>
+          </MapErrorBoundary>
+        </div>
+      </div>
+
+      {/* ─── PREGÚNTALE A ETÉREA ─────────────────────────────────────────────── */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 border-t-2 border-black">
+        <div className="flex items-center gap-3 mb-6">
+          <span className="w-4 h-4 bg-black" />
+          <h2 className="text-xl font-black uppercase tracking-wider" style={{ fontFamily: "'Sora', 'Arial Black', sans-serif" }}>
+            Pregúntale a ETÉREA
+          </h2>
+          <span className="text-[11px] font-mono font-bold uppercase tracking-wider opacity-40">IA Cultural</span>
+        </div>
+        <HomeChatSection />
       </div>
     </>
   )
