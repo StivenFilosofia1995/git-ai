@@ -16,7 +16,6 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
-from app.services.groq_client import groq_chat, MODEL_FAST, MODEL_SMART
 from app.services.html_event_extractor import extract_events_code
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 
@@ -285,35 +284,6 @@ async def _fetch_instagram_profile(handle: str) -> Optional[str]:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Groq extraction
-# ──────────────────────────────────────────────────────────────────────────
-def _extract_events_with_groq(prompt: str) -> list[dict]:
-    """Send content to Groq (llama-3.3-70b) and extract event list. Zero cost."""
-    try:
-        raw = groq_chat(prompt, model=MODEL_SMART, max_tokens=4096, temperature=0)
-        if not raw:
-            print("  ⚠ Groq returned empty response")
-            return []
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            fixed = re.sub(r",\s*([}\]])", r"\1", raw)
-            data = json.loads(fixed)
-        events = data.get("eventos", [])
-        print(f"    📊 Groq extrajo {len(events)} evento(s)")
-        return events
-    except Exception as e:
-        print(f"  ⚠ Groq error: {e}")
-        return []
-
-# Keep old name as alias for site-web scraping path
-_extract_events_with_claude = _extract_events_with_groq
-
-
-# ──────────────────────────────────────────────────────────────────────────
 # Core: scrape a single lugar
 # ──────────────────────────────────────────────────────────────────────────
 async def _scrape_lugar(lugar: dict) -> dict:
@@ -356,24 +326,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 all_events.extend(events_code)
                 print(f"    ✅ Código: {len(events_code)} evento(s) extraídos")
             else:
-                # 1b. Groq fallback only if code found nothing
-                # 4000 chars ≈ 1000 tokens — safe since code handles most major sites
-                text = _html_to_text(html)
-                short_text = text[:4000]
-                if short_text and len(short_text) > 100:
-                    print(f"    🤖 Groq fallback ({len(short_text)} chars)...")
-                    prompt = EVENT_EXTRACTION_PROMPT.format(
-                        fecha_actual=now_iso, anio_actual=anio,
-                        nombre_lugar=nombre, lugar_id=lugar_id,
-                        categoria=categoria, municipio=municipio,
-                        fuente_tipo="sitio_web", fuente_url=sitio,
-                        contenido=short_text,
-                    )
-                    events_groq = _extract_events_with_claude(prompt)
-                    for ev in events_groq:
-                        ev["_fuente"] = "sitio_web"
-                        ev["_fuente_url"] = sitio
-                    all_events.extend(events_groq)
+                print(f"    ⚠ Sin eventos de código para {sitio} (sin fallback AI)")
 
     # ── 2. Scrape Instagram (código puro — CERO tokens AI) ────────────────
     ig_handle = lugar.get("instagram_handle")
@@ -871,25 +824,10 @@ async def scrape_agenda_sources() -> dict:
                 )
                 if events:
                     print(f"  ✅ Código: {len(events)} evento(s)")
-
-            # Groq fallback only if code found nothing
+            else:
+                print(f"  ⚠ Sin eventos de código para {src['nombre']} (sin fallback AI)")  
             if not events:
-                content = _html_to_text(html_raw) if html_raw else None
-                if not content or len(content) < 100:
-                    print(f"  ⚠ Sin contenido suficiente")
-                    continue
-                prompt = AGENDA_EXTRACTION_PROMPT.format(
-                    fecha_actual=now_iso,
-                    anio_actual=anio,
-                    nombre_fuente=src["nombre"],
-                    fuente_url=src["url"],
-                    municipio=src["municipio"],
-                    contenido=content[:3000],  # 3000 chars ≈ 750 tokens
-                )
-                events = _extract_events_with_claude(prompt)
-                print(f"  🤖 Groq: {len(events)} evento(s)")
-
-            total["fuentes"] += 1
+                continue
 
             for ev in events:
                 try:

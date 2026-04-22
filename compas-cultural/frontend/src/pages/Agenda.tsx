@@ -222,12 +222,12 @@ export default function Agenda() {
           alt=""
           aria-hidden="true"
           className="absolute right-0 bottom-0 h-full w-auto max-w-[55%] object-contain object-right-bottom pointer-events-none select-none"
-          style={{ opacity: 0.18 }}
+          style={{ opacity: 0.32 }}
         />
-        {/* Gradiente izquierdo — texto legible */}
+        {/* Gradiente izquierdo suave — solo para legibilidad del texto */}
         <div
           className="absolute inset-0 pointer-events-none"
-          style={{ background: 'linear-gradient(to right, rgba(255,255,255,1) 45%, rgba(255,255,255,0.6) 65%, rgba(255,255,255,0) 85%)' }}
+          style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.97) 38%, rgba(255,255,255,0.5) 58%, rgba(255,255,255,0) 78%)' }}
           aria-hidden="true"
         />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-20 pb-10 lg:pt-28 lg:pb-14">
@@ -260,9 +260,11 @@ export default function Agenda() {
               ETÉREA
             </span>
           </h1>
-          <p className="text-black/70 max-w-lg text-sm leading-relaxed mb-8 font-mono">
-            Teatro · Jazz · Hip-hop · Galerías · Spoken Word · Arte Underground
-            — actualizado en tiempo real.
+          <p className="text-black/75 max-w-lg text-sm leading-relaxed mb-2 font-mono">
+            Soy la IA que escucha el Valle de Aburrá en tiempo real.
+          </p>
+          <p className="text-black/50 max-w-md text-xs leading-relaxed mb-8 font-mono">
+            Teatro · Jazz · Hip-hop · Galerías · Freestyle · Arte Underground · y todo lo que no aparece en ningún otro lado.
           </p>
           {/* Counters */}
           <div className="flex gap-8 mb-4">
