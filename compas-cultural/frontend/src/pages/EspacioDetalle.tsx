@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
-import { discoverEventosAI, getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, type Espacio, type Evento } from '../lib/api'
+import { discoverEventosAI, getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, scrapeLugar, type Espacio, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import ReviewSection from '../components/ui/ReviewSection'
 import { formatEventDate, getEventDateParts } from '../lib/datetime'
@@ -139,17 +139,22 @@ export default function EspacioDetalle() {
                   setScrapingEventos(true)
                   setScrapeMsg('Buscando eventos en redes y sitios web...')
                   try {
-                    const res = await discoverEventosAI({
-                      colectivo_slug: espacio.slug,
-                      municipio: espacio.municipio,
-                      categoria: espacio.categoria_principal,
-                      texto: espacio.nombre,
-                      max_queries: 4,
-                      max_results_per_query: 8,
-                    })
-                    const nuevos = (res.result?.nuevos as number | undefined) ?? 0
-                    const duplicados = (res.result?.duplicados as number | undefined) ?? 0
-                    setScrapeMsg(`Búsqueda completada para ${espacio.nombre}: ${nuevos} nuevos, ${duplicados} ya existentes.`)
+                    try {
+                      const res = await discoverEventosAI({
+                        colectivo_slug: espacio.slug,
+                        municipio: espacio.municipio,
+                        categoria: espacio.categoria_principal,
+                        texto: espacio.nombre,
+                        max_queries: 2,
+                        max_results_per_query: 4,
+                      })
+                      const nuevos = (res.result?.nuevos as number | undefined) ?? 0
+                      const duplicados = (res.result?.duplicados as number | undefined) ?? 0
+                      setScrapeMsg(`Búsqueda completada para ${espacio.nombre}: ${nuevos} nuevos, ${duplicados} ya existentes.`)
+                    } catch {
+                      const fast = await scrapeLugar(espacio.id)
+                      setScrapeMsg(fast.message)
+                    }
                     // Re-fetch events immediately since scrape is now synchronous
                     getEventosByEspacio(espacio.id).then(setEventos).catch(() => {})
                   } catch {

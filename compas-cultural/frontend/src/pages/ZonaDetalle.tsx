@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
-import { discoverEventosAI, getZona, getZonaCulturaHoy, type Zona, type Evento, type Espacio } from '../lib/api'
+import { discoverEventosAI, getZona, getZonaCulturaHoy, scrapeZona, type Zona, type Evento, type Espacio } from '../lib/api'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import { getEventDateParts } from '../lib/datetime'
 
@@ -78,17 +78,24 @@ export default function ZonaDetalle() {
                 <BuscarConAI
                   label="Buscar eventos en esta zona"
                   onSearch={async () => {
-                    const res = await discoverEventosAI({
-                      municipio: zona.municipio,
-                      texto: zona.nombre,
-                      max_queries: 4,
-                      max_results_per_query: 6,
-                    })
-                    const nuevos = (res.result?.eventos_nuevos as number | undefined)
-                      ?? (res.result?.nuevos as number | undefined)
-                      ?? 0
-                    const duplicados = (res.result?.duplicados as number | undefined) ?? 0
-                    return `Búsqueda completada en ${zona.municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
+                    try {
+                      const res = await discoverEventosAI({
+                        municipio: zona.municipio,
+                        texto: zona.nombre,
+                        max_queries: 2,
+                        max_results_per_query: 4,
+                      })
+                      const nuevos = (res.result?.eventos_nuevos as number | undefined)
+                        ?? (res.result?.nuevos as number | undefined)
+                        ?? 0
+                      const duplicados = (res.result?.duplicados as number | undefined) ?? 0
+                      return `Búsqueda completada en ${zona.municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
+                    } catch {
+                      const fast = await scrapeZona(zona.municipio, 10)
+                      const nuevos = (fast.result?.eventos_nuevos as number | undefined) ?? 0
+                      const duplicados = (fast.result?.duplicados as number | undefined) ?? 0
+                      return `Búsqueda completada en ${zona.municipio} (modo rápido): ${nuevos} nuevos, ${duplicados} ya existentes.`
+                    }
                   }}
                   onComplete={reloadCultura}
                 />
@@ -201,17 +208,24 @@ export default function ZonaDetalle() {
                   <BuscarConAI
                     label="Buscar eventos con AI"
                     onSearch={async () => {
-                      const res = await discoverEventosAI({
-                        municipio: zona.municipio,
-                        texto: zona.nombre,
-                        max_queries: 5,
-                        max_results_per_query: 8,
-                      })
-                      const nuevos = (res.result?.eventos_nuevos as number | undefined)
-                        ?? (res.result?.nuevos as number | undefined)
-                        ?? 0
-                      const duplicados = (res.result?.duplicados as number | undefined) ?? 0
-                      return `Búsqueda completada en ${zona.municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
+                      try {
+                        const res = await discoverEventosAI({
+                          municipio: zona.municipio,
+                          texto: zona.nombre,
+                          max_queries: 2,
+                          max_results_per_query: 5,
+                        })
+                        const nuevos = (res.result?.eventos_nuevos as number | undefined)
+                          ?? (res.result?.nuevos as number | undefined)
+                          ?? 0
+                        const duplicados = (res.result?.duplicados as number | undefined) ?? 0
+                        return `Búsqueda completada en ${zona.municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
+                      } catch {
+                        const fast = await scrapeZona(zona.municipio, 12)
+                        const nuevos = (fast.result?.eventos_nuevos as number | undefined) ?? 0
+                        const duplicados = (fast.result?.duplicados as number | undefined) ?? 0
+                        return `Búsqueda completada en ${zona.municipio} (modo rápido): ${nuevos} nuevos, ${duplicados} ya existentes.`
+                      }
                     }}
                     onComplete={reloadCultura}
                   />

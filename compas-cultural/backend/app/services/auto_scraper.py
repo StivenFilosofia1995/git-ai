@@ -20,6 +20,7 @@ from app.database import supabase
 from app.services.groq_client import groq_chat, parse_json_response, MODEL_SMART
 from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
+from app.services.event_ocr import extract_hour_from_image_url
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -94,6 +95,25 @@ def _normalize_scraped_datetime(fecha: datetime, fuente: str = "") -> datetime:
         fecha = fecha.astimezone(CO_TZ)
 
     return fecha
+
+
+def _apply_ocr_hour_if_missing(fecha: datetime, image_url: Optional[str]) -> datetime:
+    """If parsed time is 00:00 and image poster has a readable hour, apply it.
+
+    Keeps no-invention rule: only updates when OCR extracts an explicit hour.
+    """
+    if not image_url:
+        return fecha
+    if not (fecha.hour == 0 and fecha.minute == 0):
+        return fecha
+    hm = extract_hour_from_image_url(image_url)
+    if not hm:
+        return fecha
+    h, m = hm
+    try:
+        return fecha.replace(hour=h, minute=m, second=0, microsecond=0)
+    except Exception:
+        return fecha
 
 
 def _sanitize_text(value: Optional[str]) -> Optional[str]:
@@ -608,6 +628,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     else:
                         fecha = fecha.astimezone(CO_TZ)
                     fecha = _normalize_scraped_datetime(fecha, ev.get("_fuente", "web"))
+                    fecha = _apply_ocr_hour_if_missing(fecha, ev.get("imagen_url"))
                     fecha_fin = None
                     if fecha_fin_str:
                         try:
@@ -1145,6 +1166,7 @@ async def scrape_agenda_sources() -> dict:
                             else:
                                 fecha = fecha.astimezone(CO_TZ)
                             fecha = _normalize_scraped_datetime(fecha, "agenda")
+                            fecha = _apply_ocr_hour_if_missing(fecha, ev.get("imagen_url"))
                             hoy_inicio_ag = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
                             fecha_fin_ag = None
                             if ev.get("fecha_fin"):

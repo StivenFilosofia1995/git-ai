@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timedelta
 from typing import Optional
@@ -8,6 +9,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from bs4 import BeautifulSoup
 
+from app.config import settings
 from app.database import supabase
 from app.services.auto_scraper import (
     CO_TZ,
@@ -19,6 +21,7 @@ from app.services.auto_scraper import (
     scrape_single_lugar,
     scrape_zona,
 )
+from app.services.html_event_extractor import extract_events_code
 
 
 def _normalize_text(value: Optional[str]) -> str:
@@ -120,6 +123,21 @@ async def _fetch_text_from_url(url: str) -> Optional[str]:
     return text[:7000]
 
 
+async def _fetch_html_from_url(url: str) -> Optional[str]:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            return resp.text
+    except Exception:
+        return None
+
+
 def _resolve_colectivo_by_slug(slug: Optional[str]) -> Optional[dict]:
     if not slug:
         return None
@@ -216,8 +234,8 @@ async def discover_events_for_filters(
     categoria: Optional[str] = None,
     colectivo_slug: Optional[str] = None,
     texto: Optional[str] = None,
-    max_queries: int = 4,
-    max_results_per_query: int = 6,
+    max_queries: int = 2,
+    max_results_per_query: int = 3,
 ) -> dict:
     """Discover events when filter views are empty.
 
@@ -244,7 +262,7 @@ async def discover_events_for_filters(
 
     try:
         if colectivo and colectivo.get("id"):
-            single = await scrape_single_lugar(colectivo["id"])
+            single = await asyncio.wait_for(scrape_single_lugar(colectivo["id"]), timeout=25)
             stats["nuevos"] += int(single.get("nuevos", 0) or 0)
             stats["duplicados"] += int(single.get("duplicados", 0) or 0)
     except Exception:
@@ -252,7 +270,7 @@ async def discover_events_for_filters(
 
     try:
         if municipio:
-            zona = await scrape_zona(municipio, limit=12)
+            zona = await asyncio.wait_for(scrape_zona(municipio, limit=5), timeout=25)
             stats["nuevos"] += int(zona.get("eventos_nuevos", 0) or 0)
             stats["duplicados"] += int(zona.get("duplicados", 0) or 0)
     except Exception:
@@ -283,23 +301,38 @@ async def discover_events_for_filters(
             seen_urls.add(url)
             stats["urls_analizadas"] += 1
 
-            text = await _fetch_text_from_url(url)
-            if not text or len(text) < 120:
+            html = await _fetch_html_from_url(url)
+            if not html or len(html) < 120:
                 continue
 
-            lugar_nombre = (colectivo or {}).get("nombre") or "Descubierto en Google"
-            prompt = EVENT_EXTRACTION_PROMPT.format(
-                fecha_actual=now_iso,
-                anio_actual=anio,
-                nombre_lugar=lugar_nombre,
-                lugar_id=(colectivo or {}).get("id") or "N/A",
-                categoria=categoria or "otro",
-                municipio=municipio or (colectivo or {}).get("municipio") or "medellin",
-                fuente_tipo="google",
-                fuente_url=url,
-                contenido=text,
+            # 1) Code-first extraction (no AI cost)
+            events = extract_events_code(
+                html,
+                url,
+                (colectivo or {}).get("nombre") or "Descubierto en Google",
+                categoria or "otro",
+                municipio or (colectivo or {}).get("municipio") or "medellin",
             )
-            events = _extract_events_with_groq(prompt)
+
+            # 2) Optional LLM extraction only if key exists and code extraction failed
+            if not events and settings.groq_api_key:
+                text = await _fetch_text_from_url(url)
+                if not text or len(text) < 120:
+                    continue
+
+                lugar_nombre = (colectivo or {}).get("nombre") or "Descubierto en Google"
+                prompt = EVENT_EXTRACTION_PROMPT.format(
+                    fecha_actual=now_iso,
+                    anio_actual=anio,
+                    nombre_lugar=lugar_nombre,
+                    lugar_id=(colectivo or {}).get("id") or "N/A",
+                    categoria=categoria or "otro",
+                    municipio=municipio or (colectivo or {}).get("municipio") or "medellin",
+                    fuente_tipo="google",
+                    fuente_url=url,
+                    contenido=text,
+                )
+                events = _extract_events_with_groq(prompt)
             if not events:
                 continue
 

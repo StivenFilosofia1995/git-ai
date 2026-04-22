@@ -98,8 +98,8 @@ async def trigger_discover_events_publico(
     categoria: str | None = Query(default=None),
     colectivo_slug: str | None = Query(default=None),
     texto: str | None = Query(default=None),
-    max_queries: int = Query(default=4, ge=1, le=8),
-    max_results_per_query: int = Query(default=6, ge=1, le=10),
+    max_queries: int = Query(default=2, ge=1, le=8),
+    max_results_per_query: int = Query(default=3, ge=1, le=10),
 ):
     """Descubrimiento inteligente público cuando no hay resultados en filtros.
 

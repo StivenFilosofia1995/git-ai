@@ -1,7 +1,7 @@
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { discoverEventosAI, getEspacios, getStats, type Espacio } from '../lib/api'
+import { discoverEventosAI, getEspacios, getStats, scrapeZona, type Espacio } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import BuscarConAI from '../components/ui/BuscarConAI'
 
@@ -94,15 +94,22 @@ export default function Colectivos() {
               <BuscarConAI
                 label="Buscar eventos de colectivos"
                 onSearch={async () => {
-                  const res = await discoverEventosAI({
-                    categoria: filtro || undefined,
-                    texto: 'colectivos culturales valle de aburra',
-                    max_queries: 5,
-                    max_results_per_query: 7,
-                  })
-                  const nuevos = (res.result?.nuevos as number | undefined) ?? 0
-                  const duplicados = (res.result?.duplicados as number | undefined) ?? 0
-                  return `Búsqueda completada en colectivos: ${nuevos} nuevos, ${duplicados} ya existentes.`
+                  try {
+                    const res = await discoverEventosAI({
+                      categoria: filtro || undefined,
+                      texto: 'colectivos culturales valle de aburra',
+                      max_queries: 2,
+                      max_results_per_query: 4,
+                    })
+                    const nuevos = (res.result?.nuevos as number | undefined) ?? 0
+                    const duplicados = (res.result?.duplicados as number | undefined) ?? 0
+                    return `Búsqueda completada en colectivos: ${nuevos} nuevos, ${duplicados} ya existentes.`
+                  } catch {
+                    const fast = await scrapeZona('medellin', 12)
+                    const nuevos = (fast.result?.eventos_nuevos as number | undefined) ?? 0
+                    const duplicados = (fast.result?.duplicados as number | undefined) ?? 0
+                    return `Búsqueda completada en colectivos (modo rápido): ${nuevos} nuevos, ${duplicados} ya existentes.`
+                  }
                 }}
                 onComplete={() => {
                   getEspacios({ limit: 300, categoria: filtro || undefined, tipo: 'colectivo' })
