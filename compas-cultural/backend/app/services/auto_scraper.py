@@ -259,7 +259,7 @@ async def _fetch_instagram_via_meta_api(handle: str) -> Optional[str]:
 async def _fetch_instagram_profile(handle: str) -> Optional[str]:
     """
     Fetch Instagram profile page content.
-    Tries Meta Graph API first (if configured), then falls back to public scrapers.
+    Priority: 1) Meta Graph API  2) Playwright XHR interception  3) httpx fallback
     """
     clean = handle.lstrip("@").strip().split("/")[0]
 
@@ -269,43 +269,25 @@ async def _fetch_instagram_profile(handle: str) -> Optional[str]:
         print(f"    ✅ Meta Graph API: {len(meta_content)} chars")
         return meta_content
 
-    # 2. Fallback to public scrapers
-    urls_to_try = [
-        f"https://www.picuki.com/profile/{clean}",
-        f"https://imginn.com/{clean}/",
-        f"https://www.instagram.com/{clean}/",
-    ]
-
-    for url in urls_to_try:
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
-                resp = await client.get(url, headers=HEADERS)
-                if resp.status_code == 200:
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    for tag in soup(["script", "style", "nav", "footer", "noscript", "svg"]):
-                        tag.decompose()
-                    
-                    # Get post captions, descriptions
-                    text_parts = []
-                    # Bio
-                    bio = soup.find("div", class_=re.compile(r"bio|description|profile-desc", re.I))
-                    if bio:
-                        text_parts.append(f"BIO: {bio.get_text(strip=True)}")
-                    
-                    # Post captions (picuki/imginn style)
-                    captions = soup.find_all(class_=re.compile(r"caption|photo-description|post-text", re.I))
-                    for cap in captions[:15]:  # últimos 15 posts
-                        text_parts.append(cap.get_text(strip=True))
-                    
-                    # Fallback: get all text
-                    if not text_parts:
-                        text_parts.append(soup.get_text(separator="\n", strip=True))
-                    
-                    content = "\n---\n".join(text_parts)
-                    if len(content) > 200:  # Meaningful content
-                        return content[:8000]
-        except Exception:
-            continue
+    # 2. Playwright XHR interception (intercepts Instagram's own internal API calls)
+    try:
+        from app.services.instagram_pw_scraper import fetch_ig_profile, profile_to_scraper_text
+        profile = await fetch_ig_profile(clean)
+        if profile and (profile.get("captions") or profile.get("biography")):
+            # Update sitio_web in DB if external_url found
+            if profile.get("external_url"):
+                try:
+                    from app.database import supabase as _supa
+                    _supa.table("lugares").update(
+                        {"sitio_web": profile["external_url"]}
+                    ).eq("instagram_handle", clean).is_("sitio_web", "null").execute()
+                except Exception:
+                    pass
+            content = profile_to_scraper_text(profile, clean)
+            print(f"    ✅ Playwright IG: {len(profile.get('captions', []))} posts, web={profile.get('external_url')}")
+            return content[:8000]
+    except Exception as e:
+        print(f"    ⚠ Playwright IG error: {e}")
 
     return None
 
