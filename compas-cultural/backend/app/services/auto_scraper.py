@@ -638,6 +638,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     if existing_fecha and (existing_fecha.hour != nueva_fecha.hour or existing_fecha.minute != nueva_fecha.minute):
                         supabase.table("eventos").update({
                             "fecha_inicio": fecha.isoformat(),
+                            "fuente": "auto_scraper_instagram_hora",
                             "fuente_url": ev.get("_fuente_url") or current.get("fuente_url"),
                             "imagen_url": ev.get("imagen_url"),
                         }).eq("id", current["id"]).execute()
@@ -660,6 +661,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                             if existing_fecha and (existing_fecha.hour != nueva_fecha.hour or existing_fecha.minute != nueva_fecha.minute):
                                 supabase.table("eventos").update({
                                     "fecha_inicio": fecha.isoformat(),
+                                    "fuente": "auto_scraper_instagram_hora",
                                     "fuente_url": ev.get("_fuente_url") or legacy.get("fuente_url"),
                                     "imagen_url": ev.get("imagen_url"),
                                 }).eq("id", legacy["id"]).execute()
