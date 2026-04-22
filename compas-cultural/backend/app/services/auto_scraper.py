@@ -509,7 +509,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                         )
                         events_groq = _extract_events_with_groq(prompt)
                         for ev in events_groq:
-                            ev["_fuente"] = "sitio_web"
+                            ev["_fuente"] = "sitio_web_groq"
                             ev["_fuente_url"] = sitio
                         if events_groq:
                             print(f"    🧠 Groq: {len(events_groq)} evento(s)")
@@ -546,7 +546,10 @@ async def _scrape_lugar(lugar: dict) -> dict:
             )
             ig_url = f"https://instagram.com/{clean_handle}"
             for ev in events_ig:
-                ev["_fuente"] = "instagram"
+                if ev.get("_hora_detectada"):
+                    ev["_fuente"] = "instagram_hora"
+                else:
+                    ev["_fuente"] = "instagram_sin_hora"
                 # Use per-post permalink when available, fall back to profile URL
                 ev["_fuente_url"] = ev.pop("_permalink", None) or ig_url
             all_events.extend(events_ig)
@@ -568,7 +571,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     )
                     ig_groq = _extract_events_with_groq(prompt)
                     for ev in ig_groq:
-                        ev["_fuente"] = "instagram"
+                        ev["_fuente"] = "instagram_groq"
                         ev["_fuente_url"] = ig_url
                     if ig_groq:
                         print(f"    🧠 Groq IG: {len(ig_groq)} evento(s)")
@@ -629,7 +632,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
             existing = supabase.table("eventos").select("id,fecha_inicio,fuente_url").eq("slug", slug_with_date).execute()
             if existing.data:
                 current = existing.data[0]
-                if ev.get("_fuente") == "instagram" and ev.get("_hora_detectada"):
+                if str(ev.get("_fuente", "")).startswith("instagram") and ev.get("_hora_detectada"):
                     existing_fecha = _parse_iso_to_co(current.get("fecha_inicio"))
                     nueva_fecha = fecha.astimezone(CO_TZ)
                     if existing_fecha and (existing_fecha.hour != nueva_fecha.hour or existing_fecha.minute != nueva_fecha.minute):
@@ -651,7 +654,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     ex_date = existing_event.data.get("fecha_inicio", "")[:10]
                     if ex_date == fecha_date_str:
                         legacy = existing_plain.data[0]
-                        if ev.get("_fuente") == "instagram" and ev.get("_hora_detectada"):
+                        if str(ev.get("_fuente", "")).startswith("instagram") and ev.get("_hora_detectada"):
                             existing_fecha = _parse_iso_to_co(legacy.get("fecha_inicio"))
                             nueva_fecha = fecha.astimezone(CO_TZ)
                             if existing_fecha and (existing_fecha.hour != nueva_fecha.hour or existing_fecha.minute != nueva_fecha.minute):

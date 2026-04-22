@@ -89,6 +89,17 @@ export function hasReliableEventTime(value: EventDateInput): boolean {
   const parsed = parseEventDate(context.fecha_inicio)
   if (!parsed) return false
 
+  const fuente = (context.fuente ?? '').toLowerCase()
+  // Conservative policy: never show hour for sources that are generated/fallback
+  // or for legacy IG rows that did not carry explicit-hour markers.
+  if (
+    fuente.includes('_groq') ||
+    fuente.includes('instagram_sin_hora') ||
+    fuente === 'auto_scraper_instagram'
+  ) {
+    return false
+  }
+
   // Only hide true midnight (00:00:00) — these are date-only entries with no
   // time scraped. Any other time, including 19:00 defaults, is shown as-is.
   const { hour, minute, second } = getBogotaClockParts(parsed)
