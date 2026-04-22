@@ -7,6 +7,7 @@ import json
 import re
 import traceback
 import asyncio
+import unicodedata
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -131,6 +132,30 @@ def _parse_iso_to_co(value: Optional[str]) -> Optional[datetime]:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=CO_TZ)
     return parsed.astimezone(CO_TZ)
+
+
+def _normalize_site_url(raw: Optional[str]) -> Optional[str]:
+    """Normalize website URL values from DB, dropping placeholders like 'null'."""
+    if not raw:
+        return None
+    value = str(raw).strip()
+    if not value or value.lower() in {"null", "none", "nan", "n/a", "-"}:
+        return None
+    return value
+
+
+def _normalize_ig_handle(raw: Optional[str]) -> Optional[str]:
+    """Normalize IG handle: remove @, accents and unsupported characters."""
+    if not raw:
+        return None
+    value = str(raw).strip()
+    if not value or value.lower() in {"null", "none", "nan", "n/a", "-"}:
+        return None
+    value = value.lstrip("@").split("/")[0].strip()
+    value = unicodedata.normalize("NFD", value)
+    value = "".join(ch for ch in value if unicodedata.category(ch) != "Mn")
+    value = re.sub(r"[^A-Za-z0-9._]", "", value)
+    return value or None
 
 # ── Prompt para extraer eventos de una página ────────────────────────────
 EVENT_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
@@ -438,7 +463,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
     all_events: list[dict] = []
 
     # ── 1. Scrape website ──────────────────────────────────────────────────
-    sitio = lugar.get("sitio_web")
+    sitio = _normalize_site_url(lugar.get("sitio_web"))
     sitio_is_ig = bool(sitio and "instagram.com" in sitio.lower())
     if sitio:
         if sitio_is_ig:
@@ -491,13 +516,13 @@ async def _scrape_lugar(lugar: dict) -> dict:
                             all_events.extend(events_groq)
 
     # ── 2. Scrape Instagram (código puro — CERO tokens AI) ────────────────
-    ig_handle = lugar.get("instagram_handle")
+    ig_handle = _normalize_ig_handle(lugar.get("instagram_handle"))
     if ig_handle:
         print(f"  📸 Scraping IG: {ig_handle}")
         from app.services.instagram_pw_scraper import fetch_ig_profile
         from app.services.ig_event_extractor import extract_events_from_ig_profile
 
-        clean_handle = ig_handle.lstrip("@").strip()
+        clean_handle = ig_handle
 
         # Scraper puro (Playwright/httpx — sin APIs externas)
         profile = await fetch_ig_profile(clean_handle)
