@@ -8,7 +8,7 @@ import re
 import traceback
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -16,10 +16,112 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
-from app.services.html_event_extractor import extract_events_code
+from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 
 CO_TZ = ZoneInfo("America/Bogota")
+
+# Keyword list exported for RSS/other scrapers that import from this module.
+EVENT_KEYWORDS = [
+    "evento", "concierto", "taller", "exposicion", "exposición", "festival",
+    "obra", "funcion", "función", "charla", "foro", "cine", "danza",
+    "musica", "música", "lanzamiento", "performance", "show", "en vivo",
+]
+
+
+def _extract_time(text: str) -> tuple[int, int]:
+    """Extract event time from free text. Defaults to 19:00 when unclear."""
+    if not text:
+        return 19, 0
+    m = re.search(r"(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?m?\.?)?", text, re.I)
+    if not m:
+        return 19, 0
+
+    hour = int(m.group(1))
+    minute = int(m.group(2))
+    mer = (m.group(3) or "").lower().replace(".", "")
+    if mer in ("pm", "p") and hour < 12:
+        hour += 12
+    elif mer in ("am", "a") and hour == 12:
+        hour = 0
+    if hour > 23:
+        return 19, 0
+    return hour, minute
+
+
+def _detect_category(text: str) -> str:
+    """Best-effort category detection used by RSS and fallback scrapers."""
+    tl = (text or "").lower()
+    if any(k in tl for k in ("teatro", "obra", "dramatur")):
+        return "teatro"
+    if any(k in tl for k in ("jazz",)):
+        return "jazz"
+    if any(k in tl for k in ("hip hop", "rap", "freestyle")):
+        return "hip_hop"
+    if any(k in tl for k in ("electronica", "electrónica", "dj", "techno", "house")):
+        return "electronica"
+    if any(k in tl for k in ("danza", "baile", "ballet")):
+        return "danza"
+    if any(k in tl for k in ("cine", "pelicula", "película")):
+        return "cine"
+    if any(k in tl for k in ("galeria", "galería", "museo", "exposicion", "exposición")):
+        return "galeria"
+    if any(k in tl for k in ("poesia", "poesía", "literatura", "libro")):
+        return "poesia"
+    if any(k in tl for k in ("concierto", "musica", "música", "banda", "orquesta")):
+        return "musica_en_vivo"
+    if any(k in tl for k in ("festival",)):
+        return "festival"
+    return "otro"
+
+
+def _parse_date_from_text(text: str, year: int) -> Optional[datetime]:
+    """Parse event date from free text using the shared HTML extractor parser."""
+    return parse_date(text, year)
+
+
+def _normalize_scraped_datetime(fecha: datetime, fuente: str = "") -> datetime:
+    """Normalize scraped datetimes to Colombia TZ and fix common placeholder hours.
+
+    Many website sources emit date-only values that become 00:00 (or 05:00 UTC).
+    For web/agenda/rss-like sources we map suspicious early whole-hour times to 19:00.
+    """
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=CO_TZ)
+    else:
+        fecha = fecha.astimezone(CO_TZ)
+
+    fuente_l = (fuente or "").lower()
+    is_web_like = any(k in fuente_l for k in ("sitio", "web", "agenda", "rss"))
+    if is_web_like and fecha.minute == 0 and fecha.second == 0 and fecha.hour in (0, 1, 2, 3, 4, 5, 6):
+        fecha = fecha.replace(hour=19, minute=0, second=0, microsecond=0)
+
+    return fecha
+
+
+def _sanitize_text(value: Optional[str]) -> Optional[str]:
+    """Drop lone surrogate characters that break UTF-8 inserts.
+
+    Python strings can contain lone surrogates (U+D800-U+DFFF) from improperly
+    decoded sources. ``errors='surrogatepass'`` encodes them as CESU-8 bytes;
+    the subsequent decode with ``errors='ignore'`` then drops those invalid
+    byte sequences, leaving a clean UTF-8 string.
+    """
+    if value is None:
+        return None
+    return value.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="ignore")
+
+
+def _sanitize_payload(value: Any) -> Any:
+    """Recursively sanitize strings in payloads before DB insert."""
+    if isinstance(value, str):
+        return _sanitize_text(value)
+    if isinstance(value, list):
+        return [_sanitize_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _sanitize_payload(v) for k, v in value.items()}
+    return value
+
 
 def _now_co() -> datetime:
     """Current datetime in Colombia (America/Bogota), timezone-aware."""
@@ -388,12 +490,17 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     # Make aware if naive (assume Colombia TZ)
                     if fecha.tzinfo is None:
                         fecha = fecha.replace(tzinfo=CO_TZ)
+                    else:
+                        fecha = fecha.astimezone(CO_TZ)
+                    fecha = _normalize_scraped_datetime(fecha, ev.get("_fuente", "web"))
                     fecha_fin = None
                     if fecha_fin_str:
                         try:
                             fecha_fin = datetime.fromisoformat(fecha_fin_str)
                             if fecha_fin.tzinfo is None:
                                 fecha_fin = fecha_fin.replace(tzinfo=CO_TZ)
+                            else:
+                                fecha_fin = fecha_fin.astimezone(CO_TZ)
                         except (ValueError, TypeError):
                             fecha_fin = None
                     # Skip only if:
@@ -434,7 +541,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "slug": final_slug,
                 "espacio_id": lugar_id,
                 "fecha_inicio": fecha.isoformat(),
-                "fecha_fin": ev.get("fecha_fin"),
+                "fecha_fin": fecha_fin.isoformat() if fecha_fin else None,
                 "categorias": ev.get("categorias", [categoria]),
                 "categoria_principal": ev.get("categoria_principal", categoria),
                 "municipio": municipio,
@@ -449,6 +556,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "fuente_url": ev.get("_fuente_url"),
                 "verificado": False,
             }
+            evento_data = _sanitize_payload(evento_data)
             supabase.table("eventos").insert(evento_data).execute()
             stats["nuevos"] += 1
             print(f"    ✅ Nuevo evento: {titulo}")
@@ -841,6 +949,9 @@ async def scrape_agenda_sources() -> dict:
                             fecha = datetime.fromisoformat(fecha_str)
                             if fecha.tzinfo is None:
                                 fecha = fecha.replace(tzinfo=CO_TZ)
+                            else:
+                                fecha = fecha.astimezone(CO_TZ)
+                            fecha = _normalize_scraped_datetime(fecha, "agenda")
                             hoy_inicio_ag = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
                             fecha_fin_ag = None
                             if ev.get("fecha_fin"):
@@ -848,6 +959,8 @@ async def scrape_agenda_sources() -> dict:
                                     fecha_fin_ag = datetime.fromisoformat(ev["fecha_fin"])
                                     if fecha_fin_ag.tzinfo is None:
                                         fecha_fin_ag = fecha_fin_ag.replace(tzinfo=CO_TZ)
+                                    else:
+                                        fecha_fin_ag = fecha_fin_ag.astimezone(CO_TZ)
                                 except (ValueError, TypeError):
                                     pass
                             if fecha < hoy_inicio_ag:
@@ -868,7 +981,7 @@ async def scrape_agenda_sources() -> dict:
                         "titulo": titulo,
                         "slug": slug,
                         "fecha_inicio": fecha.isoformat(),
-                        "fecha_fin": ev.get("fecha_fin"),
+                        "fecha_fin": fecha_fin_ag.isoformat() if fecha_fin_ag else None,
                         "categorias": ev.get("categorias", [src["categoria_default"]]),
                         "categoria_principal": ev.get("categoria_principal", src["categoria_default"]),
                         "municipio": ev.get("municipio", src["municipio"]),
@@ -883,6 +996,7 @@ async def scrape_agenda_sources() -> dict:
                         "fuente_url": src["url"],
                         "verificado": False,
                     }
+                    evento_data = _sanitize_payload(evento_data)
                     supabase.table("eventos").insert(evento_data).execute()
                     total["eventos_nuevos"] += 1
                     print(f"    ✅ {titulo[:60]}")

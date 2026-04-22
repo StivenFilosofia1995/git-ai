@@ -12,6 +12,7 @@ import logging
 import re
 import traceback
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import anthropic
 import httpx
@@ -26,6 +27,7 @@ from .discovery.utils import (
 from .discovery.seed_data import get_all_local_profiles, get_high_priority_profiles
 
 logger = logging.getLogger("social_listener")
+CO_TZ = ZoneInfo("America/Bogota")
 
 _CLIENT = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
@@ -313,13 +315,20 @@ async def _insert_event(event: dict) -> bool:
             pass
 
     municipio = _normalize_municipio(event.get("municipio", "medellin"))
-    now = datetime.utcnow()
+    now = datetime.now(CO_TZ)
+
+    from app.services.auto_scraper import _normalize_scraped_datetime
 
     # Fecha
     fecha_inicio = now
     if event.get("fecha_inicio"):
         try:
             fecha_inicio = datetime.fromisoformat(event["fecha_inicio"])
+            if fecha_inicio.tzinfo is None:
+                fecha_inicio = fecha_inicio.replace(tzinfo=CO_TZ)
+            else:
+                fecha_inicio = fecha_inicio.astimezone(CO_TZ)
+            fecha_inicio = _normalize_scraped_datetime(fecha_inicio, "social_listener")
             if fecha_inicio < now - timedelta(days=1):
                 return False  # Evento pasado
         except (ValueError, TypeError):
