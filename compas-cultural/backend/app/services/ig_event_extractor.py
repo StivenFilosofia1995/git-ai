@@ -363,14 +363,18 @@ def extract_events_from_ig_profile(
 
     captions: list[str] = profile.get("captions") or []
     image_urls: list[str] = profile.get("image_urls") or []
+    permalink_urls: list[str] = profile.get("permalink_urls") or []
 
     for i, caption in enumerate(captions):
         img = image_urls[i] if i < len(image_urls) else None
+        permalink = permalink_urls[i] if i < len(permalink_urls) else None
         ev = _caption_to_event(caption, img, nombre_lugar, categoria, municipio, now)
         if ev:
             title_key = ev["titulo"].lower()[:50]
             if title_key not in seen_titles:
                 seen_titles.add(title_key)
+                if permalink:
+                    ev["_permalink"] = permalink
                 events.append(ev)
 
     return events

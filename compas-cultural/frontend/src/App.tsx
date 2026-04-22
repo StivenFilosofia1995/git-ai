@@ -57,7 +57,8 @@ function App() {
     <AuthProvider>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<Home />} />
+          <Route index element={<Agenda />} />
+          <Route path="home" element={<Home />} />
           <Route path="mapa" element={<Mapa />} />
           <Route path="explorar" element={<Explorar />} />
           <Route path="espacio/:slug" element={<EspacioDetalle />} />

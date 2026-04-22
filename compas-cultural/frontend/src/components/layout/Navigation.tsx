@@ -1,9 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Inicio' },
-  { to: '/explorar', label: 'Explorar' },
-  { to: '/agenda', label: 'Agenda' },
+  { to: '/', label: 'Agenda' },
   { to: '/colectivos', label: 'Colectivos' },
   { to: '/mapa', label: 'Mapa' },
   { to: '/nosotros', label: 'Nosotros' },

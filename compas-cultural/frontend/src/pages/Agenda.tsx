@@ -1,8 +1,28 @@
 import { Helmet } from 'react-helmet-async'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode } from 'react'
 import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
-import { getEventos, getEventosHoy, getEventosSemana, getZonas, scrapeZona, type Evento, type Zona } from '../lib/api'
+import EventosHoySection from '../components/agenda/EventosHoySection'
+import HomeChatSection from '../components/chat/HomeChatSection'
+import ColtejerWireframe from '../components/illustrations/ColtejerWireframe'
+import { getEventos, getEventosHoy, getEventosSemana, getZonas, getStats, scrapeZona, type Evento, type Zona } from '../lib/api'
+
+const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
+
+class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false }
+  static getDerivedStateFromError() { return { hasError: true } }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="w-full h-[500px] border-2 border-black bg-gray-50 flex items-center justify-center">
+          <p className="font-mono text-sm text-gray-400">No se pudo cargar el mapa</p>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 const CO_TZ = 'America/Bogota'
 const ITEMS_PER_PAGE = 24
@@ -69,6 +89,7 @@ const CAT_OPTIONS = [
 export default function Agenda() {
   const [eventos, setEventos] = useState<Evento[]>([])
   const [zonas, setZonas] = useState<Zona[]>([])
+  const [stats, setStats] = useState({ espacios: 0, eventos: 0, zonas: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('todos')
@@ -97,6 +118,7 @@ export default function Agenda() {
 
   useEffect(() => {
     getZonas().then(setZonas).catch(console.error)
+    getStats().then(setStats).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -176,25 +198,174 @@ export default function Agenda() {
   return (
     <>
       <Helmet>
-        <title>Agenda Cultural — Cultura ETÉREA</title>
+        <title>Cultura ET&Eacute;REA &mdash; Agenda Cultural Medell&iacute;n</title>
+        <meta name="description" content="Encuentra todo el mapa cultural de Medellín, oficial y no oficial. Teatro, Jazz, Hip-hop, Galerías, Spoken Word, Arte Underground — actualizado en tiempo real." />
       </Helmet>
 
-      <div className="max-w-5xl mx-auto px-4 py-10">
-        {/* Header */}
-        <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
+      {/* ─── HERO ─────────────────────────────────────────────────────────────── */}
+      <section className="relative bg-white border-b-2 border-black overflow-hidden">
+        {/* Ilustración de fondo — Medellín */}
+        <div
+          className="absolute inset-0 bg-right-bottom bg-no-repeat"
+          style={{
+            backgroundImage: 'url(/medellin-ilustracion.png)',
+            backgroundSize: 'contain',
+            backgroundPosition: 'right bottom',
+            opacity: 0.12,
+          }}
+          aria-hidden="true"
+        />
+        {/* Gradiente izquierdo para que el texto respire limpio */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(to right, rgba(255,255,255,1) 40%, rgba(255,255,255,0) 75%)',
+          }}
+          aria-hidden="true"
+        />
+        <div className="relative max-w-7xl mx-auto px-6 pt-24 pb-16 lg:pt-32 lg:pb-24">
+          <div className="flex items-start justify-between gap-12">
+            <div className="max-w-2xl">
+              {/* Live badge */}
+              <div className="flex items-center gap-3 mb-10">
+                <span className="block w-3 h-3 bg-black animate-pulse" />
+                <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
+                  Medellín · Valle de Aburrá · Live
+                </span>
+              </div>
+
+              {/* Title — same as image */}
+              <h1 className="font-heading font-black tracking-tighter leading-[0.9] mb-8">
+                <span className="block text-[3.5rem] md:text-[5rem] lg:text-[6.5rem] text-black">Cultura</span>
+                <span
+                  className="block text-[4rem] md:text-[6rem] lg:text-[8rem] text-black"
+                  style={{ WebkitTextStroke: '2px black', WebkitTextFillColor: 'transparent' }}
+                >
+                  ETÉREA
+                </span>
+              </h1>
+
+              {/* Description */}
+              <p className="text-black max-w-md text-base leading-relaxed mb-4 font-mono">
+                Teatro · Jazz · Hip-hop · Galerías ·{' '}
+                Spoken Word · Arte Underground
+                — actualizado en tiempo real.
+              </p>
+              <p className="text-black/60 max-w-md text-sm leading-relaxed mb-10 font-mono">
+                Encuentra todo el mapa cultural de Medellín, oficial y no oficial.
+                Soy una IA que trae toda la agenda.
+              </p>
+
+              {/* Real-time counters */}
+              <div className="flex gap-8">
+                {[
+                  { n: stats.espacios, label: 'ESPACIOS' },
+                  { n: stats.eventos, label: 'EVENTOS' },
+                  { n: stats.zonas || zonas.length, label: 'ZONAS' },
+                ].map(d => (
+                  <div key={d.label}>
+                    <div className="text-3xl font-heading font-black">{d.n || '—'}</div>
+                    <div className="text-[9px] font-mono font-bold tracking-[0.2em] mt-1">{d.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Clock */}
+              <p className="text-[10px] font-mono uppercase tracking-wider mt-6 opacity-50">
+                {fechaActual}
+              </p>
+            </div>
+
+            {/* Coltejer wireframe */}
+            <div className="hidden lg:block flex-shrink-0 -mr-8 mt-8">
+              <ColtejerWireframe />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── MARQUEE ──────────────────────────────────────────────────────────── */}
+      <div className="bg-black text-white py-2.5 overflow-hidden border-b-2 border-black">
+        <div className="animate-marquee whitespace-nowrap flex gap-8">
+          {Array.from({ length: 2 }, (_, j) => (
+            <span key={j} className="flex gap-8">
+              {['TEATRO', 'ROCK', 'METAL', 'JAZZ', 'HIP-HOP', 'GALERÍAS', 'DANZA', 'ELECTRÓNICA', 'POESÍA', 'CINE', 'MURALISMO', 'FREESTYLE', 'EDITORIAL', 'CIRCO', 'FOTOGRAFÍA', 'PUNK'].map(cat => (
+                <span key={`${j}-${cat}`} className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase flex items-center gap-3">
+                  <span className="w-1.5 h-1.5 bg-white" />
+                  {cat}
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── ¿QUÉ HAY HOY? ───────────────────────────────────────────────────── */}
+      <div className="relative max-w-7xl mx-auto px-6">
+        {/* Marca de agua */}
+        <div
+          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat bg-contain"
+          style={{ backgroundImage: 'url(/medellin-ilustracion.png)', opacity: 0.04 }}
+          aria-hidden="true"
+        />
+        <EventosHoySection />
+      </div>
+
+      {/* ─── CHAT AI ─────────────────────────────────────────────────────────── */}
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div
+          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat bg-contain"
+          style={{ backgroundImage: 'url(/medellin-ilustracion.png)', opacity: 0.04 }}
+          aria-hidden="true"
+        />
+        <HomeChatSection />
+      </div>
+
+      {/* ─── MAPA CULTURAL ───────────────────────────────────────────────────── */}
+      <div className="relative max-w-7xl mx-auto px-6 py-16 border-t-2 border-black">
+        <div
+          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat bg-contain"
+          style={{ backgroundImage: 'url(/medellin-ilustracion.png)', opacity: 0.04 }}
+          aria-hidden="true"
+        />
+        <div className="flex items-center gap-3 mb-8">
+          <span className="w-4 h-4 bg-black" />
+          <h2 className="text-2xl font-heading font-black uppercase tracking-wider">Mapa Cultural</h2>
+          <span className="text-[11px] font-mono font-bold uppercase tracking-wider opacity-50">Valle de Aburrá</span>
+        </div>
+        <div className="border-2 border-black overflow-hidden">
+          <MapErrorBoundary>
+            <Suspense fallback={
+              <div className="w-full h-[500px] bg-gray-50 flex items-center justify-center">
+                <p className="font-mono text-sm text-gray-400 animate-pulse">Cargando mapa…</p>
+              </div>
+            }>
+              <CulturalMap />
+            </Suspense>
+          </MapErrorBoundary>
+        </div>
+      </div>
+
+      {/* ─── AGENDA / FILTROS ────────────────────────────────────────────────── */}
+      <div className="relative max-w-7xl mx-auto px-6 pb-20">
+        <div
+          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat"
+          style={{ backgroundImage: 'url(/medellin-ilustracion.png)', backgroundSize: '80%', opacity: 0.035 }}
+          aria-hidden="true"
+        />
+        {/* Section header */}
+        <div className="flex items-end justify-between mb-6 flex-wrap gap-4 border-t-2 border-black pt-16">
           <div>
-            <h1 className="text-4xl md:text-5xl font-heading font-black tracking-tight mb-2 uppercase">
-              Agenda Cultural
-            </h1>
-            <p className="text-sm font-mono uppercase tracking-wider">
-              Eventos en Medellín y el Valle de Aburrá
-            </p>
-            <p className="text-[10px] font-mono uppercase tracking-wider mt-1 opacity-60">
-              {fechaActual}
-            </p>
+            <div className="flex items-center gap-3 mb-3">
+              <span className="w-3 h-3 bg-black" />
+              <span className="text-[10px] font-mono font-bold tracking-[0.3em] uppercase">Agenda completa</span>
+            </div>
+            <h2 className="text-4xl md:text-5xl font-heading font-black tracking-tight uppercase">
+              Próximos eventos
+            </h2>
           </div>
           <BuscarConAI
-            label="Buscar eventos con AI"
+            label="Buscar con AI"
             onSearch={async () => {
               const res = await scrapeZona('medellin', 15)
               return res.message
@@ -227,16 +398,13 @@ export default function Agenda() {
 
         {/* Filters row */}
         <div className="flex flex-wrap gap-0 mb-10 items-center">
-          {/* Time filter */}
           <div className="flex gap-0">
             {(Object.keys(TIME_LABELS) as TimeFilter[]).map((key) => (
               <button
                 key={key}
                 onClick={() => setTimeFilter(key)}
                 className={`px-5 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black transition-all duration-200 -ml-[2px] first:ml-0 ${
-                  timeFilter === key
-                    ? 'bg-black text-white'
-                    : 'bg-white text-black hover:bg-black hover:text-white'
+                  timeFilter === key ? 'bg-black text-white' : 'bg-white text-black hover:bg-black hover:text-white'
                 }`}
               >
                 {TIME_LABELS[key]}
@@ -246,7 +414,6 @@ export default function Agenda() {
 
           <div className="w-[2px] h-8 bg-black hidden md:block mx-4" />
 
-          {/* Category filter */}
           <select
             value={catFilter}
             onChange={e => setCatFilter(e.target.value)}
@@ -257,7 +424,6 @@ export default function Agenda() {
             ))}
           </select>
 
-          {/* Municipio filter */}
           <select
             value={municipioFilter}
             onChange={e => setMunicipioFilter(e.target.value)}
@@ -268,16 +434,13 @@ export default function Agenda() {
             ))}
           </select>
 
-          {/* Precio filter */}
           <div className="flex gap-0 -ml-[2px]">
             {([ ['', 'PRECIO'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
               <button
                 key={val}
                 onClick={() => setPrecioFilter(val)}
                 className={`px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black transition-all duration-200 -ml-[2px] first:ml-0 ${
-                  precioFilter === val
-                    ? 'bg-black text-white'
-                    : 'bg-white text-black hover:bg-black hover:text-white'
+                  precioFilter === val ? 'bg-black text-white' : 'bg-white text-black hover:bg-black hover:text-white'
                 }`}
               >
                 {label}
@@ -285,7 +448,6 @@ export default function Agenda() {
             ))}
           </div>
 
-          {/* Zone filter */}
           {zonas.length > 0 && (
             <select
               value={zonaFilter}
@@ -322,14 +484,12 @@ export default function Agenda() {
         {!loading && !error && filtered.length === 0 && (
           <div className="text-center py-16 border-2 border-dashed border-black space-y-4">
             <p className="font-mono text-sm uppercase tracking-wider">
-              {catFilter || zonaFilter
-                ? 'No hay eventos con esos filtros.'
-                : municipioFilter
-                ? `No hay eventos en ${MUNICIPIOS.find(m => m.value === municipioFilter)?.label || municipioFilter}.`
-                : precioFilter === 'gratuito'
-                ? 'No hay eventos gratuitos próximos.'
-                : 'No hay eventos próximos.'
-              }
+              {(() => {
+                if (catFilter || zonaFilter) return 'No hay eventos con esos filtros.'
+                if (municipioFilter) return `No hay eventos en ${MUNICIPIOS.find(m => m.value === municipioFilter)?.label ?? municipioFilter}.`
+                if (precioFilter === 'gratuito') return 'No hay eventos gratuitos próximos.'
+                return 'No hay eventos próximos.'
+              })()}
             </p>
             <div className="flex justify-center">
               <BuscarConAI
@@ -346,7 +506,6 @@ export default function Agenda() {
 
         {!loading && !error && filtered.length > 0 && (
           <div className="space-y-8">
-            {/* count */}
             <p className="text-[11px] font-mono font-bold uppercase tracking-wider">
               {filtered.length} evento{filtered.length === 1 ? '' : 's'} encontrado{filtered.length === 1 ? '' : 's'}
               {totalPages > 1 && ` — página ${page} de ${totalPages}`}
@@ -356,12 +515,8 @@ export default function Agenda() {
               <div key={dateLabel}>
                 <div className="flex items-center gap-3 mb-4">
                   <span className="w-3 h-3 bg-black" />
-                  <h3 className="text-sm font-mono font-bold uppercase tracking-wider">
-                    {dateLabel}
-                  </h3>
-                  <span className="text-[11px] font-mono font-bold">
-                    {dayEvents.length} evento{dayEvents.length > 1 ? 's' : ''}
-                  </span>
+                  <h3 className="text-sm font-mono font-bold uppercase tracking-wider">{dateLabel}</h3>
+                  <span className="text-[11px] font-mono font-bold">{dayEvents.length} evento{dayEvents.length > 1 ? 's' : ''}</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {dayEvents.map((ev) => (
@@ -372,7 +527,6 @@ export default function Agenda() {
               </div>
             ))}
 
-            {/* Pagination controls */}
             {totalPages > 1 && (
               <div className="flex items-center justify-between border-2 border-black p-3">
                 <button
@@ -382,9 +536,7 @@ export default function Agenda() {
                 >
                   ← ANTERIOR
                 </button>
-                <span className="text-xs font-mono font-bold uppercase tracking-wider">
-                  {page} / {totalPages}
-                </span>
+                <span className="text-xs font-mono font-bold uppercase tracking-wider">{page} / {totalPages}</span>
                 <button
                   onClick={() => { setPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
                   disabled={page === totalPages}

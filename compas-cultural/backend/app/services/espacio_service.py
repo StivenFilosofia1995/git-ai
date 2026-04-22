@@ -21,7 +21,8 @@ def get_espacios(
     if barrio:
         query = query.ilike("barrio", f"%{barrio}%")
     if categoria:
-        query = query.contains("categorias", [categoria])
+        # Match if categoria_principal equals OR categorias array contains the value
+        query = query.or_(f"categoria_principal.eq.{categoria},categorias.cs.{{{categoria}}}")
     if tipo:
         query = query.eq("tipo", tipo)
     if nivel_actividad:

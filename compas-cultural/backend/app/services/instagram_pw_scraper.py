@@ -232,7 +232,7 @@ async def fetch_ig_profile(handle: str, timeout_ms: int = 28_000) -> Optional[di
 
 def _parse_api_response(data: dict) -> Optional[dict]:
     """Parse Instagram's web_profile_info API JSON response."""
-    result = {"external_url": None, "biography": "", "captions": [], "image_urls": []}
+    result = {"external_url": None, "biography": "", "captions": [], "image_urls": [], "permalink_urls": []}
     try:
         user = (
             data.get("data", {}).get("user")
@@ -263,6 +263,10 @@ def _parse_api_response(data: dict) -> Optional[dict]:
             img = node.get("display_url") or node.get("thumbnail_src")
             if img:
                 result["image_urls"].append(img)
+            # Permalink
+            shortcode = node.get("shortcode") or node.get("code") or ""
+            permalink = f"https://www.instagram.com/p/{shortcode}/" if shortcode else ""
+            result["permalink_urls"].append(permalink)
 
         if result["biography"] or result["captions"]:
             return result
@@ -281,6 +285,7 @@ def _parse_ig_html(html: str, handle: str) -> Optional[dict]:
         "biography": "",
         "captions": [],
         "image_urls": [],
+        "permalink_urls": [],
     }
 
     # ── Strategy 1: JSON embedded in <script data-sjs> tags ───────────────
@@ -351,6 +356,15 @@ def _extract_from_json(data: any, result: dict, depth: int = 0) -> None:
         # Image URL
         if "display_url" in data and isinstance(data["display_url"], str):
             result["image_urls"].append(data["display_url"])
+        # Permalink via shortcode
+        if "shortcode" in data and isinstance(data["shortcode"], str) and data["shortcode"]:
+            sc = data["shortcode"]
+            permalink = f"https://www.instagram.com/p/{sc}/"
+            # align with captions length so indexes match
+            while len(result["permalink_urls"]) < len(result["captions"]):
+                result["permalink_urls"].append("")
+            if permalink not in result["permalink_urls"]:
+                result["permalink_urls"].append(permalink)
         # Recurse into values
         for v in data.values():
             if isinstance(v, (dict, list)):

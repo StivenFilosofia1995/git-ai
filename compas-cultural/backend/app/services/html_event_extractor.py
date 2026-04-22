@@ -24,6 +24,34 @@ from bs4 import BeautifulSoup
 
 CO_TZ = ZoneInfo("America/Bogota")
 
+# ── Resolve relative image URLs to absolute ───────────────────────────────
+def _to_absolute(base_url: str, src: Optional[str]) -> Optional[str]:
+    """Convert a relative image src to an absolute URL using the page's base URL."""
+    if not src:
+        return None
+    src = src.strip()
+    if not src or src.startswith("data:"):
+        return None
+    if src.startswith("http://") or src.startswith("https://"):
+        return src
+    from urllib.parse import urljoin
+    return urljoin(base_url, src)
+
+
+# ── Resolve relative image URLs to absolute ───────────────────────────────
+def _to_absolute(base_url: str, src: Optional[str]) -> Optional[str]:
+    """Convert a relative image src to an absolute URL using the page's base URL."""
+    if not src:
+        return None
+    src = src.strip()
+    if not src or src.startswith("data:"):
+        return None
+    if src.startswith("http://") or src.startswith("https://"):
+        return src
+    from urllib.parse import urljoin
+    return urljoin(base_url, src)
+
+
 # ── Spanish / English month names ─────────────────────────────────────────
 MESES: dict[str, int] = {
     "enero": 1, "ene": 1, "january": 1, "jan": 1,
@@ -156,7 +184,7 @@ _EVENT_TYPES = {
 }
 
 
-def _extract_jsonld(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now: datetime) -> list[dict]:
+def _extract_jsonld(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now: datetime, base_url: str = "") -> list[dict]:
     events = []
     for script in soup.find_all("script", type="application/ld+json"):
         try:
@@ -192,6 +220,7 @@ def _extract_jsonld(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now:
                     img = img[0] if img else None
                 if isinstance(img, dict):
                     img = img.get("url")
+                img = _to_absolute(base_url, img) if isinstance(img, str) else img
                 offers = item.get("offers", {})
                 precio, gratuito = "Consultar", False
                 for o in ([offers] if isinstance(offers, dict) else offers if isinstance(offers, list) else []):
@@ -213,7 +242,7 @@ def _extract_jsonld(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now:
 
 
 # ── 2. <time> datetime attribute ──────────────────────────────────────────
-def _extract_time_tags(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now: datetime) -> list[dict]:
+def _extract_time_tags(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now: datetime, base_url: str = "") -> list[dict]:
     events = []
     for tag in soup.find_all("time", attrs={"datetime": True}):
         dt = tag.get("datetime", "")
@@ -247,13 +276,13 @@ def _extract_time_tags(soup: BeautifulSoup, nombre_lugar: str, categoria: str, n
         if node:
             im = node.find("img")
             if im:
-                img = im.get("src") or im.get("data-src")
+                img = _to_absolute(base_url, im.get("src") or im.get("data-src") or im.get("data-lazy-src"))
         events.append(_make_event(title, fecha, categoria, nombre_lugar, "time_tag", img=img))
     return events
 
 
 # ── 3. Microdata schema.org ───────────────────────────────────────────────
-def _extract_microdata(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now: datetime) -> list[dict]:
+def _extract_microdata(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now: datetime, base_url: str = "") -> list[dict]:
     events = []
     for el in soup.find_all(attrs={"itemtype": re.compile(r"schema\.org/(Event|MusicEvent|TheaterEvent)", re.I)}):
         name_el = el.find(attrs={"itemprop": "name"})
@@ -266,7 +295,8 @@ def _extract_microdata(soup: BeautifulSoup, nombre_lugar: str, categoria: str, n
         if not fecha or fecha.date() < now.date() or not name:
             continue
         img_el = el.find(attrs={"itemprop": "image"})
-        img = (img_el.get("src") or img_el.get("content")) if img_el else None
+        img_raw = (img_el.get("src") or img_el.get("content")) if img_el else None
+        img = _to_absolute(base_url, img_raw)
         events.append(_make_event(name, fecha, categoria, nombre_lugar, "microdata", img=img))
     return events
 
@@ -313,8 +343,8 @@ def _parse_pablo_tobon(soup: BeautifulSoup, now: datetime) -> list[dict]:
         elif "circo" in ct:
             cat = "otro"
         # Image
-        img = card.find("img")
-        img_url = (img.get("src") or img.get("data-src")) if img else None
+        img_tag = card.find("img")
+        img_url = _to_absolute("https://www.teatropablotobon.com", (img_tag.get("src") or img_tag.get("data-src") or img_tag.get("data-lazy-src")) if img_tag else None)
         events.append(_make_event(title, fecha, cat, "Teatro Pablo Tobón Uribe",
                                   "pablo_tobon_parser", precio, gratuito, img=img_url))
     return events
@@ -407,8 +437,11 @@ def _parse_comfenalco(soup: BeautifulSoup, now: datetime) -> list[dict]:
         if not fecha or fecha.date() < now.date():
             # Default to next week if we found the event but no date
             fecha = now.replace(hour=19, minute=0, second=0, microsecond=0) + timedelta(days=7)
+        # Image
+        img_tag = link.find_previous("img") or (link.parent.find("img") if link.parent else None)
+        img_url = _to_absolute("https://www.comfenalcoantioquia.com.co", (img_tag.get("src") or img_tag.get("data-src")) if img_tag else None)
         events.append(_make_event(title, fecha, "centro_cultural", "Comfenalco Antioquia",
-                                  "comfenalco_parser", "Consultar", False))
+                                  "comfenalco_parser", "Consultar", False, img=img_url))
     return events[:25]
 
 
@@ -504,13 +537,15 @@ def _parse_comfama(soup: BeautifulSoup, now: datetime) -> list[dict]:
         title = heading.get_text(strip=True)
         if not title or len(title) < 5:
             continue
+        img_tag = card.find("img")
+        img_url = _to_absolute("https://comfama.com", (img_tag.get("src") or img_tag.get("data-src") or img_tag.get("data-lazy-src")) if img_tag else None)
         events.append(_make_event(title, fecha, "centro_cultural", "Comfama",
-                                  "comfama_parser", "Consultar", False))
+                                  "comfama_parser", "Consultar", False, img=img_url))
     return events[:20]
 
 
 # ── 5. Generic heading + date fallback ────────────────────────────────────
-def _extract_generic(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now: datetime) -> list[dict]:
+def _extract_generic(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now: datetime, base_url: str = "") -> list[dict]:
     """Generic: find small containers that have BOTH a heading AND a date."""
     events = []
     year = now.year
@@ -541,7 +576,8 @@ def _extract_generic(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now
             continue
         seen_titles.add(tkey)
         img = el.find("img")
-        img_url = (img.get("src") or img.get("data-src")) if img else None
+        img_raw = (img.get("src") or img.get("data-src") or img.get("data-lazy-src") or img.get("data-original")) if img else None
+        img_url = _to_absolute(base_url, img_raw)
         events.append(_make_event(title, fecha, categoria, nombre_lugar, "generic", img=img_url))
 
     return events[:20]
@@ -581,13 +617,13 @@ def extract_events_code(
     now = _now()
 
     # 1. JSON-LD (highest quality — works for most modern cultural sites)
-    events = _extract_jsonld(soup, nombre_lugar, categoria, now)
+    events = _extract_jsonld(soup, nombre_lugar, categoria, now, url)
     if events:
         print(f"    📐 JSON-LD: {len(events)} evento(s)")
         return _dedup(events)
 
     # 2. Microdata schema.org
-    events = _extract_microdata(soup, nombre_lugar, categoria, now)
+    events = _extract_microdata(soup, nombre_lugar, categoria, now, url)
     if events:
         print(f"    📐 Microdata: {len(events)} evento(s)")
         return _dedup(events)
@@ -610,13 +646,13 @@ def extract_events_code(
         return _dedup(events)
 
     # 4. <time> datetime tags
-    events = _extract_time_tags(soup, nombre_lugar, categoria, now)
+    events = _extract_time_tags(soup, nombre_lugar, categoria, now, url)
     if events:
         print(f"    🕐 <time> tags: {len(events)} evento(s)")
         return _dedup(events)
 
     # 5. Generic heading + date
-    events = _extract_generic(soup, nombre_lugar, categoria, now)
+    events = _extract_generic(soup, nombre_lugar, categoria, now, url)
     if events:
         print(f"    🔍 Genérico: {len(events)} evento(s)")
         return _dedup(events)

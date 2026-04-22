@@ -413,7 +413,8 @@ async def _scrape_lugar(lugar: dict) -> dict:
             ig_url = f"https://instagram.com/{clean_handle}"
             for ev in events_ig:
                 ev["_fuente"] = "instagram"
-                ev["_fuente_url"] = ig_url
+                # Use per-post permalink when available, fall back to profile URL
+                ev["_fuente_url"] = ev.pop("_permalink", None) or ig_url
             all_events.extend(events_ig)
             print(f"    📊 Código extrajo {len(events_ig)} evento(s) de IG")
         else:
@@ -460,16 +461,30 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 continue  # Skip events without date
 
             slug = _slugify(titulo)
+            # Dedup by (slug + date) so recurring events with different dates are allowed
+            fecha_date_str = fecha.strftime("%Y-%m-%d")
+            slug_with_date = f"{slug}-{fecha_date_str}"
 
-            # Deduplicate: check by slug
-            existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
+            existing = supabase.table("eventos").select("id").eq("slug", slug_with_date).execute()
             if existing.data:
                 stats["duplicados"] += 1
                 continue
+            # Also check plain slug (legacy entries without date suffix)
+            existing_plain = supabase.table("eventos").select("id").eq("slug", slug).execute()
+            if existing_plain.data:
+                # Check if the existing event has the same date — if so it's a true duplicate
+                existing_event = supabase.table("eventos").select("fecha_inicio").eq("slug", slug).single().execute()
+                if existing_event.data:
+                    ex_date = existing_event.data.get("fecha_inicio", "")[:10]
+                    if ex_date == fecha_date_str:
+                        stats["duplicados"] += 1
+                        continue
+                # Different date — use slug_with_date as slug
+            final_slug = slug_with_date
 
             evento_data = {
                 "titulo": titulo,
-                "slug": slug,
+                "slug": final_slug,
                 "espacio_id": lugar_id,
                 "fecha_inicio": fecha.isoformat(),
                 "fecha_fin": ev.get("fecha_fin"),
