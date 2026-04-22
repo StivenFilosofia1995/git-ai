@@ -70,13 +70,12 @@ async def _run_agenda_alternativa():
 def start_scheduler():
     """Start the periodic scraper. Called from FastAPI lifespan."""
 
-    # ── Auto-scraper: diario a las 2am Colombia ────────────────────────────
-    # Corre a las 2am junto a la agenda alternativa.
+    # ── Auto-scraper: cada 6 horas ──────────────────────────────────────────
     scheduler.add_job(
         _run_scraper_job,
-        trigger=CronTrigger(hour=2, minute=0, timezone=CO_TZ),
+        trigger=IntervalTrigger(hours=6),
         id="auto_scraper",
-        name="Auto-scraper cultural (diario 2am)",
+        name="Auto-scraper cultural (cada 6h)",
         replace_existing=True,
     )
 
@@ -107,12 +106,12 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # ── Agenda alternativa: una vez al día (2am Colombia) ──────────────────
+    # ── Agenda alternativa: cada 6 horas ────────────────────────────────────
     scheduler.add_job(
         _run_agenda_alternativa,
-        trigger=CronTrigger(hour=2, minute=0, timezone=CO_TZ),
+        trigger=IntervalTrigger(hours=6),
         id="agenda_alternativa",
-        name="Agenda alternativa — medios independientes",
+        name="Agenda alternativa — medios independientes (cada 6h)",
         replace_existing=True,
     )
 
@@ -170,11 +169,11 @@ def start_scheduler():
     print("⏰ Scheduler iniciado (zona Colombia):")
     print("   • Limpieza inicial: en 30s (startup)")
     print("   • Scrape inicial: en 90s (startup)")
-    print("   • Auto-scraper: diario a las 2:00am")
+    print("   • Auto-scraper: cada 6h")
     print("   • Social Listener: cada 6h (inicio en 3min)")
     print("   • Discovery: cada 12h")
     print("   • Imágenes: cada 12h")
-    print("   • Agenda alternativa: diaria a las 2:00am")
+    print("   • Agenda alternativa: cada 6h")
     print("   • Limpieza eventos pasados: diaria a las 1:00am")
 
 

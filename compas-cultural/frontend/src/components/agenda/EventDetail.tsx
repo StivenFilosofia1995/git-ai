@@ -5,6 +5,8 @@ interface EventDetailProps {
     titulo: string
     descripcion?: string
     fecha_inicio: string
+    fuente?: string | null
+    hora_confirmada?: boolean | null
     categoria_principal: string
     barrio: string
     nombre_lugar?: string
@@ -13,7 +15,7 @@ interface EventDetailProps {
 }
 
 export default function EventDetail({ evento }: Readonly<EventDetailProps>) {
-  const { diaLargo: fechaFormateada, hora } = getEventDateParts(evento.fecha_inicio)
+  const { diaLargo: fechaFormateada, hora } = getEventDateParts(evento)
   const horaLabel = hora ?? 'Hora por confirmar'
 
   return (

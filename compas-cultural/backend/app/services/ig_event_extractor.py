@@ -22,6 +22,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from app.services.html_event_extractor import parse_date, MESES
+from app.services.event_ocr import extract_hour_from_image_url
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -220,7 +221,12 @@ def _extract_hour(text: str) -> Optional[tuple[int, int]]:
     # Si la hora es ambigua (1-11 sin am/pm), devolvemos None para que
     # la capa superior marque hora_confirmada=False.
     elif not mer and 1 <= h <= 11:
-        return None
+        # Heuristica segura: si hay contexto de noche/espectaculo, asumimos PM.
+        # Si no hay contexto, mantenemos None para no inventar hora.
+        if re.search(r"\b(noche|tarde|show|concierto|funcion|presentaci[oó]n|en vivo|festival)\b", text, re.I):
+            h += 12
+        else:
+            return None
     if not (0 <= h <= 23):
         return None
     return h, mi
@@ -313,6 +319,9 @@ def _caption_to_event(
 
     # Apply extracted hour
     hm = _extract_hour(caption)
+    if hm is None and image_url:
+        # OCR de flyer/poster (EasyOCR + PyTorch, opcional).
+        hm = extract_hour_from_image_url(image_url)
     hora_detectada = hm is not None
     if hm is not None:
         h, mi = hm

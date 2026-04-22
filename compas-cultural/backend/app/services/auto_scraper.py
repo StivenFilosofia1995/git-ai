@@ -948,6 +948,12 @@ async def enrich_event_images() -> dict:
 # ──────────────────────────────────────────────────────────────────────────
 AGENDA_SOURCES = [
     {
+        "nombre": "Compas Urbano - Agenda",
+        "url": "https://compasurbano.com",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
         "nombre": "Vivir en el Poblado - Agenda Cultural",
         "url": "https://vivirenelpoblado.com/agenda-cultural/",
         "categoria_default": "festival",
@@ -992,6 +998,18 @@ AGENDA_SOURCES = [
     {
         "nombre": "Matacandelas - Obras",
         "url": "https://www.matacandelas.com/obras-y-espectaculos/",
+        "categoria_default": "teatro",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Teatro Metropolitano - Programacion",
+        "url": "https://www.teatrometropolitano.com/eventos/",
+        "categoria_default": "teatro",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Casa Teatro El Poblado - Agenda",
+        "url": "https://casateatroelpoblado.com/agenda/",
         "categoria_default": "teatro",
         "municipio": "medellin",
     },
@@ -1075,6 +1093,20 @@ async def scrape_agenda_sources() -> dict:
                     html_raw, src["url"],
                     src["nombre"], src["categoria_default"], src["municipio"]
                 )
+                # Cobertura extra sin AI: si encontramos muy pocos, reintentar con
+                # Playwright aunque el dominio no este marcado como dinamico.
+                if len(events) < 3:
+                    html_pw2 = await fetch_with_playwright(src["url"])
+                    if html_pw2 and len(html_pw2) > 300:
+                        events_pw = extract_events_code(
+                            html_pw2,
+                            src["url"],
+                            src["nombre"],
+                            src["categoria_default"],
+                            src["municipio"],
+                        )
+                        if len(events_pw) > len(events):
+                            events = events_pw
                 if events:
                     print(f"  ✅ Código: {len(events)} evento(s)")
                 elif settings.groq_api_key:
@@ -1185,32 +1217,40 @@ async def scrape_agenda_sources() -> dict:
     return total
 
 
+async def scrape_compas_urbano() -> dict:
+    """Compat wrapper requerido por API/router y scheduler heredados.
+
+    Ejecuta scraping diario de agenda alternativa (incluye Compas Urbano).
+    """
+    return await scrape_agenda_sources()
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Cleanup: remove fully-past events
 # ──────────────────────────────────────────────────────────────────────────
 async def cleanup_past_events() -> dict:
     """
-    Delete events that have fully ended.
+    Delete events that have fully ended long ago.
     Rules:
-    - Multi-day events (fecha_fin set): delete only if fecha_fin < yesterday
-    - Single-day events (no fecha_fin): delete if fecha_inicio < today start
+    - Multi-day events (fecha_fin set): delete only if fecha_fin < retention cutoff
+    - Single-day events (no fecha_fin): delete only if fecha_inicio < retention cutoff
     Multi-day events still running (fecha_fin >= today) are KEPT.
     """
     print("\n🗑️  Limpiando eventos pasados...")
     now_co = _now_co()
     hoy_inicio = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
-    ayer_inicio = hoy_inicio - timedelta(days=1)
+    retention_inicio = hoy_inicio - timedelta(days=30)
     hoy_iso = hoy_inicio.isoformat()
-    ayer_iso = ayer_inicio.isoformat()
+    retention_iso = retention_inicio.isoformat()
 
     removed = 0
 
-    # 1. Single-day events (no fecha_fin) that started before today
+    # 1. Single-day events older than retention window
     try:
         resp = (
             supabase.table("eventos")
             .select("id,titulo,fecha_inicio")
-            .lt("fecha_inicio", hoy_iso)
+            .lt("fecha_inicio", retention_iso)
             .is_("fecha_fin", "null")
             .execute()
         )
@@ -1223,17 +1263,17 @@ async def cleanup_past_events() -> dict:
                 except Exception as e:
                     print(f"    ⚠ Error deleting {ev_id}: {e}")
                 await asyncio.sleep(0)  # yield control between deletes
-        print(f"  🗑️  Eventos de día único pasados eliminados: {len(ids_to_delete)}")
+        print(f"  🗑️  Eventos de día único antiguos eliminados: {len(ids_to_delete)}")
     except Exception as e:
         print(f"  ⚠ Error en cleanup single-day: {e}")
 
-    # 2. Multi-day events where fecha_fin < yesterday
+    # 2. Multi-day events where fecha_fin < retention window
     try:
         resp2 = (
             supabase.table("eventos")
             .select("id,titulo,fecha_fin")
             .not_.is_("fecha_fin", "null")
-            .lt("fecha_fin", ayer_iso)
+            .lt("fecha_fin", retention_iso)
             .execute()
         )
         ids_to_delete2 = [e["id"] for e in (resp2.data or [])]
@@ -1245,7 +1285,7 @@ async def cleanup_past_events() -> dict:
                 except Exception as e:
                     print(f"    ⚠ Error deleting multiday {ev_id}: {e}")
                 await asyncio.sleep(0)
-        print(f"  🗑️  Eventos multi-día pasados eliminados: {len(ids_to_delete2)}")
+        print(f"  🗑️  Eventos multi-día antiguos eliminados: {len(ids_to_delete2)}")
     except Exception as e:
         print(f"  ⚠ Error en cleanup multi-day: {e}")
 
