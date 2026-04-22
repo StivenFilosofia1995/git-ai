@@ -248,7 +248,7 @@ export default function HomeChatSection() {
                     {msg.eventos && msg.eventos.length > 0 && (
                       <div className="space-y-1.5 p-3 pb-0">
                         {msg.eventos.map(ev => {
-                          const { diaCorto: dia, hora } = getEventDateParts(ev.fecha_inicio)
+                          const { diaCorto: dia, hora } = getEventDateParts(ev)
                           return (
                             <Link
                               key={ev.id}
@@ -272,7 +272,7 @@ export default function HomeChatSection() {
                                   )}
                                 </div>
                                 <p className="text-[11px] font-heading font-black uppercase leading-snug truncate">{ev.titulo}</p>
-                                <p className="text-[9px] font-mono opacity-60">{dia} · {hora}{ev.nombre_lugar ? ` · ${ev.nombre_lugar}` : ''}</p>
+                                <p className="text-[9px] font-mono opacity-60">{hora ? `${dia} · ${hora}` : dia}{ev.nombre_lugar ? ` · ${ev.nombre_lugar}` : ''}</p>
                               </div>
                             </Link>
                           )

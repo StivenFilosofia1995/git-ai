@@ -35,25 +35,26 @@ export default function EventoDetalle() {
   if (error) return <div className="max-w-3xl mx-auto px-4 py-12 font-mono border-2 border-black p-4">{error}</div>
   if (!evento) return <div className="max-w-3xl mx-auto px-4 py-12 font-mono">Evento no encontrado</div>
 
-  const { diaLargo: fechaStr, hora: horaStr } = getEventDateParts(evento.fecha_inicio)
+  const { diaLargo: fechaStr, hora: horaStr } = getEventDateParts(evento)
+  const horaLabel = horaStr ?? 'Hora por confirmar'
   const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
   const mapsUrl = evento.lat && evento.lng
     ? `https://www.google.com/maps?q=${evento.lat},${evento.lng}`
     : `https://www.google.com/maps/search/${encodeURIComponent(ubicacionLabel || `${evento.titulo}, Medellin`)}`
   const preguntaEterea = encodeURIComponent(
-    `Recomiendame mas detalles de este evento: ${evento.titulo}. Fecha: ${fechaStr} ${horaStr}. Lugar: ${ubicacionLabel || 'Medellin'}.`
+    `Recomiendame mas detalles de este evento: ${evento.titulo}. Fecha: ${fechaStr} ${horaLabel}. Lugar: ${ubicacionLabel || 'Medellin'}.`
   )
 
   const canonicalUrl = `https://culturaetereamed.com/evento/${slug}`
   const ubicacionLine = ubicacionLabel ? `\n📍 ${ubicacionLabel}` : ''
   const whatsappText = encodeURIComponent(
-    `📅 *${evento.titulo}*\n🗓 ${fechaStr} · ${horaStr}${ubicacionLine}\n\n${canonicalUrl}`
+    `📅 *${evento.titulo}*\n🗓 ${fechaStr}${horaStr ? ` · ${horaStr}` : ' · Hora por confirmar'}${ubicacionLine}\n\n${canonicalUrl}`
   )
   const whatsappUrl = `https://wa.me/?text=${whatsappText}`
   const metaDescription =
     evento.descripcion
       ? evento.descripcion.slice(0, 155)
-      : `${evento.categoria_principal?.replaceAll('_', ' ')} en ${evento.nombre_lugar || evento.municipio}. ${fechaStr} — ${horaStr}.`
+      : `${evento.categoria_principal?.replaceAll('_', ' ')} en ${evento.nombre_lugar || evento.municipio}. ${fechaStr} — ${horaLabel}.`
   const eventSchema = {
     '@context': 'https://schema.org',
     '@type': 'Event',
@@ -141,7 +142,7 @@ export default function EventoDetalle() {
               </div>
               <div>
                 <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">HORA</h3>
-                <p className="text-lg">{horaStr}</p>
+                <p className="text-lg">{horaLabel}</p>
               </div>
               <div>
                 <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">PRECIO</h3>

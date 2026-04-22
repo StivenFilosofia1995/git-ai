@@ -14,6 +14,7 @@ interface EventDetailProps {
 
 export default function EventDetail({ evento }: Readonly<EventDetailProps>) {
   const { diaLargo: fechaFormateada, hora } = getEventDateParts(evento.fecha_inicio)
+  const horaLabel = hora ?? 'Hora por confirmar'
 
   return (
     <div className="border-2 border-black p-6">
@@ -24,7 +25,7 @@ export default function EventDetail({ evento }: Readonly<EventDetailProps>) {
         <div>
           <span className="font-mono font-bold">FECHA</span>
           <p className="capitalize">{fechaFormateada}</p>
-          <p>{hora}</p>
+          <p>{horaLabel}</p>
         </div>
         <div>
           <span className="font-mono font-bold">LUGAR</span>

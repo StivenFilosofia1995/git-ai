@@ -74,9 +74,10 @@ export default function EventosHoySection() {
 }
 
 function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
-  const { diaCorto: dia, hora } = getEventDateParts(evento.fecha_inicio)
+  const { diaCorto: dia, hora } = getEventDateParts(evento)
   const cat = evento.categoria_principal
   const enCurso = (evento as Evento & { _en_curso?: boolean })._en_curso
+  const fechaLabel = hora ? `${dia} · ${hora}` : dia
 
   return (
     <Link
@@ -96,7 +97,7 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
             <div className="flex items-center gap-2 mb-3">
               {enCurso && <span className="text-[9px] font-mono font-bold bg-red-600 px-1.5 py-0.5 uppercase">EN CURSO</span>}
               <span className="w-2 h-2 bg-white" />
-              <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{dia} · {hora}</span>
+              <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{fechaLabel}</span>
             </div>
             <h3 className="font-heading font-black text-sm uppercase tracking-wider mb-2 line-clamp-2 leading-snug">
               {evento.titulo}
@@ -117,7 +118,7 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
           <div className="flex items-center gap-2 mb-3">
             {enCurso && <span className="text-[9px] font-mono font-bold bg-red-600 text-white px-1.5 py-0.5 uppercase">EN CURSO</span>}
             <span className="w-2 h-2 bg-current" />
-            <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{dia} · {hora}</span>
+            <span className="text-[10px] font-mono font-bold tracking-wider uppercase">{fechaLabel}</span>
           </div>
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-current px-2 py-0.5 inline-block mb-3">
             {cat.replaceAll('_', ' ')}

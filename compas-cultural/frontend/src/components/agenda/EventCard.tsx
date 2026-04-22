@@ -31,9 +31,11 @@ const CAT_COLORS: Record<string, string> = {
 }
 
 export default function EventCard({ evento, compact }: Readonly<EventCardProps>) {
-  const { diaCorto: dia, hora } = getEventDateParts(evento.fecha_inicio)
+  const { diaCorto: dia, hora } = getEventDateParts(evento)
   const cat = evento.categoria_principal
   const placeholderColor = CAT_COLORS[cat] ?? '#0a0a0a'
+  const fechaLabel = hora ? `${dia} · ${hora}` : dia
+  const horaPrompt = hora ?? 'Hora por confirmar'
 
   const sourceUrl = evento.fuente_url || null
   const isIg = evento.fuente?.includes('instagram')
@@ -42,7 +44,7 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
     ? `https://www.google.com/maps?q=${evento.lat},${evento.lng}`
     : `https://www.google.com/maps/search/${encodeURIComponent(ubicacionLabel || `${evento.titulo}, Medellin`)}`
   const preguntaEterea = encodeURIComponent(
-    `Quiero saber mas sobre este evento: ${evento.titulo}. Fecha: ${dia} ${hora}. Lugar: ${ubicacionLabel || 'Medellin'}.`
+    `Quiero saber mas sobre este evento: ${evento.titulo}. Fecha: ${dia} ${horaPrompt}. Lugar: ${ubicacionLabel || 'Medellin'}.`
   )
 
   return (
@@ -83,7 +85,7 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-current px-2 py-0.5">
             {cat.replaceAll('_', ' ')}
           </span>
-          <span className="text-[10px] font-mono font-bold">{dia} &middot; {hora}</span>
+          <span className="text-[10px] font-mono font-bold">{fechaLabel}</span>
         </div>
 
         <Link to={`/evento/${evento.slug}`}>

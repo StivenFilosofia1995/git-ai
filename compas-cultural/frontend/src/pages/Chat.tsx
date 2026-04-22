@@ -148,7 +148,7 @@ export default function Chat() {
                     {mensaje.rol === 'compas' && mensaje.eventos && mensaje.eventos.length > 0 && (
                       <div className="space-y-2 p-3 pb-0">
                         {mensaje.eventos.map((ev) => {
-                          const { diaCorto: dia, hora } = getEventDateParts(ev.fecha_inicio)
+                          const { diaCorto: dia, hora } = getEventDateParts(ev)
                           return (
                             <Link
                               key={ev.id}
@@ -175,7 +175,7 @@ export default function Chat() {
                                   {ev.titulo}
                                 </h4>
                                 <div className="flex items-center gap-1.5 mt-1 text-[11px] font-mono opacity-70">
-                                  <span>{dia} · {hora}</span>
+                                  <span>{hora ? `${dia} · ${hora}` : dia}</span>
                                   {ev.nombre_lugar && <span>· {ev.nombre_lugar}</span>}
                                 </div>
                                 {ev.precio && (

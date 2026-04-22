@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { getZona, getZonaCulturaHoy, scrapeZona, type Zona, type Evento, type Espacio } from '../lib/api'
 import BuscarConAI from '../components/ui/BuscarConAI'
-import { formatEventDate } from '../lib/datetime'
+import { getEventDateParts } from '../lib/datetime'
 
 export default function ZonaDetalle() {
   const { slug } = useParams()
@@ -103,6 +103,10 @@ export default function ZonaDetalle() {
                       to={`/evento/${ev.slug}`}
                       className="group block border-b-2 border-r-2 border-black hover:bg-black hover:text-white transition-all duration-300 overflow-hidden"
                     >
+                      {(() => {
+                        const { diaCorto, hora } = getEventDateParts(ev)
+                        return (
+                          <>
                       {ev.imagen_url && (
                         <div className="h-40 overflow-hidden">
                           <img
@@ -125,9 +129,7 @@ export default function ZonaDetalle() {
                           {ev.titulo}
                         </h3>
                         <p className="text-[11px] font-mono opacity-60 group-hover:opacity-100">
-                          {formatEventDate(ev.fecha_inicio, {
-                            weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                          })}
+                          {hora ? `${diaCorto} · ${hora}` : diaCorto}
                         </p>
                         {ev.nombre_lugar && (
                           <p className="text-[10px] font-mono mt-1 opacity-50 group-hover:opacity-80">
@@ -135,6 +137,9 @@ export default function ZonaDetalle() {
                           </p>
                         )}
                       </div>
+                          </>
+                        )
+                      })()}
                     </Link>
                   ))}
                 </div>

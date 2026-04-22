@@ -140,7 +140,7 @@ export default function AISearchBar() {
             {eventos.length > 0 && (
               <div className="space-y-2 mb-4">
                 {eventos.map((ev) => {
-                  const { diaCorto: dia, hora } = getEventDateParts(ev.fecha_inicio)
+                  const { diaCorto: dia, hora } = getEventDateParts(ev)
                   return (
                     <Link
                       key={ev.id}
@@ -167,7 +167,7 @@ export default function AISearchBar() {
                           {ev.titulo}
                         </h4>
                         <div className="flex items-center gap-1.5 mt-1 text-[10px] font-mono opacity-70">
-                          <span>{dia} · {hora}</span>
+                          <span>{hora ? `${dia} · ${hora}` : dia}</span>
                           {ev.nombre_lugar && <span>· {ev.nombre_lugar}</span>}
                         </div>
                       </div>

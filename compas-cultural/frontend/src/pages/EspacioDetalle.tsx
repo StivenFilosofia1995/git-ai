@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, scrapeLugar, type Espacio, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import ReviewSection from '../components/ui/ReviewSection'
-import { formatEventDate } from '../lib/datetime'
+import { formatEventDate, getEventDateParts } from '../lib/datetime'
 
 export default function EspacioDetalle() {
   const { slug } = useParams()
@@ -166,6 +166,7 @@ export default function EspacioDetalle() {
             ) : (
               <div className="space-y-0 border-2 border-black">
                 {eventos.map(ev => {
+                  const { diaCorto, hora } = getEventDateParts(ev)
                   const enCurso = (ev as Evento & { _en_curso?: boolean })._en_curso
                   return (
                     <Link
@@ -180,9 +181,8 @@ export default function EspacioDetalle() {
                           )}
                           <p className="font-heading font-bold uppercase tracking-wider text-sm">{ev.titulo}</p>
                           <p className="text-xs font-mono mt-1">
-                            {formatEventDate(ev.fecha_inicio, { weekday: 'short', day: 'numeric', month: 'short' })}
-                            {' · '}
-                            {formatEventDate(ev.fecha_inicio, { hour: '2-digit', minute: '2-digit' })}
+                            {diaCorto}
+                            {hora ? ` · ${hora}` : ''}
                             {ev.fecha_fin && (
                               <> → {formatEventDate(ev.fecha_fin, { day: 'numeric', month: 'short' })}</>
                             )}

@@ -45,7 +45,7 @@ export default function ChatMessage({ mensaje, eventos, espacios }: ChatMessageP
         {!isUsuario && eventos && eventos.length > 0 && (
           <div className="space-y-1 p-2 pb-0">
             {eventos.map((ev) => {
-              const { diaCorto: dia, hora } = getEventDateParts(ev.fecha_inicio)
+              const { diaCorto: dia, hora } = getEventDateParts(ev)
               return (
                 <Link
                   key={ev.id}
@@ -69,7 +69,7 @@ export default function ChatMessage({ mensaje, eventos, espacios }: ChatMessageP
                       )}
                     </div>
                     <p className="text-[11px] font-black uppercase leading-snug truncate">{ev.titulo}</p>
-                    <p className="text-[9px] opacity-60">{dia} · {hora}</p>
+                    <p className="text-[9px] opacity-60">{hora ? `${dia} · ${hora}` : dia}</p>
                   </div>
                 </Link>
               )
