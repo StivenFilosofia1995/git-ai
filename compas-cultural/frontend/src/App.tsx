@@ -18,6 +18,7 @@ import CompletarPerfil from './pages/CompletarPerfil'
 import PublicarEvento from './pages/PublicarEvento'
 import NotFound from './pages/NotFound'
 import Aportes from './pages/Aportes'
+import Nosotros from './pages/Nosotros'
 import RequireAuth from './components/auth/RequireAuth'
 
 /** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
@@ -69,6 +70,7 @@ function App() {
           <Route path="completar-perfil" element={<CompletarPerfil />} />
           <Route path="publicar" element={<RequireAuth><PublicarEvento /></RequireAuth>} />
           <Route path="aportes" element={<Aportes />} />
+          <Route path="nosotros" element={<Nosotros />} />
         </Route>
         <Route path="/chat" element={<Chat />} />
         <Route path="*" element={<NotFound />} />

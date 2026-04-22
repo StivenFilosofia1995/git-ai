@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/agenda', label: 'Agenda' },
   { to: '/colectivos', label: 'Colectivos' },
   { to: '/mapa', label: 'Mapa' },
+  { to: '/nosotros', label: 'Nosotros' },
 ]
 
 export default function Navigation() {

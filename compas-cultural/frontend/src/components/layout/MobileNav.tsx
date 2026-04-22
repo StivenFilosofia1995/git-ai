@@ -5,7 +5,7 @@ const LINKS = [
   { to: '/explorar', label: 'EXPLORAR', icon: '◆' },
   { to: '/agenda', label: 'AGENDA', icon: '▲' },
   { to: '/colectivos', label: 'COLECTIVOS', icon: '◇' },
-  { to: '/mapa', label: 'MAPA', icon: '●' },
+  { to: '/nosotros', label: 'NOSOTROS', icon: '●' },
 ]
 
 export default function MobileNav() {

@@ -11,7 +11,7 @@ export default function Footer() {
             </div>
             <span className="text-sm font-heading font-black uppercase tracking-wider">Cultura ETÉREA</span>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 flex-wrap">
             {['Explorar', 'Agenda', 'Mapa', 'Registrar'].map(label => (
               <Link
                 key={label}
@@ -21,8 +21,20 @@ export default function Footer() {
                 {label}
               </Link>
             ))}
+            <Link
+              to="/nosotros"
+              className="text-[11px] font-mono font-bold uppercase tracking-wider text-black hover:underline underline-offset-4 transition-all"
+            >
+              Nosotros
+            </Link>
           </div>
           <div className="flex flex-col items-start md:items-end gap-2">
+            <Link
+              to="/nosotros"
+              className="flex items-center gap-2 px-4 py-2 border-2 border-black bg-black text-white text-[11px] font-mono font-bold uppercase tracking-wider hover:bg-white hover:text-black transition-all duration-200"
+            >
+              ◆ Sobre nosotros
+            </Link>
             <Link
               to="/aportes"
               className="flex items-center gap-2 px-4 py-2 border-2 border-black bg-yellow-300 text-black text-[11px] font-mono font-bold uppercase tracking-wider hover:bg-yellow-400 transition-all duration-200"
