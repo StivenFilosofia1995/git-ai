@@ -7,11 +7,12 @@ Recibe el resultado de instagram_pw_scraper.fetch_ig_profile() y extrae
 eventos culturales usando únicamente expresiones regulares y lógica de fechas.
 
 Estrategia por caption:
-  1. Buscar patrones de fecha española/inglesa (parse_date reutilizado)
-  2. Primera línea del caption como título del evento
-  3. Detectar keywords de evento (concierto, taller, función, etc.)
-  4. Extraer precio/gratuidad
-  5. Filtrar solo eventos FUTUROS
+  1. Buscar fecha explícita (parse_date)
+  2. Buscar fecha relativa ("este sábado", "mañana", "hoy", "el viernes")
+  3. Buscar día-de-semana + hora ("viernes 8pm", "sáb 25 | 8PM")
+  4. Detectar keywords de evento (concierto, taller, función, etc.)
+  5. Extraer precio/gratuidad
+  6. Filtrar solo eventos FUTUROS (o próximos 60 días)
 """
 from __future__ import annotations
 
@@ -20,10 +21,20 @@ from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-# Reutilizamos el parser de fechas de html_event_extractor
 from app.services.html_event_extractor import parse_date, MESES
 
 CO_TZ = ZoneInfo("America/Bogota")
+
+# ── Días de semana en español ──────────────────────────────────────────────
+DIAS: dict[str, int] = {
+    "lunes": 0, "lun": 0,
+    "martes": 1, "mar": 1,
+    "miércoles": 2, "miercoles": 2, "mié": 2, "mie": 2,
+    "jueves": 3, "jue": 3,
+    "viernes": 4, "vie": 4,
+    "sábado": 5, "sabado": 5, "sáb": 5, "sab": 5,
+    "domingo": 6, "dom": 6,
+}
 
 # ── Keywords que indican que un caption es un evento ─────────────────────
 EVENT_KEYWORDS = re.compile(
@@ -32,27 +43,55 @@ EVENT_KEYWORDS = re.compile(
     r'muestra|taller|workshop|charla|conversatorio|foro|festival|'
     r'espect[aá]culo|show|noche de|velada|apertura|clausura|'
     r'proyecci[oó]n|premiere|obra|performance|recital|'
-    r'fiesta|rumba|baile|danza|teatro|cine|hip.hop|freestyle|'
-    r'residencia|encuentro|feria|ma[rn]ifestaci[oó]n|happening'
+    r'fiesta|rumba|baile|danza|teatro|cine|hip.?hop|freestyle|'
+    r'residencia|encuentro|feria|manifestaci[oó]n|happening|'
+    r'open\s*mic|jam|ciclo|temporada|gira|tour|convocat|'
+    r'invita[mn]|te\s+espera|te\s+invita|los\s+espera|'
+    r'gratis|entrada\s+libre|boletería|boletas|taquilla|'
+    r'inauguraci[oó]n|clausura|vernissage|finissage|'
+    r'slam|spoken\s*word|breakdance|grafiti|mural|'
+    r'cumbia|vallenato|salsa|reggaeton|electr[oó]nica|'
+    r'circo|malabares|acrobacia|magia|zancos'
     r')\b',
     re.I
 )
 
-# Palabras que indican que NO es evento (descarte rápido)
+# Descarte rápido — posts que claramente no son eventos
 NOISE_KEYWORDS = re.compile(
-    r'\b(gracias|feliz|cumple|navidad|amor|pa[ií]s|gente|familia|instagram|'
-    r'foto|selfie|repost|follow|like|share|dm|info|whatsapp)\b',
+    r'\b(gracias\s+por|feliz\s+cumplea|navidad|día\s+de\s+la\s+madre|'
+    r'selfie|repost|follow|#repost|patrocin|sponsor)\b',
     re.I
 )
 
-# Detectar entrada libre / gratuito
-FREE_RE = re.compile(r'entrada\s+libre|gratis|gratuito|free|sin\s+costo', re.I)
+# Entrada libre / gratuito
+FREE_RE = re.compile(r'entrada\s+libre|gratis|gratuito|free|sin\s+costo|sin\s+cober', re.I)
 PRICE_RE = re.compile(r'\$\s*[\d.,]+(?:\s*[kK])?|[\d.,]+\s*pesos', re.I)
 
-# Extraer hora del caption
+# Hora del caption
 TIME_RE = re.compile(
-    r'\b(\d{1,2})[:\.]?(\d{2})?\s*(?:hrs?|horas?)?\s*(a\.?m\.?|p\.?m\.?|am|pm|h)\b'
+    r'\b(\d{1,2})[:\.](\d{2})\s*(a\.?m\.?|p\.?m\.?|am|pm|h)?\b'
+    r'|\b(\d{1,2})\s*(a\.?m\.?|p\.?m\.?|am|pm|h)\b'
     r'|a\s+las\s+(\d{1,2})(?:[:\.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)?',
+    re.I
+)
+
+# Fecha con día-de-semana + número: "Sáb 25", "viernes 7 de mayo", "sáb 25 | 8PM"
+DAYNUM_RE = re.compile(
+    r'\b(lunes?|lun|martes?|mar|mi[eé]rcoles?|mi[eé]?|jueves?|jue|viernes?|vie|s[aá]bados?|s[aá]b|domingos?|dom)\s+'
+    r'(\d{1,2})'
+    r'(?:\s+(?:de\s+)?(' + '|'.join(MESES.keys()) + r'))?',
+    re.I
+)
+
+# Fechas cortas: "25/04", "25-04", "25.04"
+SHORT_DATE_RE = re.compile(r'\b(\d{1,2})[/\-\.](\d{1,2})(?:[/\-\.](\d{2,4}))?\b')
+
+# Fechas relativas
+RELATIVE_RE = re.compile(
+    r'\b(hoy|mañana|ma[nñ]ana|pasado\s+ma[nñ]ana|'
+    r'este\s+(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|'
+    r'el\s+(?:pr[oó]ximo\s+)?(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|'
+    r'(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\s+(?:pr[oó]ximo|que\s+viene))\b',
     re.I
 )
 
@@ -61,22 +100,114 @@ def _now_co() -> datetime:
     return datetime.now(CO_TZ)
 
 
+def _next_weekday(now: datetime, target_weekday: int) -> datetime:
+    """Return next occurrence of target_weekday (0=Mon, 6=Sun) from now."""
+    days_ahead = target_weekday - now.weekday()
+    if days_ahead <= 0:
+        days_ahead += 7
+    return now + timedelta(days=days_ahead)
+
+
+def _resolve_relative_date(text: str, now: datetime) -> Optional[datetime]:
+    """Parse relative date references like 'este sábado', 'mañana', 'el viernes'."""
+    m = RELATIVE_RE.search(text)
+    if not m:
+        return None
+    token = m.group(0).lower().strip()
+    if "hoy" in token:
+        return now
+    if "mañana" in token or "manana" in token:
+        return now + timedelta(days=1)
+    if "pasado" in token:
+        return now + timedelta(days=2)
+    # Find the day name in the token
+    for name, idx in DIAS.items():
+        if name in token:
+            return _next_weekday(now, idx)
+    return None
+
+
+def _resolve_daynum_date(text: str, now: datetime) -> Optional[datetime]:
+    """Parse 'Sáb 25', 'Sab 25', 'viernes 7 de mayo', 'Vie 25 | 8PM', etc."""
+    m = DAYNUM_RE.search(text)
+    if not m:
+        return None
+    raw_day = m.group(1).lower().rstrip('s')  # strip plural 's' (sabados→sabado)
+    day_num = int(m.group(2))
+    month_name = (m.group(3) or "").lower()
+
+    # Find weekday index: exact match first, then prefix match
+    wd = DIAS.get(raw_day)
+    if wd is None:
+        for key, idx in DIAS.items():
+            if raw_day.startswith(key) or key.startswith(raw_day[:3]):
+                wd = idx
+                break
+
+    month = MESES.get(month_name) if month_name else None
+    year = now.year
+
+    if month:
+        try:
+            dt = datetime(year, month, day_num, 19, 0, tzinfo=CO_TZ)
+            if dt.date() < now.date():
+                dt = dt.replace(year=year + 1)
+            return dt
+        except ValueError:
+            pass
+
+    # No month — find next occurrence of that day number within 14 days
+    for delta in range(0, 14):
+        d = now + timedelta(days=delta)
+        if d.day == day_num:
+            return d.replace(hour=19, minute=0, second=0, microsecond=0, tzinfo=CO_TZ)
+
+    # Fallback: next occurrence of that weekday
+    if wd is not None:
+        return _next_weekday(now, wd).replace(hour=19, minute=0, second=0, microsecond=0)
+    return None
+
+
+def _resolve_short_date(text: str, now: datetime) -> Optional[datetime]:
+    """Parse '25/04', '25-04-2026', '7.5' style dates."""
+    for m in SHORT_DATE_RE.finditer(text):
+        try:
+            d, mo = int(m.group(1)), int(m.group(2))
+            y_raw = m.group(3)
+            if y_raw:
+                y = int(y_raw)
+                if y < 100:
+                    y += 2000
+            else:
+                y = now.year
+            # Validate ranges
+            if not (1 <= d <= 31 and 1 <= mo <= 12):
+                continue
+            dt = datetime(y, mo, d, 19, 0, tzinfo=CO_TZ)
+            if dt.date() < now.date():
+                dt = dt.replace(year=y + 1)
+            if (dt - now).days <= 180:  # within 6 months
+                return dt
+        except (ValueError, OverflowError):
+            continue
+    return None
+
+
 def _extract_hour(text: str) -> tuple[int, int]:
     """Extract hour:minute from any text. Defaults to 19:00."""
     m = TIME_RE.search(text)
     if not m:
         return 19, 0
     g = m.groups()
-    # Pattern 1: "8:30pm" or "8pm" or "20h"
-    if g[0]:
-        h = int(g[0])
-        mi = int(g[1]) if g[1] else 0
-        mer = (g[2] or "").lower().replace(".", "")
-    # Pattern 2: "a las 8:30 pm"
-    elif g[3]:
-        h = int(g[3])
-        mi = int(g[4]) if g[4] else 0
-        mer = (g[5] or "").lower().replace(".", "")
+    # "8:30pm" or "8:30"
+    if g[0] and g[1]:
+        h, mi, mer = int(g[0]), int(g[1]), (g[2] or "").lower().replace(".", "")
+    # "8pm" or "8h"
+    elif g[3] and g[4]:
+        h, mi, mer = int(g[3]), 0, g[4].lower().replace(".", "")
+    # "a las 8:30pm"
+    elif g[5]:
+        h, mi, mer = int(g[5]), int(g[6]) if g[6] else 0, (g[7] or "").lower().replace(".", "")
     else:
         return 19, 0
 
@@ -91,17 +222,12 @@ def _extract_hour(text: str) -> tuple[int, int]:
 
 def _clean_title(line: str) -> str:
     """Remove emojis and extra punctuation from a caption title line."""
-    # Remove common emoji ranges
-    line = re.sub(r'[\U0001F300-\U0001FFFF\U00002600-\U000027BF]', '', line)
-    # Remove hashtags and mentions
+    line = re.sub(r'[\U0001F300-\U0001FFFF\U00002600-\U000027BF\u2300-\u23FF]', '', line)
     line = re.sub(r'#\S+|@\S+', '', line)
-    # Remove URLs
     line = re.sub(r'https?://\S+', '', line)
-    # Normalize spaces
     line = re.sub(r'\s+', ' ', line).strip()
-    # Strip trailing punctuation
-    line = line.strip('.,;:!?-–—')
-    return line
+    line = line.strip('.,;:!?-–—◆▸▹►▻▼▽△▲◀▶★☆✦✧✨✩✪✫✬✭✮✯✰❋●○◉◎◌◍')
+    return line.strip()
 
 
 def _extract_price(caption: str) -> tuple[str, bool]:
@@ -114,6 +240,40 @@ def _extract_price(caption: str) -> tuple[str, bool]:
     return "Consultar", False
 
 
+def _find_date(caption: str, now: datetime) -> Optional[datetime]:
+    """Try all date resolution strategies on a caption."""
+    # 1. parse_date (full Spanish date patterns)
+    fecha = parse_date(caption, now.year)
+    if fecha:
+        if fecha.date() < now.date():
+            bumped = fecha.replace(year=now.year + 1)
+            if bumped.date() >= now.date():
+                return bumped
+        return fecha
+
+    # 2. Relative date
+    fecha = _resolve_relative_date(caption, now)
+    if fecha and fecha.date() >= now.date():
+        return fecha
+
+    # 3. Day + number (Sáb 25)
+    fecha = _resolve_daynum_date(caption, now)
+    if fecha and fecha.date() >= now.date():
+        return fecha
+
+    # 4. Short date 25/04
+    fecha = _resolve_short_date(caption, now)
+    if fecha and fecha.date() >= now.date():
+        return fecha
+
+    # 5. Try next year for explicit dates already passed
+    fecha = parse_date(caption, now.year + 1)
+    if fecha and fecha.date() >= now.date():
+        return fecha
+
+    return None
+
+
 def _caption_to_event(
     caption: str,
     image_url: Optional[str],
@@ -124,37 +284,26 @@ def _caption_to_event(
 ) -> Optional[dict]:
     """
     Try to extract a single structured event from an Instagram caption.
-    Returns None if no valid future event is found.
+    Returns None if caption is clearly not an event.
     """
-    if not caption or len(caption) < 20:
+    if not caption or len(caption) < 15:
         return None
 
-    # Quick noise filter
-    if NOISE_KEYWORDS.search(caption) and not EVENT_KEYWORDS.search(caption):
+    # Hard noise filter
+    if NOISE_KEYWORDS.search(caption):
         return None
 
-    # Must contain either an event keyword OR a clear date pattern
     has_event_kw = bool(EVENT_KEYWORDS.search(caption))
+    fecha = _find_date(caption, now)
 
-    # Find date
-    fecha = parse_date(caption, now.year)
-    if not fecha:
-        # Try next year if months already passed
-        fecha = parse_date(caption, now.year + 1)
-    if not fecha:
-        if not has_event_kw:
-            return None
-        # No date but has event keyword → skip (can't insert without date)
+    # Need at least: (event keyword) OR (explicit date)
+    if not fecha and not has_event_kw:
         return None
 
-    # Must be in the future
-    if fecha.date() < now.date():
-        # Try bumping to next year if date already passed
-        bumped = fecha.replace(year=now.year + 1)
-        if bumped.date() >= now.date():
-            fecha = bumped
-        else:
-            return None
+    # If there's a date but no keyword, still include (date alone is strong signal for IG posts)
+    # If there's a keyword but no date, skip (can't insert without date)
+    if not fecha:
+        return None
 
     # Apply extracted hour
     h, mi = _extract_hour(caption)
@@ -163,24 +312,21 @@ def _caption_to_event(
     except Exception:
         pass
 
-    # Build title: use first non-empty line (cleaned)
+    # Build title: first non-empty line (cleaned)
     lines = [ln.strip() for ln in caption.split("\n") if ln.strip()]
     title_raw = lines[0] if lines else caption[:80]
     title = _clean_title(title_raw)
 
-    # If title is empty or too short, use nombre_lugar + event keyword match
     if len(title) < 4:
         kw_m = EVENT_KEYWORDS.search(caption)
         title = f"{kw_m.group(0).capitalize()} en {nombre_lugar}" if kw_m else nombre_lugar
 
-    # Title length guard
     title = title[:120]
 
-    # Description: next 2 meaningful lines
+    # Description: next meaningful lines
     desc_lines = [_clean_title(ln) for ln in lines[1:4] if len(ln.strip()) > 10]
     desc = " | ".join(desc_lines)[:400] or None
 
-    # Price
     precio, es_gratuito = _extract_price(caption)
 
     return {
@@ -221,8 +367,13 @@ def extract_events_from_ig_profile(
     for i, caption in enumerate(captions):
         img = image_urls[i] if i < len(image_urls) else None
         ev = _caption_to_event(caption, img, nombre_lugar, categoria, municipio, now)
-        if ev and ev["titulo"].lower() not in seen_titles:
-            seen_titles.add(ev["titulo"].lower())
-            events.append(ev)
+        if ev:
+            title_key = ev["titulo"].lower()[:50]
+            if title_key not in seen_titles:
+                seen_titles.add(title_key)
+                events.append(ev)
 
     return events
+
+
+# ── Keywords que indican que un caption es un evento ─────────────────────

@@ -1,15 +1,18 @@
 """
 instagram_pw_scraper.py
 =======================
-Scraper de perfiles de Instagram usando Playwright (Chromium headless).
-NO usa tokens de AI. Lee el HTML renderizado del perfil y extrae:
-  - external_url (sitio web del perfil)
-  - biography
-  - ultimas captions de posts (texto plano, para buscar eventos)
-  - image_urls de los posts recientes
+Scraper de perfiles de Instagram — CERO tokens de AI.
+Extrae datos públicos usando tres estrategias en cascada:
 
-Requiere: playwright (ya en requirements.txt)
-          playwright install chromium  (una sola vez)
+  1. httpx → Instagram web_profile_info API  (rápido, sin browser)
+  2. httpx → HTML plano + regex              (fallback ligero)
+  3. Playwright Chromium headless            (fallback pesado, más fiable)
+
+Extracciones:
+  - external_url  (sitio web del perfil)
+  - biography
+  - captions      (últimos posts, texto plano)
+  - image_urls
 
 Uso directo (test):
     cd backend
@@ -20,30 +23,132 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import re
 import sys
 from typing import Optional
 
+import httpx
 
-# ── Selectores CSS que usa Instagram para los datos del perfil ─────────────
-# Estos datos están embebidos como JSON en <script type="application/json">
-# con el atributo data-sjs o como window.__additionalDataLoaded
-_SCRIPT_STYPE = "script[type='application/json'][data-sjs]"
+# ── User-agents rotativos para evitar bloqueos ────────────────────────────
+_UA_LIST = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+]
+
+# ── Instagram App IDs (rotativos) ─────────────────────────────────────────
+_IG_APP_IDS = ["936619743392459", "1217981644879628", "124024574287414"]
 
 
-async def fetch_ig_profile(handle: str, timeout_ms: int = 25_000) -> Optional[dict]:
+def _random_ua() -> str:
+    return random.choice(_UA_LIST)
+
+def _random_app_id() -> str:
+    return random.choice(_IG_APP_IDS)
+
+
+async def _fetch_via_httpx_api(handle: str) -> Optional[dict]:
     """
-    Fetch public Instagram profile data using Playwright.
+    Strategy 1: Hit Instagram's internal web_profile_info endpoint directly.
+    Works for many public profiles without a browser.
+    """
+    url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
+    ua = _random_ua()
+    headers = {
+        "User-Agent": ua,
+        "Accept": "*/*",
+        "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+        "X-IG-App-ID": _random_app_id(),
+        "X-ASBD-ID": "129477",
+        "X-IG-WWW-Claim": "0",
+        "Referer": f"https://www.instagram.com/{handle}/",
+        "Origin": "https://www.instagram.com",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+    }
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=12.0,
+            headers={"User-Agent": ua},
+        ) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                result = _parse_api_response(data)
+                if result and (result.get("captions") or result.get("biography")):
+                    print(f"    ✅ httpx-api: {len(result.get('captions', []))} posts")
+                    return result
+    except Exception as e:
+        print(f"    ℹ httpx-api falló ({e.__class__.__name__}), intentando HTML...")
+    return None
 
-    Strategy: intercept the XHR calls that Instagram's own JS makes to
-    /api/v1/users/web_profile_info/?username=X — this returns full JSON
-    with biography, external_url, and recent posts.
+
+async def _fetch_via_httpx_html(handle: str) -> Optional[dict]:
+    """
+    Strategy 2: Fetch the plain HTML page and extract embedded JSON.
+    No browser needed. Works when Instagram embeds profile data in script tags.
+    """
+    url = f"https://www.instagram.com/{handle}/"
+    ua = _random_ua()
+    headers = {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.instagram.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Cache-Control": "no-cache",
+    }
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=15.0,
+        ) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                html = resp.text
+                result = _parse_ig_html(html, handle)
+                if result and (result.get("captions") or result.get("biography")):
+                    print(f"    ✅ httpx-html: {len(result.get('captions', []))} posts")
+                    return result
+    except Exception as e:
+        print(f"    ℹ httpx-html falló ({e.__class__.__name__}), intentando Playwright...")
+    return None
+
+
+async def fetch_ig_profile(handle: str, timeout_ms: int = 28_000) -> Optional[dict]:
+    """
+    Fetch public Instagram profile data.
+
+    Three-strategy cascade (fast → heavy):
+      1. httpx → Instagram web_profile_info API  (no browser, ~3s)
+      2. httpx → plain HTML + embedded JSON       (no browser, ~5s)
+      3. Playwright Chromium headless             (browser, ~25s, last resort)
 
     Returns a dict with keys: external_url, biography, captions (list[str]), image_urls (list[str])
-    Returns None if profile not found or blocked.
+    Returns None if all strategies fail (private/blocked profile).
     """
     clean = handle.lstrip("@").strip().split("/")[0]
+    print(f"    🔎 IG fetch: @{clean}")
 
+    # ── Strategy 1: httpx API ──────────────────────────────────────────────
+    result = await _fetch_via_httpx_api(clean)
+    if result:
+        return result
+
+    # ── Strategy 2: httpx plain HTML ──────────────────────────────────────
+    result = await _fetch_via_httpx_html(clean)
+    if result:
+        return result
+
+    # ── Strategy 3: Playwright (last resort) ──────────────────────────────
+    print(f"    🎭 Playwright fallback para @{clean}...")
     try:
         from playwright.async_api import async_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -52,74 +157,77 @@ async def fetch_ig_profile(handle: str, timeout_ms: int = 25_000) -> Optional[di
 
     captured_api: dict = {}
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--disable-extensions",
-            ],
-        )
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 900},
-            locale="es-CO",
-            extra_http_headers={
-                "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
-            },
-        )
-        # Hide webdriver flag
-        await context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
-        page = await context.new_page()
-
-        # ── Intercept Instagram's internal XHR API responses ──────────────
-        async def on_response(response):
-            url = response.url
-            if "web_profile_info" in url or (
-                "graphql/query" in url and "edge_owner_to_timeline_media" in url
-            ):
-                try:
-                    body = await response.json()
-                    captured_api.update(body)
-                except Exception:
-                    pass
-
-        page.on("response", on_response)
-
-        try:
-            await page.goto(
-                f"https://www.instagram.com/{clean}/",
-                wait_until="domcontentloaded",
-                timeout=timeout_ms,
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--disable-extensions",
+                    "--disable-setuid-sandbox",
+                    "--single-process",
+                ],
             )
-            # Give JS time to fire the XHR calls
+            context = await browser.new_context(
+                user_agent=_random_ua(),
+                viewport={"width": 1280, "height": 900},
+                locale="es-CO",
+                extra_http_headers={
+                    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+                    "X-IG-App-ID": _random_app_id(),
+                },
+            )
+            await context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+            page = await context.new_page()
+
+            async def on_response(response):
+                url = response.url
+                if "web_profile_info" in url or (
+                    "graphql/query" in url and "edge_owner_to_timeline_media" in url
+                ):
+                    try:
+                        body = await response.json()
+                        captured_api.update(body)
+                    except Exception:
+                        pass
+
+            page.on("response", on_response)
+
             try:
-                await page.wait_for_selector("article, main", timeout=10_000)
+                await page.goto(
+                    f"https://www.instagram.com/{clean}/",
+                    wait_until="domcontentloaded",
+                    timeout=timeout_ms,
+                )
+                try:
+                    await page.wait_for_selector("article, main", timeout=10_000)
+                except PWTimeout:
+                    pass
+                await page.wait_for_timeout(3000)
             except PWTimeout:
                 pass
-            await page.wait_for_timeout(3000)
-        except PWTimeout:
-            pass
 
-        html = await page.content()
-        await browser.close()
+            html = await page.content()
+            await browser.close()
 
-    # ── Parse captured API response first (richest data) ──────────────────
-    if captured_api:
-        result = _parse_api_response(captured_api)
-        if result:
-            return result
+        if captured_api:
+            pw_result = _parse_api_response(captured_api)
+            if pw_result:
+                print(f"    ✅ Playwright-api: {len(pw_result.get('captions', []))} posts")
+                return pw_result
 
-    # ── Fallback: parse raw HTML ───────────────────────────────────────────
-    return _parse_ig_html(html, clean)
+        pw_result = _parse_ig_html(html, clean)
+        if pw_result:
+            print(f"    ✅ Playwright-html: {len(pw_result.get('captions', []))} posts")
+        return pw_result
+
+    except Exception as e:
+        print(f"    ⚠ Playwright error: {e.__class__.__name__}: {e}")
+        return None
 
 
 def _parse_api_response(data: dict) -> Optional[dict]:
@@ -289,7 +397,7 @@ def profile_to_scraper_text(profile: dict, handle: str) -> str:
 # ── CLI test ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     handle = sys.argv[1] if len(sys.argv) > 1 else "casadelteatro"
-    print(f"Scraping @{handle} via Playwright...")
+    print(f"Scraping @{handle} (httpx → Playwright cascade)...")
 
     result = asyncio.run(fetch_ig_profile(handle))
     if not result:
