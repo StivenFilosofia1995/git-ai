@@ -21,6 +21,7 @@ from app.services.groq_client import groq_chat, parse_json_response, MODEL_SMART
 from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 from app.services.event_ocr import extract_hour_from_image_url
+from app.services.rss_scraper import get_or_discover_feed, parse_rss_events
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -1034,6 +1035,18 @@ AGENDA_SOURCES = [
         "categoria_default": "teatro",
         "municipio": "medellin",
     },
+    {
+        "nombre": "Parque Explora - Agenda",
+        "url": "https://www.parqueexplora.org/agenda/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Museo de Antioquia - Programación",
+        "url": "https://museodeantioquia.co/agenda/",
+        "categoria_default": "galeria",
+        "municipio": "medellin",
+    },
 ]
 
 AGENDA_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
@@ -1146,6 +1159,21 @@ async def scrape_agenda_sources() -> dict:
                     events = _extract_events_with_groq(prompt)
                     if events:
                         print(f"  🧠 Groq: {len(events)} evento(s)")
+                if not events:
+                    feed_url = await get_or_discover_feed(src["url"])
+                    if feed_url:
+                        rss_events = await parse_rss_events(
+                            feed_url,
+                            {
+                                "id": None,
+                                "nombre": src["nombre"],
+                                "municipio": src["municipio"],
+                                "categoria_principal": src["categoria_default"],
+                            },
+                        )
+                        if rss_events:
+                            events = rss_events
+                            print(f"  📰 RSS: {len(events)} evento(s) desde {feed_url}")
             else:
                 print(f"  ⚠ Sin eventos de código para {src['nombre']} (sin fallback AI)")  
             if not events:
@@ -1319,4 +1347,3 @@ async def cleanup_past_events() -> dict:
         detalle={"eliminados": removed},
     )
     return {"eliminados": removed}
-

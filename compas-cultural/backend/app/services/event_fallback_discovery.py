@@ -154,6 +154,34 @@ def _resolve_colectivo_by_slug(slug: Optional[str]) -> Optional[dict]:
         return None
 
 
+def _find_candidate_lugares(
+    *,
+    municipio: Optional[str],
+    categoria: Optional[str],
+    texto: Optional[str],
+    limit: int = 6,
+) -> list[dict]:
+    """Find likely matching lugares for user search filters.
+
+    This allows the public discovery flow to scrape places relevant to what
+    users typed, not only a generic zona sample.
+    """
+    try:
+        query = supabase.table("lugares").select(
+            "id,nombre,slug,municipio,categoria_principal"
+        )
+        if municipio:
+            query = query.eq("municipio", municipio)
+        if categoria:
+            query = query.eq("categoria_principal", categoria)
+        if texto:
+            query = query.ilike("nombre", f"%{texto[:80]}%")
+        resp = query.limit(limit).execute()
+        return resp.data or []
+    except Exception:
+        return []
+
+
 def _parse_iso_maybe(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -248,6 +276,7 @@ async def discover_events_for_filters(
         "nuevos": 0,
         "duplicados": 0,
         "errores": 0,
+        "lugares_scrapeados": 0,
         "consultas": [],
         "urls_analizadas": 0,
         "colectivo": None,
@@ -260,9 +289,36 @@ async def discover_events_for_filters(
     if colectivo:
         stats["colectivo"] = colectivo.get("slug")
 
+    # 0) Scrape lugares que coinciden con lo que buscó el usuario.
+    #    Esto hace que la búsqueda "con AI" también actualice agendas de
+    #    espacios relevantes para toda la plataforma.
+    candidate_lugares = _find_candidate_lugares(
+        municipio=municipio,
+        categoria=categoria,
+        texto=texto,
+        limit=6,
+    )
+    seen_lugar_ids: set[str] = set()
+    if colectivo and colectivo.get("id"):
+        seen_lugar_ids.add(colectivo["id"])
+
+    for lugar in candidate_lugares:
+        lugar_id = lugar.get("id")
+        if not lugar_id or lugar_id in seen_lugar_ids:
+            continue
+        seen_lugar_ids.add(lugar_id)
+        try:
+            single = await asyncio.wait_for(scrape_single_lugar(lugar_id), timeout=20)
+            stats["lugares_scrapeados"] += 1
+            stats["nuevos"] += int(single.get("nuevos", 0) or 0)
+            stats["duplicados"] += int(single.get("duplicados", 0) or 0)
+        except Exception:
+            stats["errores"] += 1
+
     try:
-        if colectivo and colectivo.get("id"):
+        if colectivo and colectivo.get("id") and colectivo["id"] not in seen_lugar_ids:
             single = await asyncio.wait_for(scrape_single_lugar(colectivo["id"]), timeout=25)
+            stats["lugares_scrapeados"] += 1
             stats["nuevos"] += int(single.get("nuevos", 0) or 0)
             stats["duplicados"] += int(single.get("duplicados", 0) or 0)
     except Exception:
