@@ -21,11 +21,11 @@ def _now_co() -> datetime:
     return datetime.now(CO_TZ)
 
 EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
-Analiza el contenido de esta página web y extrae información cultural estructurada.
+Analiza el contenido de esta página web o perfil de Instagram y extrae información cultural estructurada.
 
 URL original: {url}
 
-Contenido extraído de la página:
+Contenido extraído:
 ---
 {contenido}
 ---
@@ -57,21 +57,36 @@ Extrae la información en formato JSON con esta estructura exacta:
       "categorias": ["lista"],
       "fecha_inicio": "YYYY-MM-DDTHH:MM:SS (si es posible determinar la fecha)",
       "fecha_fin": "YYYY-MM-DDTHH:MM:SS (opcional)",
-      "descripcion": "descripción del evento",
+      "descripcion": "descripción del evento (usa el texto del post si viene de Instagram)",
       "barrio": "barrio",
       "nombre_lugar": "dónde se realiza",
       "precio": "precio o 'Entrada libre'",
       "es_gratuito": true/false,
       "es_recurrente": true/false,
-      "imagen_url": "URL de la imagen o póster del evento (si existe)"
+      "imagen_url": "URL de la imagen del post si viene de Instagram"
     }}
   ]
 }}
 
-Reglas:
-- Si no puedes determinar un campo, usa null.
-- Para fechas, solo incluye eventos FUTUROS (después de {fecha_actual}).
-- Si la página NO tiene contenido cultural, responde: {{"tipo": "ninguno", "razon": "explicación"}}
+Reglas IMPORTANTES para Instagram:
+- Si el contenido viene de posts de Instagram (marcados como [POST N]):
+  * Analiza CADA post y decide si es un evento (tiene fecha, hora, lugar, convocatoria) o no
+  * Si es evento: inclúyelo en "eventos" con toda la info disponible
+  * Si NO es evento (promoción, opinión, foto cotidiana): ignóralo, no lo incluyas
+  * Para fechas relativas (ej: "este sábado", "25 de abril"): calcula la fecha absoluta desde hoy {fecha_actual}
+  * Si no hay fecha clara, usa null en fecha_inicio (igual inclúyelo como evento si es evidente)
+  * Para "imagen_url": usa la URL [IMAGE_URL] del mismo post si aparece, o null
+- Si el tipo de espacio no está claro pero es Instagram de un colectivo cultural, usa tipo="colectivo"
+- Si municipio no está claro, asume "medellin"
+- Incluye TANTO el espacio como los eventos (tipo="ambos") cuando sea Instagram de un lugar cultural
+- Si el contenido dice que Instagram bloqueó el acceso, IGUAL registra el espacio con los datos del handle:
+  * nombre = el handle limpio (ej: "Refugios CO" de @refugios.co)
+  * tipo = "colectivo"
+  * instagram_handle = @handle
+  * municipio = "medellin"
+  * Devuelve tipo="espacio" (sin eventos)
+- Para fechas, incluye eventos FUTUROS y presentes (a partir de {fecha_actual}); si la fecha es null, incluirlo igual
+- Si la página NO tiene contenido cultural (no es IG de un colectivo/espacio/evento), responde: {{"tipo": "ninguno", "razon": "explicación"}}
 - Responde SOLO con el JSON, sin texto adicional.
 """
 
@@ -88,20 +103,55 @@ def _slugify(text: str) -> str:
     return text.strip("-")[:250]
 
 
-async def _fetch_page(url: str) -> tuple[str, str | None]:
-    """Fetch page content. For Instagram, skips direct fetch (429/login wall) and uses Meta API."""
+async def _fetch_ig_profile_data(handle: str) -> tuple[str, str | None, list[str], list[str]]:
+    """
+    Try every available strategy to fetch Instagram profile data.
+    Returns (text_for_llm, first_image_url, all_image_urls, permalink_urls).
+    Never raises — always returns something usable.
+    """
+    clean = handle.lstrip("@").strip().split("/")[0]
+    profile: dict | None = None
 
-    # ── Instagram: never fetch directly — go straight to Meta API + fallbacks ──
+    # 1. Meta Graph API (best quality, needs credentials)
+    try:
+        from app.services.auto_scraper import _fetch_ig_profile_via_meta_api
+        profile = await _fetch_ig_profile_via_meta_api(clean)
+    except Exception as e:
+        print(f"[scraper_llm] Meta API error: {e}")
+
+    # 2. instagram_pw_scraper cascade (httpx-api → httpx-html → playwright)
+    if not profile or not (profile.get("captions") or profile.get("biography")):
+        try:
+            from app.services.instagram_pw_scraper import fetch_ig_profile
+            profile = await fetch_ig_profile(clean)
+        except Exception as e:
+            print(f"[scraper_llm] PW scraper error: {e}")
+
+    if profile and (profile.get("captions") or profile.get("biography")):
+        from app.services.instagram_pw_scraper import profile_to_scraper_text
+        text = f"Instagram profile: @{clean}\n\n{profile_to_scraper_text(profile, clean)}"
+        images = profile.get("image_urls", [])
+        perms = profile.get("permalink_urls", [])
+        first_img = images[0] if images else None
+        return text[:8000], first_img, images[:8], perms[:8]
+
+    # All strategies failed — return enough for a minimal colectivo record
+    text = (
+        f"Instagram profile: @{clean}\n"
+        f"[Contenido no disponible — Instagram bloqueó el acceso público]\n"
+        f"Registrar como colectivo cultural con handle @{clean} en Medellín."
+    )
+    return text[:8000], None, [], []
+
+
+async def _fetch_page(url: str) -> tuple[str, str | None]:
+    """Fetch page content. For Instagram, uses multi-strategy scraper."""
+
+    # ── Instagram: use full cascade ────────────────────────────────────────
     if "instagram.com" in url:
         ig_handle = _extract_ig_handle(url)
-        rich_content = ""
-        try:
-            from app.services.auto_scraper import _fetch_instagram_profile as _ig_fetch
-            rich_content = await _ig_fetch(ig_handle) or ""
-        except Exception as e:
-            print(f"[scraper_llm] IG fetch failed for @{ig_handle}: {e}")
-        text = f"Instagram profile: @{ig_handle}\n\n{rich_content}" if rich_content else f"Instagram profile: @{ig_handle}\nNo se pudo obtener contenido del perfil."
-        return text[:8000], None
+        text, first_img, _, _ = await _fetch_ig_profile_data(ig_handle)
+        return text, first_img
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -197,7 +247,7 @@ def _extract_with_llm(url: str, page_text: str) -> dict:
 
 
 async def procesar_solicitud_scraping(solicitud_id: int) -> None:
-    """Background task: fetch URL, analyze with Claude, create records."""
+    """Background task: fetch URL, analyze with LLM, create records."""
     try:
         # Load solicitud
         resp = supabase.table("solicitudes_registro").select("*").eq("id", solicitud_id).single().execute()
@@ -205,23 +255,56 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
         if not solicitud:
             return
 
+        url = solicitud["url"]
+        is_instagram = "instagram.com" in url
+
         # Update status
         supabase.table("solicitudes_registro").update({
             "estado": "procesando",
             "mensaje": "Descargando contenido de la URL…",
         }).eq("id", solicitud_id).execute()
 
-        # Fetch page
-        page_text, og_image = await _fetch_page(solicitud["url"])
+        # For Instagram: use full cascade and capture all post images
+        ig_profile_images: list[str] = []
+        ig_permalink_urls: list[str] = []
+        og_image: str | None = None
+
+        if is_instagram:
+            ig_handle = _extract_ig_handle(url)
+            page_text, og_image, ig_profile_images, ig_permalink_urls = await _fetch_ig_profile_data(ig_handle)
+        else:
+            page_text, og_image = await _fetch_page(url)
 
         supabase.table("solicitudes_registro").update({
             "mensaje": "Analizando contenido con inteligencia artificial…",
         }).eq("id", solicitud_id).execute()
 
         # Analyze with Groq LLM
-        data = _extract_with_llm(solicitud["url"], page_text)
+        data = _extract_with_llm(url, page_text)
 
-        if data.get("tipo") == "ninguno":
+        # For Instagram: if LLM says "ninguno" but we have a handle → override and create minimal record
+        if data.get("tipo") == "ninguno" and is_instagram:
+            ig_handle = _extract_ig_handle(url)
+            nombre_limpio = ig_handle.replace(".", " ").replace("_", " ").title()
+            data = {
+                "tipo": "espacio",
+                "espacio": {
+                    "nombre": nombre_limpio,
+                    "tipo": "colectivo",
+                    "categoria_principal": "otro",
+                    "categorias": [],
+                    "municipio": "medellin",
+                    "instagram_handle": f"@{ig_handle}",
+                    "sitio_web": url,
+                    "descripcion_corta": f"Colectivo cultural @{ig_handle}",
+                    "es_underground": True,
+                    "es_institucional": False,
+                },
+                "eventos": [],
+            }
+            print(f"[scraper_llm] IG fallback: creando colectivo mínimo para @{ig_handle}")
+
+        elif data.get("tipo") == "ninguno":
             supabase.table("solicitudes_registro").update({
                 "estado": "fallido",
                 "datos_extraidos": data,
@@ -234,7 +317,7 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
         # Create lugar if present
         if data.get("espacio") and data["tipo"] in ("espacio", "ambos"):
             esp = data["espacio"]
-            nombre = esp.get("nombre", "Sin nombre")
+            nombre = esp.get("nombre") or _extract_ig_handle(url).replace(".", " ").replace("_", " ").title()
             slug = _slugify(nombre)
 
             # Check for duplicates
@@ -254,7 +337,7 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
                 "descripcion_corta": (esp.get("descripcion_corta") or "")[:300] or None,
                 "descripcion": esp.get("descripcion") or None,
                 "instagram_handle": esp.get("instagram_handle") or None,
-                "sitio_web": esp.get("sitio_web") or solicitud["url"],
+                "sitio_web": esp.get("sitio_web") or url,
                 "telefono": esp.get("telefono") or None,
                 "email": esp.get("email") or None,
                 "es_underground": esp.get("es_underground") or False,
@@ -267,13 +350,12 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
                 lugar_data["municipio"] = "medellin"
 
             # If source is Instagram, ensure handle is set
-            if "instagram.com" in solicitud["url"]:
-                if not lugar_data["instagram_handle"]:
-                    handle = _extract_ig_handle(solicitud["url"])
-                    if handle:
-                        lugar_data["instagram_handle"] = f"@{handle}"
+            if is_instagram:
+                handle = _extract_ig_handle(url)
+                if not lugar_data["instagram_handle"] and handle:
+                    lugar_data["instagram_handle"] = f"@{handle}"
                 if not lugar_data["sitio_web"] or "instagram.com" in lugar_data["sitio_web"]:
-                    lugar_data["sitio_web"] = solicitud["url"]
+                    lugar_data["sitio_web"] = url
             insert_resp = supabase.table("lugares").insert(lugar_data).execute()
             if insert_resp.data:
                 espacio_id = insert_resp.data[0]["id"]
@@ -281,19 +363,24 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
         # Create events if present
         now = _now_co()
         hoy_inicio = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        for ev_data in data.get("eventos", []):
+        # Next week as default date for IG events without a clear date
+        proxima_semana = now + timedelta(days=7)
+
+        for idx, ev_data in enumerate(data.get("eventos", [])):
             titulo = ev_data.get("titulo")
             if not titulo:
                 continue
 
             fecha_str = ev_data.get("fecha_inicio")
+            fecha_fin_ev: datetime | None = None
+            skip_event = False
+
             if fecha_str:
                 try:
                     fecha = datetime.fromisoformat(fecha_str)
                     if fecha.tzinfo is None:
                         fecha = fecha.replace(tzinfo=CO_TZ)
-                    # Keep multi-day ongoing events; skip only fully past events
-                    fecha_fin_ev = None
+                    # Resolve fecha_fin
                     if ev_data.get("fecha_fin"):
                         try:
                             fecha_fin_ev = datetime.fromisoformat(ev_data["fecha_fin"])
@@ -301,43 +388,67 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
                                 fecha_fin_ev = fecha_fin_ev.replace(tzinfo=CO_TZ)
                         except (ValueError, TypeError):
                             pass
+                    # Skip only fully past events
                     if fecha < hoy_inicio:
                         if fecha_fin_ev is None or fecha_fin_ev < hoy_inicio:
-                            continue
+                            skip_event = True
                 except (ValueError, TypeError):
                     fecha = now
             else:
-                fecha = now
+                # No date — keep the event with a placeholder date (especially for IG events)
+                fecha = proxima_semana
+
+            if skip_event:
+                continue
 
             slug_ev = _slugify(titulo)
             existing_ev = supabase.table("eventos").select("id").eq("slug", slug_ev).execute()
             if existing_ev.data:
                 slug_ev = slug_ev + "-" + str(solicitud_id)
 
+            # For IG posts: try to use post-specific image in order (idx matches post order)
+            evento_imagen = ev_data.get("imagen_url")
+            if not evento_imagen and ig_profile_images:
+                evento_imagen = ig_profile_images[idx] if idx < len(ig_profile_images) else ig_profile_images[0]
+            if not evento_imagen:
+                evento_imagen = og_image
+
+            # For IG posts: use permalink as fuente_url if available
+            fuente_url_ev = url
+            if ig_permalink_urls and idx < len(ig_permalink_urls) and ig_permalink_urls[idx]:
+                fuente_url_ev = ig_permalink_urls[idx]
+
             evento_data = {
                 "titulo": titulo,
                 "slug": slug_ev,
                 "espacio_id": espacio_id,
                 "fecha_inicio": fecha.isoformat(),
-                "fecha_fin": ev_data.get("fecha_fin"),
+                "fecha_fin": fecha_fin_ev.isoformat() if fecha_fin_ev else ev_data.get("fecha_fin"),
                 "categorias": ev_data.get("categorias") or [],
                 "categoria_principal": ev_data.get("categoria_principal") or "otro",
                 "municipio": ev_data.get("municipio") or (data.get("espacio") or {}).get("municipio") or "medellin",
                 "barrio": ev_data.get("barrio"),
-                "nombre_lugar": ev_data.get("nombre_lugar"),
+                "nombre_lugar": ev_data.get("nombre_lugar") or (data.get("espacio") or {}).get("nombre"),
                 "descripcion": ev_data.get("descripcion"),
-                "imagen_url": ev_data.get("imagen_url") or og_image,
+                "imagen_url": evento_imagen,
                 "precio": ev_data.get("precio"),
                 "es_gratuito": ev_data.get("es_gratuito", False),
                 "es_recurrente": ev_data.get("es_recurrente", False),
                 "fuente": "scraping_llm",
-                "fuente_url": solicitud["url"],
+                "fuente_url": fuente_url_ev,
                 "verificado": False,
             }
             supabase.table("eventos").insert(evento_data).execute()
 
         # Enrich datos_extraidos with the slug and nombre for the frontend
         enriched_data = {**data}
+        eventos_creados = len(data.get("eventos", []))
+        msg_exito = "Colectivo registrado exitosamente."
+        if eventos_creados:
+            msg_exito = f"Colectivo registrado con {eventos_creados} evento(s) extraído(s)."
+        elif is_instagram:
+            msg_exito = "Colectivo registrado. Sus eventos aparecerán cuando Instagram permita el acceso."
+
         if data.get("espacio"):
             esp_name = data["espacio"].get("nombre", "")
             enriched_data["slug"] = _slugify(esp_name) if esp_name else None
@@ -360,7 +471,7 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
             "estado": "completado",
             "espacio_id": espacio_id,
             "datos_extraidos": enriched_data,
-            "mensaje": "Datos extraídos exitosamente con IA.",
+            "mensaje": msg_exito,
         }).eq("id", solicitud_id).execute()
 
         # Conectar el espacio recién creado al sistema de scraping activo
