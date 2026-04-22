@@ -295,8 +295,8 @@ async def _fetch_instagram_profile(handle: str) -> Optional[str]:
 # ──────────────────────────────────────────────────────────────────────────
 # Groq extraction
 # ──────────────────────────────────────────────────────────────────────────
-def _extract_events_with_claude(prompt: str) -> list[dict]:
-    """Send content to Groq (llama-3.3-70b) and extract event list."""
+def _extract_events_with_groq(prompt: str) -> list[dict]:
+    """Send content to Groq (llama-3.3-70b) and extract event list. Zero cost."""
     try:
         raw = groq_chat(prompt, model=MODEL_SMART, max_tokens=4096, temperature=0)
         if not raw:
@@ -308,15 +308,17 @@ def _extract_events_with_claude(prompt: str) -> list[dict]:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            # Fix trailing commas and retry
             fixed = re.sub(r",\s*([}\]])", r"\1", raw)
             data = json.loads(fixed)
         events = data.get("eventos", [])
         print(f"    📊 Groq extrajo {len(events)} evento(s)")
         return events
     except Exception as e:
-        print(f"  ⚠ Groq extraction error: {e}")
+        print(f"  ⚠ Groq error: {e}")
         return []
+
+# Keep old name as alias for site-web scraping path
+_extract_events_with_claude = _extract_events_with_groq
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -381,26 +383,41 @@ async def _scrape_lugar(lugar: dict) -> dict:
                         ev["_fuente_url"] = sitio
                     all_events.extend(events_groq)
 
-    # ── 2. Scrape Instagram ────────────────────────────────────────────────
+    # ── 2. Scrape Instagram (código puro — CERO tokens AI) ────────────────
     ig_handle = lugar.get("instagram_handle")
     if ig_handle:
         print(f"  📸 Scraping IG: {ig_handle}")
-        content = await _fetch_instagram_profile(ig_handle)
-        if content and len(content) > 100:
-            print(f"    📄 Contenido IG: {len(content)} chars")
-            # Instagram posts are unstructured → use Groq
-            # 3000 chars ≈ ~15 posts with captions
-            prompt = IG_PROFILE_PROMPT.format(
-                fecha_actual=now_iso, anio_actual=anio,
-                nombre_lugar=nombre, instagram_handle=ig_handle,
-                categoria=categoria, municipio=municipio,
-                contenido=content[:3000],
+        from app.services.instagram_pw_scraper import fetch_ig_profile
+        from app.services.ig_event_extractor import extract_events_from_ig_profile
+
+        clean_handle = ig_handle.lstrip("@").strip()
+        profile = await fetch_ig_profile(clean_handle)
+
+        if profile and (profile.get("captions") or profile.get("biography")):
+            print(f"    ✅ Playwright: {len(profile.get('captions', []))} posts")
+
+            # Actualizar sitio_web si el perfil tiene external_url
+            if profile.get("external_url"):
+                try:
+                    supabase.table("lugares").update(
+                        {"sitio_web": profile["external_url"]}
+                    ).eq("instagram_handle", clean_handle).is_("sitio_web", "null").execute()
+                    print(f"    🌐 sitio_web actualizado: {profile['external_url']}")
+                except Exception:
+                    pass
+
+            # Extracción de eventos: código puro (regex + fechas)
+            events_ig = extract_events_from_ig_profile(
+                profile, nombre, categoria, municipio
             )
-            events_ig = _extract_events_with_claude(prompt)
+            ig_url = f"https://instagram.com/{clean_handle}"
             for ev in events_ig:
                 ev["_fuente"] = "instagram"
-                ev["_fuente_url"] = f"https://instagram.com/{ig_handle.lstrip('@')}"
+                ev["_fuente_url"] = ig_url
             all_events.extend(events_ig)
+            print(f"    📊 Código extrajo {len(events_ig)} evento(s) de IG")
+        else:
+            print(f"    ⚠ Sin contenido de IG para {ig_handle}")
 
     # 4. Insert events into DB
     stats = {"nuevos": 0, "duplicados": 0, "errores": 0}

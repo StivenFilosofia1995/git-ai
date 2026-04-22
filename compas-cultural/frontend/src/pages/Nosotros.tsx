@@ -12,7 +12,7 @@ export default function Nosotros() {
         <title>Nosotros — Cultura ETÉREA</title>
         <meta
           name="description"
-          content="Stiven Arteaga — filósofo, constructor técnico de IA y creador de Cultura ETÉREA. Conoce el proyecto y el libro 'Máquinas orgánicas y humanos con engranajes'."
+          content="Cultura ETÉREA: mapa vivo del ecosistema cultural del Valle de Aburrá. Construida por Stiven Arteaga — filósofo de la IA y autor de 'Máquinas orgánicas y humanos con engranajes'."
         />
       </Helmet>
 
@@ -22,17 +22,23 @@ export default function Nosotros() {
           <div className="flex items-center gap-3 mb-8">
             <span className="w-3 h-3 bg-black" />
             <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
-              Cultura ETÉREA · Quiénes somos
+              Cultura ETÉREA · Manifiesto
             </span>
           </div>
           <h1 className="text-4xl md:text-6xl font-heading font-black tracking-tighter uppercase leading-[0.9] mb-6">
-            Hola,<br />
+            La cultura<br />
             <span style={{ WebkitTextStroke: '2px black', WebkitTextFillColor: 'transparent' }}>
-              soy Stiven.
+              no desaparece.<br />La invisibilizan.
             </span>
           </h1>
+          <p className="text-sm font-mono leading-relaxed max-w-xl text-black/70 mb-4">
+            Cultura ETÉREA es la respuesta tecnológica a esa invisibilidad. Un sistema de escucha
+            permanente que mapea el ecosistema cultural del Valle de Aburrá — no desde las instituciones,
+            sino desde los colectivos, los espacios independientes, las calles.
+          </p>
           <p className="text-sm font-mono leading-relaxed max-w-xl text-black/70 mb-8">
-            Filósofo · Constructor técnico de IA · Creador de Cultura ETÉREA
+            Construida con inteligencia artificial, scrapers autónomos y código que no duerme.
+            Sin publicidad. Sin intermediarios. Sin olvido.
           </p>
           <div className="flex flex-wrap gap-4">
             <a
@@ -49,7 +55,7 @@ export default function Nosotros() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 bg-white text-black px-6 py-3 font-mono text-xs font-bold uppercase tracking-wider border-2 border-black hover:bg-black hover:text-white transition-all duration-300"
             >
-              Comprar el libro →
+              El libro →
             </a>
           </div>
         </div>
@@ -58,16 +64,18 @@ export default function Nosotros() {
       {/* BIO */}
       <section className="border-b-2 border-black">
         <div className="max-w-4xl mx-auto px-6 py-14 grid md:grid-cols-2 gap-12 items-start">
-          {/* Foto / bloque visual */}
+          {/* Bloque visual */}
           <div className="border-2 border-black p-8 bg-black text-white flex flex-col justify-between min-h-[320px]">
             <div>
               <p className="text-[10px] font-mono uppercase tracking-[0.3em] mb-6 opacity-60">
-                Stiven Arteaga
+                Stiven Arteaga · Creador
               </p>
               <p className="font-heading font-black text-2xl uppercase leading-tight mb-4">
                 Filósofo<br />
-                &amp; Constructor<br />
-                Técnico de AI
+                de la IA<br />
+                <span style={{ WebkitTextStroke: '1px white', WebkitTextFillColor: 'transparent' }}>
+                  &amp; Constructor<br />de sistemas
+                </span>
               </p>
             </div>
             <div className="flex flex-col gap-2">
@@ -76,24 +84,25 @@ export default function Nosotros() {
             </div>
           </div>
 
-          {/* Texto bio */}
+          {/* Texto bio — foco en la app, el libro y la filosofía */}
           <div className="flex flex-col gap-5">
             <p className="font-mono text-sm leading-relaxed text-black/80">
-              Desde hace años, mi obsesión ha sido entender el punto exacto donde dejamos de ser simples
-              usuarios de la tecnología para convertirnos en parte de ella. No soy solo un filósofo que
-              observa desde la barrera; mi trabajo diario en{' '}
-              <strong className="font-bold">Nodo EAFIT</strong>, construyendo soluciones de Inteligencia
-              Artificial, me permite ver las entrañas de los algoritmos que hoy nos definen.
+              Cultura ETÉREA no nació en una incubadora ni con inversión semilla.
+              Nació de una pregunta filosófica: <strong className="text-black font-bold">
+              ¿puede la inteligencia artificial devolverle visibilidad a lo que el mercado decide ignorar?</strong>
             </p>
             <p className="font-mono text-sm leading-relaxed text-black/80">
-              Cultura ETÉREA nació de esa misma lógica: usar la técnica como{' '}
-              <strong className="font-bold">órgano extenso</strong> para hacer visible el ecosistema
-              cultural del Valle de Aburrá. No como observador externo, sino como constructor dentro
-              del ensamblaje.
+              Stiven Arteaga — filósofo y constructor técnico de IA en{' '}
+              <strong className="font-bold">Nodo EAFIT</strong> — lleva años trabajando
+              en el cruce exacto donde los algoritmos dejan de ser neutros y se convierten en
+              decisiones políticas. Esta plataforma es su respuesta práctica: código que mapea,
+              escucha y preserva el tejido cultural del Valle de Aburrá.
             </p>
             <p className="font-mono text-sm leading-relaxed text-black/80">
-              Creo que la IA y la cultura no son opuestos. Son el mismo impulso humano de dar sentido,
-              de conectar, de resistir el olvido.
+              La IA de ETÉREA no reemplaza al gestor cultural ni al artista. Los{' '}
+              <strong className="font-bold">amplifica</strong>. Usa scrapers autónomos,
+              extracción de datos de Instagram y procesamiento de lenguaje natural para que
+              ningún evento quede sin anunciarse, ningún colectivo sin aparecer.
             </p>
             <a
               href={IG_STIVEN}
@@ -120,12 +129,23 @@ export default function Nosotros() {
                 y humanos con<br />engranajes
               </span>
             </h2>
+            <p className="font-mono text-sm leading-relaxed text-white/80 mb-4">
+              Este no es un libro de ciencia ficción. Es filosofía de lo inmediato. Sostiene que ya somos
+              el{' '}<strong className="text-white">"Tercer Ente"</strong>: ni máquinas puras ni humanos
+              sin extensiones. Somos la fusión — nuestros deseos, memorias y decisiones mediados
+              por engranajes digitales que ya no podemos apagar.
+            </p>
+            <p className="font-mono text-sm leading-relaxed text-white/80 mb-4">
+              La pregunta central del libro es la misma que mueve a Cultura ETÉREA:{' '}
+              <strong className="text-white">¿qué queda de lo humano cuando el algoritmo
+              decide qué existe y qué se olvida?</strong> La respuesta no es apagar la pantalla.
+              Es entender la técnica como órgano extenso — apropiarse de ella antes de que
+              ella se apropie de nosotros.
+            </p>
             <p className="font-mono text-sm leading-relaxed text-white/80 mb-8">
-              No te hablo de ciencia ficción, sino de nuestra realidad inmediata. Sostengo que ya somos
-              el <strong className="text-white">"Tercer Ente"</strong>: una fusión donde nuestros deseos,
-              memorias y decisiones están mediados por engranajes digitales. Esta obra es un acto de
-              resistencia — una invitación a que detengas un momento la inercia de la pantalla y te
-              preguntes qué queda de ti cuando el algoritmo se apaga.
+              Cultura ETÉREA es, en cierto modo, la versión ejecutable de ese argumento filosófico:
+              código que se niega a dejar que los algoritmos de las redes sociales sean los únicos
+              árbitros de qué cultura existe.
             </p>
             <div className="flex flex-wrap gap-4">
               <a
@@ -196,18 +216,18 @@ export default function Nosotros() {
           {[
             {
               icon: '◈',
-              titulo: 'Tecnología como filosofía',
-              texto: 'La IA no es solo una herramienta. Es el espejo más nítido de lo que creemos, valoramos y olvidamos como especie.',
+              titulo: 'IA como pregunta filosófica',
+              texto: 'Antes de construir con inteligencia artificial, hay que preguntarse a qué intereses sirve. Cada algoritmo es una decisión ética disfrazada de proceso técnico.',
             },
             {
               icon: '■',
-              titulo: 'Cultura como resistencia',
-              texto: 'Mapear colectivos y espacios culturales es un acto político. Hacerlos visibles es negarle al olvido su trabajo silencioso.',
+              titulo: 'Cultura como acto político',
+              texto: 'Mapear 500 colectivos independientes es negarle al olvido institucional su trabajo silencioso. La visibilidad no es un lujo — es supervivencia cultural.',
             },
             {
               icon: '●',
-              titulo: 'Lo humano como pregunta',
-              texto: 'En la fusión con los engranajes digitales, la pregunta que no debemos dejar de hacernos es: ¿qué queda de nosotros?',
+              titulo: 'El Tercer Ente ya existe',
+              texto: 'No somos usuarios de la tecnología. Somos el ensamblaje. La pregunta no es si la IA cambiará lo humano — ya lo hizo. La pregunta es quién controla ese cambio.',
             },
           ].map((item, i) => (
             <div
