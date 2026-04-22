@@ -105,7 +105,7 @@ def _next_weekday(now: datetime, target_weekday: int) -> datetime:
     days_ahead = target_weekday - now.weekday()
     if days_ahead <= 0:
         days_ahead += 7
-    return now + timedelta(days=days_ahead)
+    return (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _resolve_relative_date(text: str, now: datetime) -> Optional[datetime]:
@@ -115,11 +115,11 @@ def _resolve_relative_date(text: str, now: datetime) -> Optional[datetime]:
         return None
     token = m.group(0).lower().strip()
     if "hoy" in token:
-        return now
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
     if "mañana" in token or "manana" in token:
-        return now + timedelta(days=1)
+        return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     if "pasado" in token:
-        return now + timedelta(days=2)
+        return (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
     # Find the day name in the token
     for name, idx in DIAS.items():
         if name in token:
@@ -149,7 +149,7 @@ def _resolve_daynum_date(text: str, now: datetime) -> Optional[datetime]:
 
     if month:
         try:
-            dt = datetime(year, month, day_num, 19, 0, tzinfo=CO_TZ)
+            dt = datetime(year, month, day_num, 0, 0, tzinfo=CO_TZ)
             if dt.date() < now.date():
                 dt = dt.replace(year=year + 1)
             return dt
@@ -164,7 +164,7 @@ def _resolve_daynum_date(text: str, now: datetime) -> Optional[datetime]:
 
     # Fallback: next occurrence of that weekday
     if wd is not None:
-        return _next_weekday(now, wd).replace(hour=19, minute=0, second=0, microsecond=0)
+        return _next_weekday(now, wd)
     return None
 
 
@@ -183,7 +183,7 @@ def _resolve_short_date(text: str, now: datetime) -> Optional[datetime]:
             # Validate ranges
             if not (1 <= d <= 31 and 1 <= mo <= 12):
                 continue
-            dt = datetime(y, mo, d, 19, 0, tzinfo=CO_TZ)
+            dt = datetime(y, mo, d, 0, 0, tzinfo=CO_TZ)
             if dt.date() < now.date():
                 dt = dt.replace(year=y + 1)
             if (dt - now).days <= 180:  # within 6 months
@@ -193,11 +193,11 @@ def _resolve_short_date(text: str, now: datetime) -> Optional[datetime]:
     return None
 
 
-def _extract_hour(text: str) -> tuple[int, int]:
-    """Extract hour:minute from any text. Defaults to 19:00."""
+def _extract_hour(text: str) -> Optional[tuple[int, int]]:
+    """Extract hour:minute from text. Returns None when hour is absent/unclear."""
     m = TIME_RE.search(text)
     if not m:
-        return 19, 0
+        return None
     g = m.groups()
     # "8:30pm" or "8:30"
     if g[0] and g[1]:
@@ -209,16 +209,16 @@ def _extract_hour(text: str) -> tuple[int, int]:
     elif g[5]:
         h, mi, mer = int(g[5]), int(g[6]) if g[6] else 0, (g[7] or "").lower().replace(".", "")
     else:
-        return 19, 0
+        return None
 
     if mer in ("pm", "p") and h < 12:
         h += 12
     elif mer in ("am", "a") and h == 12:
         h = 0
     elif not mer and 1 <= h <= 11:
-        h += 12  # No meridiem: cultural events are almost always evening
+        h += 12
     if not (0 <= h <= 23):
-        h = 19
+        return None
     return h, mi
 
 
@@ -308,11 +308,13 @@ def _caption_to_event(
         return None
 
     # Apply extracted hour
-    h, mi = _extract_hour(caption)
-    try:
-        fecha = fecha.replace(hour=h, minute=mi, second=0, microsecond=0)
-    except Exception:
-        pass
+    hm = _extract_hour(caption)
+    if hm is not None:
+        h, mi = hm
+        try:
+            fecha = fecha.replace(hour=h, minute=mi, second=0, microsecond=0)
+        except Exception:
+            pass
 
     # Build title: first non-empty line (cleaned)
     lines = [ln.strip() for ln in caption.split("\n") if ln.strip()]

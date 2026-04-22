@@ -81,20 +81,11 @@ def _parse_date_from_text(text: str, year: int) -> Optional[datetime]:
 
 
 def _normalize_scraped_datetime(fecha: datetime, fuente: str = "") -> datetime:
-    """Normalize scraped datetimes to Colombia TZ and fix common placeholder hours.
-
-    Many website sources emit date-only values that become 00:00 (or 05:00 UTC).
-    For web/agenda/rss-like sources we map suspicious early whole-hour times to 19:00.
-    """
+    """Normalize scraped datetimes to Colombia TZ without inventing event times."""
     if fecha.tzinfo is None:
         fecha = fecha.replace(tzinfo=CO_TZ)
     else:
         fecha = fecha.astimezone(CO_TZ)
-
-    fuente_l = (fuente or "").lower()
-    is_web_like = any(k in fuente_l for k in ("sitio", "web", "agenda", "rss"))
-    if is_web_like and fecha.minute == 0 and fecha.second == 0 and fecha.hour in (0, 1, 2, 3, 4, 5, 6):
-        fecha = fecha.replace(hour=19, minute=0, second=0, microsecond=0)
 
     return fecha
 

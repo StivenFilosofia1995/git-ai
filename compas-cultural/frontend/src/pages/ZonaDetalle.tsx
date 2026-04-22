@@ -79,7 +79,9 @@ export default function ZonaDetalle() {
                   label="Buscar eventos en esta zona"
                   onSearch={async () => {
                     const res = await scrapeZona(zona.municipio, 10)
-                    return res.message
+                    const nuevos = (res.result?.eventos_nuevos as number | undefined) ?? 0
+                    const duplicados = (res.result?.duplicados as number | undefined) ?? 0
+                    return `Búsqueda completada en ${zona.municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
                   }}
                   onComplete={reloadCultura}
                 />
@@ -193,7 +195,9 @@ export default function ZonaDetalle() {
                     label="Buscar eventos con AI"
                     onSearch={async () => {
                       const res = await scrapeZona(zona.municipio, 15)
-                      return res.message
+                      const nuevos = (res.result?.eventos_nuevos as number | undefined) ?? 0
+                      const duplicados = (res.result?.duplicados as number | undefined) ?? 0
+                      return `Búsqueda completada en ${zona.municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
                     }}
                     onComplete={reloadCultura}
                   />

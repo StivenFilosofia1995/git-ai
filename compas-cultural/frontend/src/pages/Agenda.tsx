@@ -99,6 +99,14 @@ export default function Agenda() {
   const [page, setPage] = useState(1)
   const fechaActual = useColombiaClock()
 
+  const runZonaScrape = async (limit = 15) => {
+    const municipio = municipioFilter || 'medellin'
+    const res = await scrapeZona(municipio, limit)
+    const nuevos = (res.result?.eventos_nuevos as number | undefined) ?? 0
+    const duplicados = (res.result?.duplicados as number | undefined) ?? 0
+    return `Búsqueda completada en ${municipio}: ${nuevos} nuevos, ${duplicados} ya existentes.`
+  }
+
   const reloadEventos = () => {
     const cargar = async () => {
       try {
@@ -107,7 +115,7 @@ export default function Agenda() {
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana())
         } else {
-          setEventos(await getEventos({ limit: 100 }))
+          setEventos(await getEventos({ limit: 200 }))
         }
       } catch { /* silent */ }
     }
@@ -129,7 +137,7 @@ export default function Agenda() {
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana())
         } else {
-          setEventos(await getEventos({ limit: 100 }))
+          setEventos(await getEventos({ limit: 200 }))
         }
       } catch {
         setError('No fue posible cargar la agenda cultural.')
@@ -316,10 +324,7 @@ export default function Agenda() {
           </div>
           <BuscarConAI
             label="Buscar con AI"
-            onSearch={async () => {
-              const res = await scrapeZona('medellin', 15)
-              return res.message
-            }}
+            onSearch={() => runZonaScrape(15)}
             onComplete={reloadEventos}
           />
         </div>
@@ -448,10 +453,7 @@ export default function Agenda() {
             <div className="flex justify-center">
               <BuscarConAI
                 label="Buscar eventos con AI"
-                onSearch={async () => {
-                  const res = await scrapeZona('medellin', 20)
-                  return res.message
-                }}
+                onSearch={() => runZonaScrape(20)}
                 onComplete={reloadEventos}
               />
             </div>

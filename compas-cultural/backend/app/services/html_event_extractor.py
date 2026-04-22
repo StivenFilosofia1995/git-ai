@@ -80,10 +80,10 @@ _TIME_RE = re.compile(r'(\d{1,2})[:\.](\d{2})\s*(a\.?m\.?|p\.?m\.?|am|pm)?', re.
 
 
 # ── Date helpers ──────────────────────────────────────────────────────────
-def _parse_time_str(text: str) -> tuple[int, int]:
+def _parse_time_str(text: str) -> tuple[int, int, bool]:
     m = _TIME_RE.search(text)
     if not m:
-        return 19, 0
+        return 0, 0, False
     h, mi = int(m.group(1)), int(m.group(2))
     mer = (m.group(3) or "").lower().replace(".", "")
     if mer in ("pm", "p") and h < 12:
@@ -91,8 +91,8 @@ def _parse_time_str(text: str) -> tuple[int, int]:
     elif mer in ("am", "a") and h == 12:
         h = 0
     if h > 23:
-        h = 19
-    return h, mi
+        return 0, 0, False
+    return h, mi, True
 
 
 def parse_date(text: str, year: int = 0) -> Optional[datetime]:
@@ -124,7 +124,7 @@ def parse_date(text: str, year: int = 0) -> Optional[datetime]:
         elif g[9] and g[10] and g[11]:
             try:
                 yr2, mo2, da2 = int(g[9]), int(g[10]), int(g[11])
-                h = int(g[12]) if g[12] else 19
+                h = int(g[12]) if g[12] else 0
                 mi = int(g[13]) if g[13] else 0
                 return datetime(yr2, mo2, da2, h, mi, tzinfo=CO_TZ)
             except ValueError:
@@ -134,7 +134,7 @@ def parse_date(text: str, year: int = 0) -> Optional[datetime]:
 
         if not month or not (1 <= day <= 31):
             continue
-        h, mi = _parse_time_str(text)
+        h, mi, _ = _parse_time_str(text)
         try:
             return datetime(yr, month, day, h, mi, tzinfo=CO_TZ)
         except ValueError:
