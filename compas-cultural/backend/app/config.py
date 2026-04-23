@@ -59,7 +59,7 @@ class Settings(BaseSettings):
 
     # Ollama local LLM (zero external API keys)
     ollama_base_url: str = "http://localhost:11434/v1"
-    ollama_model: str = "gemma4-local:latest"
+    ollama_model: str = "qwen2.5:1.5b"
 
     # Meta (Instagram/Facebook) Graph API
     meta_access_token: str = ""
