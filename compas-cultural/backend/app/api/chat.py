@@ -35,7 +35,12 @@ async def chat_test():
     """Test endpoint — verifica que Groq funciona."""
     try:
         from app.config import settings
-        result = {"groq_key": bool(settings.groq_api_key)}
+        result = {
+            "chat_engine": settings.chat_engine,
+            "groq_key": bool(settings.groq_api_key),
+            "gemini_key": bool(settings.gemini_api_key),
+            "anthropic_key": bool(settings.anthropic_api_key),
+        }
         from app.services.chat_service import _chat_via_groq
         r = _chat_via_groq("Di solo: OK", [{"role": "user", "content": "test"}])
         result["groq_response"] = r

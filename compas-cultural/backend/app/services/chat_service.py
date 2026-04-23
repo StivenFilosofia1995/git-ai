@@ -9,6 +9,7 @@ from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
 from app.services.gemini_client import gemini_chat
 
 CO_TZ = ZoneInfo("America/Bogota")
+EVENT_SELECT_FIELDS = "id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion"
 
 SYSTEM_PROMPT = """Eres ETÉREA, una guía cultural viva del Valle de Aburrá (Medellín y sus 9 municipios vecinos).
 Eres cálida, curiosa y hablas como una amiga que conoce cada rincón cultural de la ciudad.
@@ -41,6 +42,7 @@ Reglas:
 11. Para cada evento/espacio, da toda la info útil: nombre, fecha/hora, lugar, precio, contacto, Instagram.
 12. Sé exhaustiva: si hay 10 resultados relevantes, mostrá todos.
 13. Podés recomendar por categoría: "Si te gusta la filosofía, mirá Café Filosófico y Fundación Estanislao Zuleta. Si te va el hip-hop, andá a una batalla en Aranjuez..."
+14. Si te hacen una pregunta general (no cultural), respondela con naturalidad y claridad; si aplica, conectala luego con una recomendación cultural útil.
 
 Fecha y hora actual en Colombia: {fecha_actual_co}
 
@@ -54,49 +56,164 @@ def _now_co() -> datetime:
     return datetime.now(CO_TZ)
 
 
+def _trim_text(value: Optional[str], max_len: int) -> str:
+    text = (value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "…"
+
+
+def _price_label(ev: dict) -> str:
+    if ev.get("es_gratuito") is True:
+        return "gratis"
+    precio = (ev.get("precio") or "").strip()
+    return precio or "pago"
+
+
+def _compact_event(ev: dict) -> dict:
+    return {
+        "id": ev.get("id"),
+        "slug": ev.get("slug"),
+        "titulo": _trim_text(ev.get("titulo"), 120),
+        "categoria": ev.get("categoria_principal"),
+        "fecha_inicio": ev.get("fecha_inicio"),
+        "fecha_fin": ev.get("fecha_fin"),
+        "municipio": ev.get("municipio"),
+        "barrio": ev.get("barrio"),
+        "lugar": _trim_text(ev.get("nombre_lugar"), 90),
+        "precio": _price_label(ev),
+        "direccion": _trim_text(ev.get("direccion"), 110),
+        "descripcion": _trim_text(ev.get("descripcion"), 260),
+    }
+
+
+def _compact_space(esp: dict) -> dict:
+    return {
+        "id": esp.get("id"),
+        "slug": esp.get("slug"),
+        "nombre": _trim_text(esp.get("nombre"), 90),
+        "categoria": esp.get("categoria_principal"),
+        "municipio": esp.get("municipio"),
+        "barrio": esp.get("barrio"),
+        "direccion": _trim_text(esp.get("direccion"), 100),
+        "instagram": esp.get("instagram_handle"),
+        "sitio_web": esp.get("sitio_web"),
+        "descripcion": _trim_text(esp.get("descripcion_corta") or esp.get("descripcion"), 220),
+    }
+
+
+def _compact_context(contexto: Dict, user_message: str) -> Dict:
+    max_events = settings.chat_context_events_limit
+    max_spaces = settings.chat_context_spaces_limit
+
+    ctx = {
+        "zona_usuario": contexto.get("zona_usuario"),
+        "eventos_en_curso": [_compact_event(e) for e in (contexto.get("eventos_en_curso") or [])[:max_events]],
+        "eventos_hoy": [_compact_event(e) for e in (contexto.get("eventos_hoy") or [])[:max_events]],
+        "eventos_semana": [_compact_event(e) for e in (contexto.get("eventos_semana") or [])[:max_events]],
+        "eventos_anteriores": [_compact_event(e) for e in (contexto.get("eventos_anteriores") or [])[:10]],
+    }
+
+    espacios_relevantes = contexto.get("espacios_relevantes") or []
+    espacios_generales = contexto.get("espacios") or []
+    if espacios_relevantes:
+        selected = espacios_relevantes[:max_spaces]
+    else:
+        selected = espacios_generales[:max_spaces]
+    ctx["espacios"] = [_compact_space(e) for e in selected]
+
+    # For broad requests, keep some extra variety from general spaces.
+    msg = (user_message or "").lower()
+    broad = any(t in msg for t in ["qué hay", "que hay", "plan", "recomienda", "recomendame", "hoy", "fin de semana"])
+    if broad and not espacios_relevantes:
+        ctx["espacios"] = [_compact_space(e) for e in espacios_generales[: max_spaces + 10]]
+
+    return ctx
+
+
+def _build_historial_msgs(request: ChatRequest) -> List[Dict[str, str]]:
+    max_msgs = settings.chat_history_messages
+    msgs = []
+    for m in request.historial[-max_msgs:]:
+        role = "user" if m.rol == "usuario" else "assistant"
+        content = _trim_text(m.contenido, 450)
+        if content:
+            msgs.append({"role": role, "content": content})
+    msgs.append({"role": "user", "content": _trim_text(request.mensaje, 1000)})
+    return msgs
+
+
+def _chat_via_anthropic(system_prompt: str, messages: list) -> Optional[str]:
+    if not settings.anthropic_api_key:
+        return None
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        response = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=settings.chat_max_tokens,
+            temperature=settings.chat_temperature,
+            system=system_prompt,
+            messages=messages,
+        )
+        return response.content[0].text
+    except Exception as e:
+        print(f"[chat_service] Claude falló: {e}")
+        return None
+
+
+def _chat_via_gemini(system_prompt: str, messages: list) -> Optional[str]:
+    if not settings.gemini_api_key:
+        return None
+    try:
+        return gemini_chat(
+            system_prompt,
+            messages,
+            max_tokens=settings.chat_max_tokens,
+            temperature=settings.chat_temperature,
+        )
+    except Exception as e:
+        print(f"[chat_service] Gemini falló: {e}")
+        return None
+
+
+def _engine_order() -> List[str]:
+    engine = (settings.chat_engine or "auto").lower()
+    if engine == "groq":
+        return ["groq", "gemini", "anthropic"]
+    if engine == "gemini":
+        return ["gemini", "groq", "anthropic"]
+    if engine == "anthropic":
+        return ["anthropic", "groq", "gemini"]
+    return ["groq", "gemini", "anthropic"]
+
+
+def _generate_llm_response(prompt: str, historial_msgs: list) -> Optional[str]:
+    for engine in _engine_order():
+        if engine == "groq":
+            respuesta = _chat_via_groq(prompt, historial_msgs)
+        elif engine == "gemini":
+            respuesta = _chat_via_gemini(prompt, historial_msgs)
+        else:
+            respuesta = _chat_via_anthropic(prompt, historial_msgs)
+        if respuesta:
+            return respuesta
+    return None
+
+
 def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     contexto = _obtener_contexto(request.mensaje)
 
-    historial_msgs = [
-        {
-            "role": "user" if m.rol == "usuario" else "assistant",
-            "content": m.contenido,
-        }
-        for m in request.historial[-6:]
-    ]
-    historial_msgs.append({"role": "user", "content": request.mensaje})
+    contexto_compacto = _compact_context(contexto, request.mensaje)
+    historial_msgs = _build_historial_msgs(request)
 
     prompt = SYSTEM_PROMPT.format(
-        contexto=json.dumps(contexto, ensure_ascii=False, default=str),
+        contexto=json.dumps(contexto_compacto, ensure_ascii=False, default=str),
         fecha_actual_co=_now_co().strftime("%Y-%m-%d %H:%M"),
     )
 
     try:
-        # 1. Gemini 2.0 Flash (si tiene key válida)
-        respuesta = None
-        if settings.gemini_api_key:
-            respuesta = gemini_chat(prompt, historial_msgs, max_tokens=1024, temperature=0.7)
+        respuesta = _generate_llm_response(prompt, historial_msgs)
 
-        # 2. Claude (Anthropic) — fallback principal
-        if not respuesta and settings.anthropic_api_key:
-            try:
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-                response = client.messages.create(
-                    model=settings.anthropic_model,
-                    max_tokens=1024,
-                    temperature=0.7,
-                    system=prompt,
-                    messages=historial_msgs,
-                )
-                respuesta = response.content[0].text
-            except Exception as e:
-                print(f"[chat_service] Claude falló: {e}")
-
-        # 3. Groq fallback
-        if not respuesta:
-            respuesta = _chat_via_groq(prompt, historial_msgs)
-
-        # 4. Respuesta local de emergencia
         if not respuesta:
             respuesta = _respuesta_fallback(contexto)
 
@@ -107,17 +224,20 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     fuentes = _extraer_fuentes(respuesta, contexto)
 
     # Guardar en memoria_consultas
-    supabase.table("memoria_consultas").insert({
-        "pregunta": request.mensaje,
-        "respuesta": respuesta,
-        "contexto": contexto,
-    }).execute()
+    try:
+        supabase.table("memoria_consultas").insert({
+            "pregunta": request.mensaje,
+            "respuesta": respuesta,
+            "contexto": {**contexto_compacto, "user_id": user_id},
+        }).execute()
+    except Exception as e:
+        print(f"[chat_service] No se pudo guardar memoria_consultas: {e}")
 
     return ChatResponse(respuesta=respuesta, fuentes=fuentes)
 
 
 def _chat_via_groq(system_prompt: str, messages: list) -> Optional[str]:
-    """Fallback: usa Groq (llama-3.3-70b) cuando Claude no está disponible."""
+    """Primary chat via Groq with token-safe defaults."""
     try:
         from app.services.groq_client import _get_client, MODEL_SMART
         client = _get_client()
@@ -126,8 +246,8 @@ def _chat_via_groq(system_prompt: str, messages: list) -> Optional[str]:
         groq_messages = [{"role": "system", "content": system_prompt}] + messages
         resp = client.chat.completions.create(
             model=MODEL_SMART,
-            max_tokens=1024,
-            temperature=0.7,
+            max_tokens=settings.chat_max_tokens,
+            temperature=settings.chat_temperature,
             messages=groq_messages,
         )
         return resp.choices[0].message.content.strip()
@@ -233,7 +353,7 @@ def _obtener_contexto(mensaje: str) -> Dict:
 
     resp_hoy = (
         supabase.table("eventos")
-        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")
+        .select(EVENT_SELECT_FIELDS)
         .gte("fecha_inicio", hoy_iso)
         .lt("fecha_inicio", manana_iso)
         .order("fecha_inicio")
@@ -245,7 +365,7 @@ def _obtener_contexto(mensaje: str) -> Dict:
     # 3b. Multi-day / ongoing events: started before today, fecha_fin >= today start
     resp_en_curso = (
         supabase.table("eventos")
-        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")
+        .select(EVENT_SELECT_FIELDS)
         .lt("fecha_inicio", hoy_iso)
         .gte("fecha_fin", hoy_iso)
         .order("fecha_inicio")
@@ -272,7 +392,7 @@ def _obtener_contexto(mensaje: str) -> Dict:
     semana_iso = (hoy_inicio + timedelta(days=7)).isoformat()
     resp_semana = (
         supabase.table("eventos")
-        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion")
+        .select(EVENT_SELECT_FIELDS)
         .gte("fecha_inicio", manana_iso)
         .lte("fecha_inicio", semana_iso)
         .order("fecha_inicio")
