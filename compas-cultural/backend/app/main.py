@@ -83,6 +83,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
+def _resolve_static_file(request_path: str) -> Path | None:
+    """Resolve a non-API URL path to a safe file under static dir."""
+    clean = (request_path or "").lstrip("/")
+    if not clean:
+        return None
+
+    # Prevent path traversal and absolute paths.
+    if ".." in clean or clean.startswith("/") or clean.startswith("\\"):
+        return None
+
+    candidate = (STATIC_DIR / clean).resolve()
+    try:
+        candidate.relative_to(STATIC_DIR.resolve())
+    except Exception:
+        return None
+
+    if candidate.exists() and candidate.is_file():
+        return candidate
+    return None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.effective_cors_origins,
@@ -108,8 +131,7 @@ except Exception as e:
 @app.get("/")
 async def root():
     """Serve frontend index.html if available, otherwise API info."""
-    static_dir = Path(__file__).parent.parent / "static"
-    index_file = static_dir / "index.html"
+    index_file = STATIC_DIR / "index.html"
     if index_file.exists():
         return FileResponse(index_file)
     return {"service": "Cultura ETÉREA API", "version": "1.0.0", "docs": "/docs", "health": "/health"}
@@ -157,9 +179,16 @@ async def spa_404_handler(request: Request, exc):
     # Keep JSON 404 for API paths
     if request.url.path.startswith("/api/"):
         return _JSONResponse({"detail": "Not Found"}, status_code=404)
+
+    # If it's a real static file request, serve file or return 404 (not SPA HTML).
+    if "." in request.url.path.rsplit("/", 1)[-1]:
+        static_file = _resolve_static_file(request.url.path)
+        if static_file:
+            return FileResponse(static_file)
+        return _JSONResponse({"detail": "Not Found"}, status_code=404)
+
     # Serve SPA index.html for all other 404s (React Router routes)
-    _static = Path(__file__).parent.parent / "static"
-    _index = _static / "index.html"
+    _index = STATIC_DIR / "index.html"
     if _index.exists():
         return FileResponse(_index)
     return _JSONResponse({"detail": "Not Found"}, status_code=404)
@@ -167,14 +196,13 @@ async def spa_404_handler(request: Request, exc):
 # Serve frontend static assets (JS, CSS, images, fonts)
 # NOTE: Mount at /assets to avoid intercepting /health and /api routes.
 # The SPA fallback (404 handler above) serves index.html for all other paths.
-static_dir = Path(__file__).parent.parent / "static"
-if static_dir.exists():
-    assets_dir = static_dir / "assets"
+if STATIC_DIR.exists():
+    assets_dir = STATIC_DIR / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
     # Also mount icons, fonts, etc.
     for subdir in ["icons", "fonts", "images"]:
-        sub_path = static_dir / subdir
+        sub_path = STATIC_DIR / subdir
         if sub_path.exists():
             app.mount(f"/{subdir}", StaticFiles(directory=str(sub_path)), name=f"frontend-{subdir}")
 
