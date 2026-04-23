@@ -155,8 +155,23 @@ export async function getEspacio(slug: string): Promise<Espacio> {
   return data as Espacio
 }
 
-export async function getEventosHoy(municipio?: string): Promise<Evento[]> {
-  const qs = municipio ? `?municipio=${encodeURIComponent(municipio)}` : ''
+type EventosTemporalFilters = {
+  municipio?: string
+  categoria?: string
+  es_gratuito?: boolean
+}
+
+function buildTemporalFiltersQS(filters?: EventosTemporalFilters): string {
+  const search = new URLSearchParams()
+  if (filters?.municipio) search.set('municipio', filters.municipio)
+  if (filters?.categoria) search.set('categoria', filters.categoria)
+  if (typeof filters?.es_gratuito === 'boolean') search.set('es_gratuito', String(filters.es_gratuito))
+  const qs = search.toString()
+  return qs ? `?${qs}` : ''
+}
+
+export async function getEventosHoy(filters?: EventosTemporalFilters): Promise<Evento[]> {
+  const qs = buildTemporalFiltersQS(filters)
   return apiGet<Evento[]>(`/eventos/hoy${qs}`)
 }
 
@@ -164,15 +179,21 @@ export async function getEventosFeed(limit = 20): Promise<Evento[]> {
   return apiGet<Evento[]>(`/eventos/feed?limit=${limit}`)
 }
 
-export async function getEventosSemana(): Promise<Evento[]> {
+export async function getEventosSemana(filters?: EventosTemporalFilters): Promise<Evento[]> {
   // Usa endpoint backend que cubre hasta el domingo de la próxima semana
   // (7-14 días). Antes usaba Supabase directo con ventana fija de 7 días,
   // lo que dejaba fuera vie-sáb-dom al consultar miércoles-jueves.
-  return apiGet<Evento[]>('/eventos/semana')
+  const qs = buildTemporalFiltersQS(filters)
+  return apiGet<Evento[]>(`/eventos/semana${qs}`)
 }
 
-export async function getEventosProximasSemanas(dias = 21): Promise<Evento[]> {
-  return apiGet<Evento[]>(`/eventos/proximas-semanas?dias=${dias}`)
+export async function getEventosProximasSemanas(dias = 21, filters?: EventosTemporalFilters): Promise<Evento[]> {
+  const search = new URLSearchParams()
+  search.set('dias', String(dias))
+  if (filters?.municipio) search.set('municipio', filters.municipio)
+  if (filters?.categoria) search.set('categoria', filters.categoria)
+  if (typeof filters?.es_gratuito === 'boolean') search.set('es_gratuito', String(filters.es_gratuito))
+  return apiGet<Evento[]>(`/eventos/proximas-semanas?${search.toString()}`)
 }
 
 export async function getEvento(slug: string): Promise<Evento> {
@@ -206,6 +227,7 @@ export async function scrapeZona(municipio: string, limit = 10): Promise<{ statu
 export interface DiscoverEventosParams {
   municipio?: string
   categoria?: string
+  es_gratuito?: boolean
   colectivo_slug?: string
   texto?: string
   max_queries?: number
@@ -263,6 +285,7 @@ export async function discoverEventosAI(params: DiscoverEventosParams): Promise<
   const search = new URLSearchParams()
   if (params.municipio) search.set('municipio', params.municipio)
   if (params.categoria) search.set('categoria', params.categoria)
+  if (typeof params.es_gratuito === 'boolean') search.set('es_gratuito', String(params.es_gratuito))
   if (params.colectivo_slug) search.set('colectivo_slug', params.colectivo_slug)
   if (params.texto) search.set('texto', params.texto)
   if (params.max_queries) search.set('max_queries', String(params.max_queries))
@@ -285,6 +308,7 @@ export async function getEventos(params?: {
   offset?: number
   categoria?: string
   municipio?: string
+  es_gratuito?: boolean
 }): Promise<Evento[]> {
   const limit = params?.limit ?? 500
   const offset = params?.offset ?? 0
@@ -293,6 +317,7 @@ export async function getEventos(params?: {
   search.set('offset', String(offset))
   if (params?.categoria) search.set('categoria', params.categoria)
   if (params?.municipio) search.set('municipio', params.municipio)
+  if (typeof params?.es_gratuito === 'boolean') search.set('es_gratuito', String(params.es_gratuito))
   return apiGet<Evento[]>(`/eventos/?${search.toString()}`)
 }
 

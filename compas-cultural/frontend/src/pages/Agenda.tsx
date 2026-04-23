@@ -119,6 +119,12 @@ function inferTimeLabel(timeFilter: TimeFilter): string {
   return 'próximamente'
 }
 
+function priceFilterToBool(precio: PrecioFilter): boolean | undefined {
+  if (precio === 'gratuito') return true
+  if (precio === 'pago') return false
+  return undefined
+}
+
 export default function Agenda() {
   const [eventos, setEventos] = useState<Evento[]>([])
   const [zonas, setZonas] = useState<Zona[]>([])
@@ -139,10 +145,12 @@ export default function Agenda() {
     const zona = zonas.find(z => z.slug === zonaFilter)
     const tiempo = inferTimeLabel(timeFilter)
     const daysAhead = TIME_DAYS_AHEAD[timeFilter]
+    const esGratuito = priceFilterToBool(precioFilter)
     const texto = [textFilter, zona?.nombre, tiempo].filter(Boolean).join(' ').trim() || undefined
     const res = await discoverEventosAI({
       municipio,
       categoria: catFilter || undefined,
+      es_gratuito: esGratuito,
       texto,
       max_queries: 2,
       max_results_per_query: Math.min(6, Math.max(3, Math.floor(limit / 3))),
@@ -166,14 +174,26 @@ export default function Agenda() {
     const cargar = async () => {
       try {
         const municipioParam = municipioFilter || undefined
+        const categoriaParam = catFilter || undefined
+        const esGratuitoParam = priceFilterToBool(precioFilter)
+        const temporalFilters = {
+          municipio: municipioParam,
+          categoria: categoriaParam,
+          es_gratuito: esGratuitoParam,
+        }
         if (timeFilter === 'hoy') {
-          setEventos(await getEventosHoy(municipioParam))
+          setEventos(await getEventosHoy(temporalFilters))
         } else if (timeFilter === 'semana') {
-          setEventos(await getEventosSemana())
+          setEventos(await getEventosSemana(temporalFilters))
         } else if (timeFilter === 'proximas') {
-          setEventos(await getEventosProximasSemanas(21))
+          setEventos(await getEventosProximasSemanas(21, temporalFilters))
         } else {
-          setEventos(await getEventos({ limit: 2000, municipio: municipioParam }))
+          setEventos(await getEventos({
+            limit: 2000,
+            municipio: municipioParam,
+            categoria: categoriaParam,
+            es_gratuito: esGratuitoParam,
+          }))
         }
       } catch { /* silent */ }
     }
@@ -191,14 +211,26 @@ export default function Agenda() {
       setError(null)
       try {
         const municipioParam = municipioFilter || undefined
+        const categoriaParam = catFilter || undefined
+        const esGratuitoParam = priceFilterToBool(precioFilter)
+        const temporalFilters = {
+          municipio: municipioParam,
+          categoria: categoriaParam,
+          es_gratuito: esGratuitoParam,
+        }
         if (timeFilter === 'hoy') {
-          setEventos(await getEventosHoy(municipioParam))
+          setEventos(await getEventosHoy(temporalFilters))
         } else if (timeFilter === 'semana') {
-          setEventos(await getEventosSemana())
+          setEventos(await getEventosSemana(temporalFilters))
         } else if (timeFilter === 'proximas') {
-          setEventos(await getEventosProximasSemanas(21))
+          setEventos(await getEventosProximasSemanas(21, temporalFilters))
         } else {
-          setEventos(await getEventos({ limit: 2000, municipio: municipioParam }))
+          setEventos(await getEventos({
+            limit: 2000,
+            municipio: municipioParam,
+            categoria: categoriaParam,
+            es_gratuito: esGratuitoParam,
+          }))
         }
       } catch {
         setError('No fue posible cargar la agenda cultural.')
@@ -207,12 +239,12 @@ export default function Agenda() {
       }
     }
     void cargar()
-  }, [timeFilter, municipioFilter])
+  }, [timeFilter, municipioFilter, catFilter, precioFilter])
 
   const filtered = useMemo(() => {
     let result = eventos
     if (catFilter) {
-      result = result.filter(e => e.categoria_principal === catFilter)
+      result = result.filter(e => e.categoria_principal === catFilter || (e.categorias ?? []).includes(catFilter))
     }
     if (municipioFilter) {
       const m = normalizeText(municipioFilter)

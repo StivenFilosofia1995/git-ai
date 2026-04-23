@@ -81,11 +81,6 @@ async def publicar_evento(body: dict, request: Request):
     if existing.data:
         raise HTTPException(status_code=409, detail="Ya existe un evento con ese nombre")
 
-    ip = (
-        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        or (request.client.host if request.client else None)
-    )
-
     # Eventos publicados manualmente tienen hora confirmada (el usuario la puso).
     evento_data = {
         "titulo": evento.titulo[:200],
@@ -120,8 +115,16 @@ async def publicar_evento(body: dict, request: Request):
 
 
 @router.get("/hoy")
-def get_eventos_hoy(municipio: Optional[str] = None):
-    return evento_service.get_eventos_hoy(municipio=municipio)
+def get_eventos_hoy(
+    municipio: Optional[str] = None,
+    categoria: Optional[str] = None,
+    es_gratuito: Optional[bool] = None,
+):
+    return evento_service.get_eventos_hoy(
+        municipio=municipio,
+        categoria=categoria,
+        es_gratuito=es_gratuito,
+    )
 
 
 @router.get("/feed")
@@ -131,17 +134,33 @@ def get_eventos_feed(limit: Annotated[int, Query(ge=1, le=50)] = 20):
 
 
 @router.get("/semana")
-def get_eventos_semana():
+def get_eventos_semana(
+    municipio: Optional[str] = None,
+    categoria: Optional[str] = None,
+    es_gratuito: Optional[bool] = None,
+):
     """Eventos hasta el domingo de la próxima semana (7–14 días)."""
-    return evento_service.get_eventos_semana()
+    return evento_service.get_eventos_semana(
+        municipio=municipio,
+        categoria=categoria,
+        es_gratuito=es_gratuito,
+    )
 
 
 @router.get("/proximas-semanas")
 def get_eventos_proximas_semanas(
     dias: Annotated[int, Query(ge=7, le=90)] = 21,
+    municipio: Optional[str] = None,
+    categoria: Optional[str] = None,
+    es_gratuito: Optional[bool] = None,
 ):
     """Eventos de los próximos N días (default 21)."""
-    return evento_service.get_eventos_proximas_semanas(dias)
+    return evento_service.get_eventos_proximas_semanas(
+        dias,
+        municipio=municipio,
+        categoria=categoria,
+        es_gratuito=es_gratuito,
+    )
 
 
 @router.get("/espacio/{espacio_id}")

@@ -50,6 +50,53 @@ def _sunday_of_next_week_iso() -> str:
     return fin.isoformat()
 
 
+def _normalize_text(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+def _event_matches_municipio(ev: dict, municipio: Optional[str]) -> bool:
+    if not municipio:
+        return True
+    muni = _normalize_text(municipio)
+    fields = [
+        _normalize_text(ev.get("municipio")),
+        _normalize_text(ev.get("nombre_lugar")),
+        _normalize_text(ev.get("barrio")),
+    ]
+    return any(muni and muni in f for f in fields)
+
+
+def _event_matches_categoria(ev: dict, categoria: Optional[str]) -> bool:
+    if not categoria:
+        return True
+    cat = _normalize_text(categoria).replace("_", " ")
+    principal = _normalize_text(ev.get("categoria_principal")).replace("_", " ")
+    cats = ev.get("categorias") or []
+    cats_norm = [_normalize_text(c).replace("_", " ") for c in cats if isinstance(c, str)]
+    return principal == cat or cat in cats_norm
+
+
+def _event_matches_precio(ev: dict, es_gratuito: Optional[bool]) -> bool:
+    if es_gratuito is None:
+        return True
+    return bool(ev.get("es_gratuito")) is es_gratuito
+
+
+def _filter_events(
+    eventos: List[dict],
+    *,
+    municipio: Optional[str] = None,
+    categoria: Optional[str] = None,
+    es_gratuito: Optional[bool] = None,
+) -> List[dict]:
+    return [
+        ev for ev in eventos
+        if _event_matches_municipio(ev, municipio)
+        and _event_matches_categoria(ev, categoria)
+        and _event_matches_precio(ev, es_gratuito)
+    ]
+
+
 # ══════════════════════════════════════════════════════════════
 # Listado con filtros
 # ══════════════════════════════════════════════════════════════
@@ -144,7 +191,11 @@ def get_eventos(
 # Vistas temporales
 # ══════════════════════════════════════════════════════════════
 
-def get_eventos_hoy(municipio: Optional[str] = None) -> List[dict]:
+def get_eventos_hoy(
+    municipio: Optional[str] = None,
+    categoria: Optional[str] = None,
+    es_gratuito: Optional[bool] = None,
+) -> List[dict]:
     """Eventos que ocurren HOY (inician hoy o en curso multi-día)."""
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -159,8 +210,6 @@ def get_eventos_hoy(municipio: Optional[str] = None) -> List[dict]:
         .gte("fecha_inicio", hoy_iso)
         .lt("fecha_inicio", manana_iso)
     )
-    if municipio:
-        q_inicio = q_inicio.eq("municipio", municipio)
     resp_inicio = q_inicio.order("fecha_inicio").execute()
     eventos = resp_inicio.data or []
 
@@ -171,8 +220,6 @@ def get_eventos_hoy(municipio: Optional[str] = None) -> List[dict]:
         .lt("fecha_inicio", hoy_iso)
         .gte("fecha_fin", hoy_iso)
     )
-    if municipio:
-        q_en_curso = q_en_curso.eq("municipio", municipio)
     resp_en_curso = q_en_curso.order("fecha_inicio").execute()
     seen_ids = {e["id"] for e in eventos}
     for ev in (resp_en_curso.data or []):
@@ -181,30 +228,43 @@ def get_eventos_hoy(municipio: Optional[str] = None) -> List[dict]:
             eventos.append(ev)
             seen_ids.add(ev["id"])
 
-    return eventos
+    return _filter_events(
+        eventos,
+        municipio=municipio,
+        categoria=categoria,
+        es_gratuito=es_gratuito,
+    )
 
 
-def get_eventos_semana() -> List[dict]:
+def get_eventos_semana(
+    municipio: Optional[str] = None,
+    categoria: Optional[str] = None,
+    es_gratuito: Optional[bool] = None,
+) -> List[dict]:
     """Eventos desde hoy hasta el domingo de la PRÓXIMA semana.
     
     Cobertura total: 7–14 días (antes era 7 días rolling, lo que dejaba 
     fuera vie-sáb-dom cuando se consultaba en miércoles-jueves).
     """
-    hoy_iso = _today_iso()
-    fin_iso = _sunday_of_next_week_iso()
-    response = (
-        supabase.table("eventos")
-        .select("*")
-        .gte("fecha_inicio", hoy_iso)
-        .lte("fecha_inicio", fin_iso)
-        .order("fecha_inicio")
-        .limit(500)
-        .execute()
+    ahora = _now_co().replace(hour=0, minute=0, second=0, microsecond=0)
+    fin = datetime.fromisoformat(_sunday_of_next_week_iso())
+    return get_eventos(
+        fecha_desde=ahora,
+        fecha_hasta=fin,
+        municipio=municipio,
+        categoria=categoria,
+        es_gratuito=es_gratuito,
+        limit=500,
+        offset=0,
     )
-    return response.data or []
 
 
-def get_eventos_proximas_semanas(dias: int = 21) -> List[dict]:
+def get_eventos_proximas_semanas(
+    dias: int = 21,
+    municipio: Optional[str] = None,
+    categoria: Optional[str] = None,
+    es_gratuito: Optional[bool] = None,
+) -> List[dict]:
     """Ventana extendida: eventos desde hoy hasta N días en el futuro (default 21)."""
     if dias < 1:
         dias = 1
@@ -214,16 +274,15 @@ def get_eventos_proximas_semanas(dias: int = 21) -> List[dict]:
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     fin = hoy_inicio + timedelta(days=dias)
-    response = (
-        supabase.table("eventos")
-        .select("*")
-        .gte("fecha_inicio", hoy_inicio.isoformat())
-        .lte("fecha_inicio", fin.isoformat())
-        .order("fecha_inicio")
-        .limit(500)
-        .execute()
+    return get_eventos(
+        fecha_desde=hoy_inicio,
+        fecha_hasta=fin,
+        municipio=municipio,
+        categoria=categoria,
+        es_gratuito=es_gratuito,
+        limit=500,
+        offset=0,
     )
-    return response.data or []
 
 
 # ══════════════════════════════════════════════════════════════

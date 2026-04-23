@@ -92,6 +92,7 @@ async def trigger_zona_scraper_publico(
 async def trigger_discover_events_publico(
     municipio: str | None = Query(default=None),
     categoria: str | None = Query(default=None),
+    es_gratuito: bool | None = Query(default=None),
     colectivo_slug: str | None = Query(default=None),
     texto: str | None = Query(default=None),
     max_queries: int = Query(default=2, ge=1, le=8),
@@ -108,6 +109,7 @@ async def trigger_discover_events_publico(
     result = await discover_events_for_filters(
         municipio=municipio,
         categoria=categoria,
+        es_gratuito=es_gratuito,
         colectivo_slug=colectivo_slug,
         texto=texto,
         max_queries=max_queries,

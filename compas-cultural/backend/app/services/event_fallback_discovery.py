@@ -112,6 +112,14 @@ def _normalize_text(value: Optional[str]) -> str:
     return text
 
 
+def _precio_label(es_gratuito: Optional[bool]) -> str:
+    if es_gratuito is True:
+        return "gratis"
+    if es_gratuito is False:
+        return "pago"
+    return "todos"
+
+
 def _build_google_queries(
     municipio: Optional[str],
     categoria: Optional[str],
@@ -411,6 +419,7 @@ def _build_candidate_event_data(
     colectivo: Optional[dict],
     days_ahead: Optional[int] = None,
     strict_categoria: bool = False,
+    required_es_gratuito: Optional[bool] = None,
 ) -> Optional[dict]:
     titulo = ev.get("titulo")
     if not titulo:
@@ -462,6 +471,8 @@ def _build_candidate_event_data(
         "fuente_url": source_url,
         "verificado": False,
     }
+    if required_es_gratuito is not None and bool(evento_data.get("es_gratuito")) is not required_es_gratuito:
+        return None
     return _sanitize_payload(evento_data)
 
 
@@ -489,6 +500,7 @@ async def discover_events_for_filters(
     *,
     municipio: Optional[str] = None,
     categoria: Optional[str] = None,
+    es_gratuito: Optional[bool] = None,
     colectivo_slug: Optional[str] = None,
     texto: Optional[str] = None,
     max_queries: int = 2,
@@ -528,6 +540,7 @@ async def discover_events_for_filters(
         "zona": municipio or (colectivo or {}).get("municipio") or "valle de aburra",
         "fecha_actual": datetime.now(CO_TZ).strftime("%Y-%m-%d"),
         "texto_usuario": texto or "",
+        "tipo_precio": _precio_label(es_gratuito),
     }
 
     # ── 1. Direct scrape of known Medellín cultural sites (reliable, no Google) ──
@@ -547,6 +560,7 @@ async def discover_events_for_filters(
                 colectivo=colectivo,
                 days_ahead=days_ahead,
                 strict_categoria=strict_categoria,
+                required_es_gratuito=es_gratuito,
             )
             if not evento_data:
                 continue
@@ -584,6 +598,7 @@ async def discover_events_for_filters(
                 colectivo=colectivo,
                 days_ahead=days_ahead,
                 strict_categoria=strict_categoria,
+                required_es_gratuito=es_gratuito,
             )
             if not evento_data:
                 continue
@@ -645,6 +660,7 @@ async def discover_events_for_filters(
                         colectivo=colectivo,
                         days_ahead=days_ahead,
                         strict_categoria=strict_categoria,
+                        required_es_gratuito=es_gratuito,
                     )
                     if not evento_data:
                         continue
