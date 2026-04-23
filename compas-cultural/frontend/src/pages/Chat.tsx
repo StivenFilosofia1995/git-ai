@@ -3,20 +3,21 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { enviarMensajeChat, getEvento, getEspacio, type ChatMessage, type Evento, type Espacio } from '../lib/api'
 import { getEventDateParts } from '../lib/datetime'
+import EtereaThinking from '../components/chat/EtereaThinking'
 
 function stripMarkdown(text: string): string {
   return text
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/#{1,6}\s+/g, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/`(.+?)`/g, '$1')
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
-    .replace(/^[-*+]\s+/gm, '· ')
-    .replace(/^\d+\.\s+/gm, '')
-    .replace(/^>\s+/gm, '')
-    .replace(/---/g, '')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/```[\s\S]*?```/g, '')
+    .replaceAll(/#{1,6}\s+/g, '')
+    .replaceAll(/\*\*(.+?)\*\*/g, '$1')
+    .replaceAll(/\*(.+?)\*/g, '$1')
+    .replaceAll(/`(.+?)`/g, '$1')
+    .replaceAll(/\[(.+?)\]\(.+?\)/g, '$1')
+    .replaceAll(/^[-*+]\s+/gm, '· ')
+    .replaceAll(/^\d+\.\s+/gm, '')
+    .replaceAll(/^>\s+/gm, '')
+    .replaceAll('---', '')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim()
 }
 
@@ -27,6 +28,19 @@ interface Mensaje {
   timestamp: string
   eventos?: Evento[]
   espacios?: Espacio[]
+}
+
+function normalizePrompt(text: string): string {
+  return text.toLowerCase().normalize('NFD').replaceAll(/[\u0300-\u036f]/g, '').trim()
+}
+
+function shouldShowStructuredResults(text: string): boolean {
+  const t = normalizePrompt(text)
+  return [
+    'evento', 'eventos', 'hoy', 'semana', 'fin de semana', 'plan', 'planes',
+    'teatro', 'jazz', 'hip hop', 'hiphop', 'galeria', 'galerias', 'cine', 'danza',
+    'gratis', 'musica', 'música', 'libreria', 'librerias', 'donde', 'recomienda',
+  ].some(token => t.includes(token))
 }
 
 export default function Chat() {
@@ -74,13 +88,14 @@ export default function Chat() {
     setError(null)
 
     try {
-      const historial = construirHistorial([...mensajes, nuevoMensaje])
+      const historial = construirHistorial(mensajes)
       const response = await enviarMensajeChat(nuevoMensaje.contenido, historial)
+      const showStructured = shouldShowStructuredResults(nuevoMensaje.contenido)
 
       // Fetch event details for fuentes
       let eventosData: Evento[] = []
       const eventoFuentes = response.fuentes.filter(f => f.tipo === 'evento')
-      if (eventoFuentes.length > 0) {
+      if (showStructured && eventoFuentes.length > 0) {
         const fetched = await Promise.allSettled(
           eventoFuentes.map(f => getEvento(f.nombre))
         )
@@ -92,7 +107,7 @@ export default function Chat() {
       // Fetch espacio details for fuentes
       let espaciosData: Espacio[] = []
       const espacioFuentes = response.fuentes.filter(f => f.tipo === 'espacio')
-      if (espacioFuentes.length > 0) {
+      if (showStructured && espacioFuentes.length > 0) {
         const fetched = await Promise.allSettled(
           espacioFuentes.map(f => getEspacio(f.nombre))
         )
@@ -222,9 +237,7 @@ export default function Chat() {
               ))}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="bg-white border-2 border-black p-4">
-                    <p className="text-sm font-mono">ETÉREA está pensando...</p>
-                  </div>
+                  <EtereaThinking />
                 </div>
               )}
             </div>

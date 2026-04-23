@@ -3,20 +3,21 @@ import { Link } from 'react-router-dom'
 import { enviarMensajeChat, getEvento, getEspacio, getZonas, registrarBusqueda, type ChatMessage, type Evento, type Espacio, type Zona } from '../../lib/api'
 import { useAuth } from '../../lib/AuthContext'
 import { getEventDateParts } from '../../lib/datetime'
+import EtereaThinking from './EtereaThinking'
 
 function stripMarkdown(text: string): string {
   return text
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/#{1,6}\s+/g, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/`(.+?)`/g, '$1')
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
-    .replace(/^[-*+]\s+/gm, '· ')
-    .replace(/^\d+\.\s+/gm, '')
-    .replace(/^>\s+/gm, '')
-    .replace(/---/g, '')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/```[\s\S]*?```/g, '')
+    .replaceAll(/#{1,6}\s+/g, '')
+    .replaceAll(/\*\*(.+?)\*\*/g, '$1')
+    .replaceAll(/\*(.+?)\*/g, '$1')
+    .replaceAll(/`(.+?)`/g, '$1')
+    .replaceAll(/\[(.+?)\]\(.+?\)/g, '$1')
+    .replaceAll(/^[-*+]\s+/gm, '· ')
+    .replaceAll(/^\d+\.\s+/gm, '')
+    .replaceAll(/^>\s+/gm, '')
+    .replaceAll('---', '')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim()
 }
 
@@ -37,6 +38,19 @@ const QUICK_ASKS = [
   '¿Dónde hay galerías abiertas?',
   'Eventos gratis este fin de semana',
 ]
+
+function normalizePrompt(text: string): string {
+  return text.toLowerCase().normalize('NFD').replaceAll(/[\u0300-\u036f]/g, '').trim()
+}
+
+function shouldShowStructuredResults(text: string): boolean {
+  const t = normalizePrompt(text)
+  return [
+    'evento', 'eventos', 'hoy', 'semana', 'fin de semana', 'plan', 'planes',
+    'teatro', 'jazz', 'hip hop', 'hiphop', 'galeria', 'galerias', 'cine', 'danza',
+    'gratis', 'musica', 'música', 'libreria', 'librerias', 'donde', 'recomienda',
+  ].some(token => t.includes(token))
+}
 
 export default function HomeChatSection() {
   const { user } = useAuth()
@@ -93,14 +107,14 @@ export default function HomeChatSection() {
         contenido: m.contenido,
         timestamp: new Date().toISOString(),
       }))
-      historial.push({ rol: 'usuario', contenido: mensajeConContexto, timestamp: new Date().toISOString() })
 
       const res = await enviarMensajeChat(mensajeConContexto, historial)
+      const showStructured = shouldShowStructuredResults(texto)
 
       // Fetch event details
       let eventosData: Evento[] = []
       const eventoFuentes = res.fuentes.filter(f => f.tipo === 'evento')
-      if (eventoFuentes.length > 0) {
+      if (showStructured && eventoFuentes.length > 0) {
         const fetched = await Promise.allSettled(eventoFuentes.map(f => getEvento(f.nombre)))
         eventosData = fetched
           .filter((r): r is PromiseFulfilledResult<Evento> => r.status === 'fulfilled')
@@ -110,7 +124,7 @@ export default function HomeChatSection() {
       // Fetch espacio details
       let espaciosData: Espacio[] = []
       const espacioFuentes = res.fuentes.filter(f => f.tipo === 'espacio')
-      if (espacioFuentes.length > 0) {
+      if (showStructured && espacioFuentes.length > 0) {
         const fetched = await Promise.allSettled(espacioFuentes.map(f => getEspacio(f.nombre)))
         espaciosData = fetched
           .filter((r): r is PromiseFulfilledResult<Espacio> => r.status === 'fulfilled')
@@ -118,7 +132,7 @@ export default function HomeChatSection() {
       }
 
       // Build links from fuentes
-      const enlaces = res.fuentes
+      const enlaces = (showStructured ? res.fuentes : [])
         .filter(f => f.instagram || f.sitio_web)
         .map(f => ({ tipo: f.tipo, nombre: f.nombre, url: f.url, instagram: f.instagram, sitio_web: f.sitio_web }))
 
@@ -303,8 +317,8 @@ export default function HomeChatSection() {
                     {/* External links (Instagram, websites) */}
                     {msg.enlaces && msg.enlaces.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 px-3 pt-2">
-                        {msg.enlaces.map((enlace, i) => (
-                          <span key={i} className="inline-flex items-center gap-1">
+                        {msg.enlaces.map((enlace) => (
+                          <span key={`${enlace.tipo}-${enlace.nombre}-${enlace.instagram ?? enlace.sitio_web ?? 'link'}`} className="inline-flex items-center gap-1">
                             {enlace.instagram && (
                               <a
                                 href={`https://instagram.com/${enlace.instagram.replace('@', '')}`}
@@ -339,10 +353,7 @@ export default function HomeChatSection() {
               ))}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="border-2 border-black p-3 flex items-center gap-2">
-                    <div className="w-3 h-3 border-2 border-black/20 border-t-black animate-spin" />
-                    <span className="text-[11px] font-mono">ETÉREA está pensando...</span>
-                  </div>
+                  <EtereaThinking compact />
                 </div>
               )}
               <div ref={messagesEndRef} />

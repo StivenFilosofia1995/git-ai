@@ -89,13 +89,21 @@ def _normalize_str(value: Optional[str]) -> str:
     return text
 
 
+def _strip_chat_context_prefixes(message: str) -> str:
+    clean = message or ""
+    clean = re.sub(r'\[zona:\s*[^\]]+\]\s*', '', clean, flags=re.I)
+    clean = re.sub(r'\[ubicacion:\s*[^\]]+\]\s*', '', clean, flags=re.I)
+    return clean.strip()
+
+
 def _is_smalltalk_message(message: str) -> bool:
-    msg = _normalize_str(message)
+    msg = _normalize_str(_strip_chat_context_prefixes(message))
     if not msg:
         return True
     smalltalk = {
         "hola", "buenas", "buenos dias", "buenas tardes", "buenas noches",
         "que mas", "como vas", "como estas", "todo bien", "gracias", "ok",
+        "que haces", "quien eres", "quien sos", "como te llamas",
     }
     if msg in smalltalk:
         return True
@@ -400,7 +408,9 @@ def _build_historial_msgs(request: ChatRequest) -> List[Dict[str, str]]:
         content = _trim_text(m.contenido, 450)
         if content:
             msgs.append({"role": role, "content": content})
-    msgs.append({"role": "user", "content": _trim_text(request.mensaje, 1000)})
+    current = _trim_text(request.mensaje, 1000)
+    if not msgs or msgs[-1].get("role") != "user" or msgs[-1].get("content") != current:
+        msgs.append({"role": "user", "content": current})
     return msgs
 
 

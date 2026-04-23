@@ -44,7 +44,7 @@ export default function ChatWidget() {
     setMensajes(prev => [...prev, nuevoMensaje])
 
     try {
-      const historial = construirHistorial([...mensajes, nuevoMensaje])
+      const historial = construirHistorial(mensajes)
       const response = await enviarMensajeChat(mensaje, historial)
 
       // Fetch event data for fuentes of type 'evento'
