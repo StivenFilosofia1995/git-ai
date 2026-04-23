@@ -420,6 +420,7 @@ export default function Agenda() {
           <BuscarConAI
             label="Buscar con AI"
             onSearch={() => runZonaScrape(15)}
+            autoCommit
             onCommit={async candidatos => {
               const saved = await commitEventosDescubiertos(candidatos)
               return saved.message
@@ -553,6 +554,7 @@ export default function Agenda() {
               <BuscarConAI
                 label="Buscar eventos con AI"
                 onSearch={() => runZonaScrape(20)}
+                autoCommit
                 onCommit={async candidatos => {
                   const saved = await commitEventosDescubiertos(candidatos)
                   return saved.message

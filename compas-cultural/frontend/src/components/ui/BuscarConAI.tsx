@@ -6,6 +6,7 @@ interface Props {
   onSearch: () => Promise<string | { message: string; candidatos?: DescubiertoEvento[]; variables?: Record<string, string> }>
   onCommit?: (candidatos: DescubiertoEvento[]) => Promise<string>
   onComplete?: () => void
+  autoCommit?: boolean
 }
 
 /**
@@ -13,7 +14,7 @@ interface Props {
  * onSearch should return a message string.
  * onComplete is called after search finishes (to refetch data).
  */
-export default function BuscarConAI({ label = 'Buscar con AI', onSearch, onCommit, onComplete }: Readonly<Props>) {
+export default function BuscarConAI({ label = 'Buscar con AI', onSearch, onCommit, onComplete, autoCommit = false }: Readonly<Props>) {
   const [searching, setSearching] = useState(false)
   const [committing, setCommitting] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -31,8 +32,22 @@ export default function BuscarConAI({ label = 'Buscar con AI', onSearch, onCommi
         setMsg(result)
       } else {
         setMsg(result.message)
-        setCandidatos(result.candidatos ?? [])
+        const found = result.candidatos ?? []
+        setCandidatos(found)
         setVariables(result.variables ?? {})
+
+        if (autoCommit && onCommit && found.length > 0) {
+          setCommitting(true)
+          try {
+            const saved = await onCommit(found)
+            setMsg(`${result.message}\n${saved}`)
+            setCandidatos([])
+          } catch {
+            setMsg(`${result.message}\nNo se pudieron agregar automáticamente los eventos al sistema.`)
+          } finally {
+            setCommitting(false)
+          }
+        }
       }
       onComplete?.()
     } catch {

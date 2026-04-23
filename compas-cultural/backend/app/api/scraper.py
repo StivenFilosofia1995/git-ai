@@ -235,16 +235,26 @@ async def trigger_discover_events_publico(
     if auto_insert:
         nuevos = result.get("nuevos", 0)
         duplicados = result.get("duplicados", 0)
+        errores = result.get("errores", 0)
+        candidatos_n = len(result.get("candidatos") or [])
         if nuevos > 0:
             message = (
                 f"Descubrimiento completado: {nuevos} evento(s) nuevos agregados a la BD "
                 f"y {duplicados} duplicado(s) omitidos."
             )
+            if errores:
+                message += f" Hubo {errores} candidato(s) con error al insertar."
         else:
-            message = (
-                "Búsqueda web completada: no hubo eventos nuevos para insertar, "
-                f"{duplicados} ya existían en la BD."
-            )
+            if errores > 0 and candidatos_n > 0:
+                message = (
+                    f"Búsqueda web completada: se encontraron {candidatos_n} candidato(s), "
+                    f"pero no se pudieron insertar ({errores} error(es)); {duplicados} ya existían."
+                )
+            else:
+                message = (
+                    "Búsqueda web completada: no hubo eventos nuevos para insertar, "
+                    f"{duplicados} ya existían en la BD."
+                )
     elif candidatos_n > 0:
         message = (
             f"Se encontraron {candidatos_n} eventos candidatos para el Valle. "
