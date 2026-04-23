@@ -154,7 +154,7 @@ export default function Agenda() {
       max_results_per_query: Math.min(6, Math.max(3, Math.floor(limit / 3))),
       days_ahead: daysAhead,
       strict_categoria: Boolean(catFilter),
-      auto_insert: false,
+      auto_insert: true,
     })
 
     return {

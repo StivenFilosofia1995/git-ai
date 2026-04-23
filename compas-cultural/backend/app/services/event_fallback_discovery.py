@@ -140,6 +140,10 @@ def _build_google_queries(
         f"{base} abril mayo junio {region}",
         f"agenda cultural gratis {region} hoy",
         f"eventos hoy mañana fin de semana {region}",
+        f"cartelera cultural {region} {base}",
+        f"programacion cultural {region} {base}",
+        f"site:eventbrite.com {base} {region}",
+        f"site:tuboleta.com {base} {region}",
     ]
 
 
@@ -187,6 +191,32 @@ async def _google_search_urls(query: str, max_results: int = 8) -> list[str]:
                 for a in soup.select("a.result__a[href]"):
                     href = a.get("href", "")
                     if not href.startswith("http"):
+                        continue
+                    if href not in urls:
+                        urls.append(href)
+                    if len(urls) >= max_results:
+                        break
+        except Exception:
+            pass
+
+    # Fallback 2: Bing HTML.
+    if len(urls) < max_results:
+        bing_params = {
+            "q": query,
+            "setlang": "es-CO",
+            "cc": "CO",
+            "count": min(max_results, 10),
+        }
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                bing = await client.get("https://www.bing.com/search", params=bing_params, headers=headers)
+                bing.raise_for_status()
+                soup = BeautifulSoup(bing.text, "lxml")
+                for a in soup.select("li.b_algo h2 a[href], a[href]"):
+                    href = a.get("href", "")
+                    if not href.startswith("http"):
+                        continue
+                    if any(skip in href for skip in ["bing.com", "microsoft.com"]):
                         continue
                     if href not in urls:
                         urls.append(href)
@@ -343,9 +373,27 @@ def _find_candidate_lugares(
         if categoria:
             query = query.eq("categoria_principal", categoria)
         if texto:
-            query = query.ilike("nombre", f"%{texto[:80]}%")
+            t = texto[:80]
+            query = query.or_(
+                f"nombre.ilike.%{t}%,"
+                f"barrio.ilike.%{t}%,"
+                f"municipio.ilike.%{t}%"
+            )
         resp = query.limit(limit).execute()
-        return resp.data or []
+        lugares = resp.data or []
+        if lugares:
+            return lugares
+
+        # Si el texto fue demasiado restrictivo, reintentar solo por municipio/categoría.
+        relaxed = supabase.table("lugares").select(
+            "id,nombre,slug,municipio,barrio,categoria_principal,sitio_web"
+        )
+        if municipio:
+            relaxed = relaxed.eq("municipio", municipio)
+        if categoria:
+            relaxed = relaxed.eq("categoria_principal", categoria)
+        relaxed_resp = relaxed.limit(limit).execute()
+        return relaxed_resp.data or []
     except Exception:
         return []
 
@@ -503,11 +551,11 @@ async def discover_events_for_filters(
     es_gratuito: Optional[bool] = None,
     colectivo_slug: Optional[str] = None,
     texto: Optional[str] = None,
-    max_queries: int = 2,
-    max_results_per_query: int = 3,
+    max_queries: int = 4,
+    max_results_per_query: int = 6,
     days_ahead: Optional[int] = None,
     strict_categoria: bool = False,
-    auto_insert: bool = False,
+    auto_insert: bool = True,
 ) -> dict:
     """Discover events when filter views are empty.
 
@@ -547,7 +595,7 @@ async def discover_events_for_filters(
     known_events = await _scrape_known_sites(
         municipio=municipio,
         categoria=categoria,
-        max_sites=6,
+        max_sites=10,
     )
     known_source = "conocido_directo"
     for ev in known_events:
@@ -581,7 +629,7 @@ async def discover_events_for_filters(
         municipio=municipio,
         categoria=categoria,
         texto=texto,
-        limit=12,
+        limit=20,
     )
     lugares_events = await _scrape_candidate_lugares_websites(
         lugares=candidate_lugares,

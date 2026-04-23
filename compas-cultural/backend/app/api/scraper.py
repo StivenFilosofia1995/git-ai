@@ -99,7 +99,7 @@ async def trigger_discover_events_publico(
     max_results_per_query: int = Query(default=3, ge=1, le=10),
     days_ahead: int | None = Query(default=None, ge=0, le=120),
     strict_categoria: bool = Query(default=False),
-    auto_insert: bool = Query(default=False, description="Si true, inserta automáticamente en BD"),
+    auto_insert: bool = Query(default=True, description="Si true, inserta automáticamente en BD"),
 ):
     """Descubrimiento inteligente público cuando no hay resultados en filtros.
 
@@ -121,10 +121,18 @@ async def trigger_discover_events_publico(
 
     candidatos_n = len(result.get("candidatos") or [])
     if auto_insert:
-        message = (
-            f"Descubrimiento completado: {result.get('nuevos', 0)} nuevos, "
-            f"{result.get('duplicados', 0)} duplicados."
-        )
+        nuevos = result.get("nuevos", 0)
+        duplicados = result.get("duplicados", 0)
+        if nuevos > 0:
+            message = (
+                f"Descubrimiento completado: {nuevos} evento(s) nuevos agregados a la BD "
+                f"y {duplicados} duplicado(s) omitidos."
+            )
+        else:
+            message = (
+                "Búsqueda web completada: no hubo eventos nuevos para insertar, "
+                f"{duplicados} ya existían en la BD."
+            )
     elif candidatos_n > 0:
         message = (
             f"Se encontraron {candidatos_n} eventos candidatos para el Valle. "

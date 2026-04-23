@@ -83,7 +83,7 @@ export default function ZonaDetalle() {
                       texto: zona.nombre,
                       max_queries: 2,
                       max_results_per_query: 4,
-                      auto_insert: false,
+                      auto_insert: true,
                     })
                     return {
                       message: res.message,
@@ -215,7 +215,7 @@ export default function ZonaDetalle() {
                         texto: zona.nombre,
                         max_queries: 2,
                         max_results_per_query: 5,
-                        auto_insert: false,
+                        auto_insert: true,
                       })
                       return {
                         message: res.message,

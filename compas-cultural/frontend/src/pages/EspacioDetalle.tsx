@@ -143,7 +143,7 @@ export default function EspacioDetalle() {
                     texto: espacio.nombre,
                     max_queries: 2,
                     max_results_per_query: 4,
-                    auto_insert: false,
+                    auto_insert: true,
                   })
                   return {
                     message: res.message,

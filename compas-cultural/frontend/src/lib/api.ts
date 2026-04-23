@@ -292,7 +292,8 @@ export async function discoverEventosAI(params: DiscoverEventosParams): Promise<
   if (params.max_results_per_query) search.set('max_results_per_query', String(params.max_results_per_query))
   if (typeof params.days_ahead === 'number') search.set('days_ahead', String(params.days_ahead))
   if (typeof params.strict_categoria === 'boolean') search.set('strict_categoria', String(params.strict_categoria))
-  search.set('auto_insert', String(Boolean(params.auto_insert)))
+  const shouldAutoInsert = typeof params.auto_insert === 'boolean' ? params.auto_insert : true
+  search.set('auto_insert', String(shouldAutoInsert))
 
   const qs = search.toString()
   const path = '/scraper/discover-events/publico' + (qs ? `?${qs}` : '')
