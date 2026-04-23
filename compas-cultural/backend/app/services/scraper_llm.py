@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from app.config import settings
 from app.database import supabase
 from app.services.groq_client import groq_chat, MODEL_SMART
+from app.services.ollama_client import ollama_chat
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -209,7 +210,7 @@ def _extract_ig_handle(url: str) -> str:
 
 
 def _extract_with_llm(url: str, page_text: str) -> dict:
-    """Send page text to Groq for cultural data extraction. Falls back to Claude if needed."""
+    """Send page text to Ollama first for cultural data extraction. Fallbacks: Groq, then Claude."""
     now_co = _now_co()
     prompt = EXTRACTION_PROMPT.format(
         url=url,
@@ -217,8 +218,17 @@ def _extract_with_llm(url: str, page_text: str) -> dict:
         fecha_actual=now_co.isoformat(),
     )
 
-    # Try Groq first (free, fast)
-    raw = groq_chat(prompt, model=MODEL_SMART, max_tokens=2048, temperature=0)
+    # Prioridad 1: Ollama local (sin costo, sin API key externa)
+    raw = ollama_chat(
+        system_prompt="Extrae datos culturales y responde solo JSON valido.",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=2048,
+        temperature=0.0,
+    )
+
+    # Prioridad 2: Groq (solo si Ollama no responde)
+    if not raw:
+        raw = groq_chat(prompt, model=MODEL_SMART, max_tokens=2048, temperature=0)
 
     # Claude fallback only if Groq unavailable and key exists
     if not raw and settings.anthropic_api_key:

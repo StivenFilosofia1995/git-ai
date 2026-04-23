@@ -396,10 +396,10 @@ def _extract_events_with_ollama(prompt: str) -> list[dict]:
 
 
 def _extract_events_with_ai(prompt: str) -> list[dict]:
-    events = _extract_events_with_groq(prompt)
+    events = _extract_events_with_ollama(prompt)
     if events:
         return events
-    return _extract_events_with_ollama(prompt)
+    return _extract_events_with_groq(prompt)
 
 
 def _slugify(text: str) -> str:
@@ -655,7 +655,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     all_events.extend(events_code)
                     print(f"    ✅ Código: {len(events_code)} evento(s) extraídos")
                 else:
-                    print(f"    ⚠ Sin eventos de código para {sitio} — intentando Groq fallback")
+                    print(f"    ⚠ Sin eventos de código para {sitio} — intentando IA local (Ollama)")
                     text = _html_to_text(html)
                     short_text = text[:4000]
                     if short_text and len(short_text) > 100:
@@ -670,13 +670,13 @@ async def _scrape_lugar(lugar: dict) -> dict:
                             fuente_url=sitio,
                             contenido=short_text,
                         )
-                        events_groq = _extract_events_with_groq(prompt)
-                        for ev in events_groq:
+                        events_ai = _extract_events_with_ai(prompt)
+                        for ev in events_ai:
                             ev["_fuente"] = "sitio_web_groq"
                             ev["_fuente_url"] = sitio
-                        if events_groq:
-                            print(f"    🧠 Groq: {len(events_groq)} evento(s)")
-                            all_events.extend(events_groq)
+                        if events_ai:
+                            print(f"    🧠 IA: {len(events_ai)} evento(s)")
+                            all_events.extend(events_ai)
 
     # ── 2. Scrape Instagram (código puro — CERO tokens AI) ────────────────
     ig_handle = _normalize_ig_handle(lugar.get("instagram_handle"))
