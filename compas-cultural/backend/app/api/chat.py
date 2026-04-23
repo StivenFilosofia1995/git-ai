@@ -37,7 +37,7 @@ async def chat_cultural(body: ChatRequest, request: Request):
 
 @router.get("/test")
 async def chat_test():
-    """Test endpoint — verifica que Groq funciona."""
+    """Test endpoint — verifica motor de chat activo (incluye Ollama)."""
     try:
         from app.config import settings
         result = {
@@ -45,10 +45,17 @@ async def chat_test():
             "groq_key": bool(settings.groq_api_key),
             "gemini_key": bool(settings.gemini_api_key),
             "anthropic_key": bool(settings.anthropic_api_key),
+            "ollama_base_url": settings.ollama_base_url,
+            "ollama_model": settings.ollama_model,
         }
-        from app.services.chat_service import _chat_via_groq
-        r = _chat_via_groq("Di solo: OK", [{"role": "user", "content": "test"}])
-        result["groq_response"] = r
+        from app.services.chat_service import _chat_via_groq, _chat_via_ollama
+
+        if (settings.chat_engine or "").lower() == "ollama":
+            r = _chat_via_ollama("Di solo: OK", [{"role": "user", "content": "test"}])
+            result["ollama_response"] = r
+        else:
+            r = _chat_via_groq("Di solo: OK", [{"role": "user", "content": "test"}])
+            result["groq_response"] = r
         return result
     except Exception as e:
         return {"error": str(e), "type": type(e).__name__}

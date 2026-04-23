@@ -5,11 +5,14 @@ Centraliza la lógica que asegura que los datos en Supabase sean limpios,
 sin duplicados y con formatos consistentes.
 """
 import re
+import json
 import unicodedata
 from datetime import datetime, timedelta
 from typing import Optional
 
+from app.config import settings
 from app.database import supabase
+from app.services.ollama_client import ollama_chat
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -40,6 +43,134 @@ MUNICIPIO_ALIAS = {
     "girardota": "girardota",
     "barbosa": "barbosa",
 }
+
+
+EVENT_POSITIVE_TERMS = {
+    "evento", "agenda", "programacion", "programación", "concierto", "recital", "obra",
+    "funcion", "función", "festival", "muestra", "taller", "charla", "conversatorio",
+    "foro", "exposicion", "exposición", "cine", "danza", "performance", "boletas",
+    "boleteria", "boletería", "entradas", "inscripcion", "inscripción", "cupos", "aforo",
+}
+
+EVENT_NEGATIVE_TERMS = {
+    "equipo", "presentamos al", "bienvenida", "feliz cumple", "cumpleanos", "cumpleaños",
+    "comunicado", "pronunciamiento", "vacante", "convocatoria laboral", "hiring", "casting",
+    "donacion", "donación", "manifiesto", "biografia", "biografía", "perfil del equipo",
+}
+
+EVENT_SOURCE_HINTS = ("/event", "/agenda", "/programacion", "/programación", "tuboleta", "eventbrite")
+_EVENT_VALIDATION_CACHE: dict[str, bool] = {}
+
+
+def _normalize_for_match(text: str) -> str:
+    if not text:
+        return ""
+    lowered = unicodedata.normalize("NFD", text.lower())
+    lowered = "".join(ch for ch in lowered if unicodedata.category(ch) != "Mn")
+    lowered = re.sub(r"\s+", " ", lowered)
+    return lowered.strip()
+
+
+def _has_date_or_time_signal(text: str) -> bool:
+    if not text:
+        return False
+    month_or_weekday = re.search(
+        r"\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|"
+        r"lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)\b",
+        text,
+    )
+    day_num = re.search(r"\b([12]?\d|3[01])\b", text)
+    time_like = re.search(r"\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*([ap]m)?\b", text)
+    am_pm = re.search(r"\b\d{1,2}\s*(am|pm|a\.m\.|p\.m\.)\b", text)
+    return bool((month_or_weekday and day_num) or time_like or am_pm)
+
+
+def _parse_bool_json(text: str) -> Optional[bool]:
+    if not text:
+        return None
+    try:
+        return bool(json.loads(text).get("is_event"))
+    except Exception:
+        pass
+    m = re.search(r"\{.*\}", text, re.S)
+    if not m:
+        return None
+    try:
+        return bool(json.loads(m.group(0)).get("is_event"))
+    except Exception:
+        return None
+
+
+def _validate_event_with_local_ai(title: str, description: str, source_url: str) -> Optional[bool]:
+    model = (settings.ollama_model or "").strip()
+    if not model:
+        return None
+    prompt = (
+        "Clasifica si este contenido describe un evento cultural real y programado. "
+        "Devuelve solo JSON: {\"is_event\": true|false, \"confidence\": 0-1}."
+    )
+    user_payload = {
+        "titulo": (title or "")[:180],
+        "descripcion": (description or "")[:550],
+        "source_url": (source_url or "")[:180],
+    }
+    raw = ollama_chat(
+        system_prompt=prompt,
+        messages=[{"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)}],
+        max_tokens=120,
+        temperature=0.0,
+    )
+    return _parse_bool_json(raw or "")
+
+
+def is_likely_cultural_event(
+    titulo: Optional[str],
+    descripcion: Optional[str],
+    *,
+    fuente_url: Optional[str] = None,
+    categoria: Optional[str] = None,
+) -> bool:
+    """Hybrid classifier for scraper candidates.
+
+    Uses deterministic rules first. If ambiguous, optionally asks local Ollama.
+    Conservative default: reject weak signals to avoid publishing non-events.
+    """
+    title_n = _normalize_for_match(titulo or "")
+    desc_n = _normalize_for_match(descripcion or "")
+    url_n = _normalize_for_match(fuente_url or "")
+    cat_n = _normalize_for_match(categoria or "")
+
+    if len(title_n) < 5:
+        return False
+
+    cache_key = f"{title_n}|{desc_n[:180]}|{url_n[:80]}"
+    if cache_key in _EVENT_VALIDATION_CACHE:
+        return _EVENT_VALIDATION_CACHE[cache_key]
+
+    body = f"{title_n} {desc_n}".strip()
+    positives = sum(1 for term in EVENT_POSITIVE_TERMS if term in body)
+    negatives = sum(1 for term in EVENT_NEGATIVE_TERMS if term in body)
+    has_datetime_signal = _has_date_or_time_signal(body)
+    has_source_signal = any(hint in url_n for hint in EVENT_SOURCE_HINTS)
+    has_category_signal = cat_n in {
+        "teatro", "musica_en_vivo", "danza", "cine", "festival", "taller", "conferencia", "galeria", "otro"
+    }
+
+    score = positives + (2 if has_datetime_signal else 0) + (1 if has_source_signal else 0) + (1 if has_category_signal else 0)
+    if negatives >= 2 and score <= 2:
+        _EVENT_VALIDATION_CACHE[cache_key] = False
+        return False
+    if score >= 3:
+        _EVENT_VALIDATION_CACHE[cache_key] = True
+        return True
+    if score <= 0:
+        _EVENT_VALIDATION_CACHE[cache_key] = False
+        return False
+
+    ai_result = _validate_event_with_local_ai(title_n, desc_n, url_n)
+    final = bool(ai_result) if ai_result is not None else False
+    _EVENT_VALIDATION_CACHE[cache_key] = final
+    return final
 
 
 # ═══════════════════════════════════════════════════════════════

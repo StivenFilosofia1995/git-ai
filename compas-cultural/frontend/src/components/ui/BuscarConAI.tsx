@@ -70,7 +70,14 @@ export default function BuscarConAI({ label = 'Buscar con AI', onSearch, onCommi
             <span>Buscando...</span>
           </>
         ) : (
-          <><span>🔍</span><span>{label}</span></>
+          <>
+            <img
+              src="/icons/favicon.svg"
+              alt="ETÉREA"
+              className="w-3.5 h-3.5 object-contain"
+            />
+            <span>{label}</span>
+          </>
         )}
       </button>
       {msg && (

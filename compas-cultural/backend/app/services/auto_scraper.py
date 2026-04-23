@@ -17,10 +17,12 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.database import supabase
+from app.services.data_quality import is_likely_cultural_event
 from app.services.groq_client import groq_chat, parse_json_response, MODEL_SMART
 from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 from app.services.event_ocr import extract_hour_from_image_url, extract_text_from_image_url
+from app.services.ollama_client import ollama_chat
 from app.services.rss_scraper import get_or_discover_feed, parse_rss_events
 
 CO_TZ = ZoneInfo("America/Bogota")
@@ -363,6 +365,43 @@ def _extract_events_with_groq(prompt: str) -> list[dict]:
         return []
 
 
+def _extract_events_with_ollama(prompt: str) -> list[dict]:
+    """Extract events from scraped content using local Ollama JSON output."""
+    try:
+        clean_prompt = _sanitize_text(prompt) or ""
+        if not clean_prompt:
+            return []
+
+        raw = ollama_chat(
+            system_prompt="Extrae eventos culturales y responde solo JSON válido.",
+            messages=[{"role": "user", "content": clean_prompt}],
+            max_tokens=2048,
+            temperature=0.0,
+        )
+        if not raw:
+            return []
+
+        data = parse_json_response(raw)
+        if data is None:
+            fixed = re.sub(r",\s*([}\]])", r"\1", raw)
+            data = parse_json_response(fixed)
+        if data is None:
+            return []
+
+        events = data.get("eventos", []) if isinstance(data, dict) else []
+        return events if isinstance(events, list) else []
+    except Exception as e:
+        print(f"  ⚠ Ollama extraction error: {e}")
+        return []
+
+
+def _extract_events_with_ai(prompt: str) -> list[dict]:
+    events = _extract_events_with_groq(prompt)
+    if events:
+        return events
+    return _extract_events_with_ollama(prompt)
+
+
 def _slugify(text: str) -> str:
     text = text.lower().strip()
     for a, b in [("áàäâ", "a"), ("éèëê", "e"), ("íìïî", "i"), ("óòöô", "o"), ("úùüû", "u"), ("ñ", "n")]:
@@ -680,7 +719,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
             print(f"    📊 Código extrajo {len(events_ig)} evento(s) de IG")
 
             # If regex/date extractor found nothing, use LLM on real captions as fallback.
-            if not events_ig and settings.groq_api_key:
+            if not events_ig:
                 from app.services.instagram_pw_scraper import profile_to_scraper_text
                 ig_text = profile_to_scraper_text(profile, clean_handle)[:5000]
                 # OCR fallback: leer texto del flyer cuando el caption no trae fecha/hora.
@@ -705,7 +744,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                         municipio=municipio,
                         contenido=ig_text,
                     )
-                    ig_groq = _extract_events_with_groq(prompt)
+                    ig_groq = _extract_events_with_ai(prompt)
                     for ev in ig_groq:
                         ev["_fuente"] = "instagram_groq"
                         ev["_fuente_url"] = ig_url
@@ -725,6 +764,14 @@ async def _scrape_lugar(lugar: dict) -> dict:
         try:
             titulo = _sanitize_text(ev.get("titulo"))
             if not titulo:
+                continue
+            if not is_likely_cultural_event(
+                titulo,
+                ev.get("descripcion"),
+                fuente_url=ev.get("_fuente_url") or sitio,
+                categoria=ev.get("categoria_principal") or categoria,
+            ):
+                print(f"    ⛔ No parece evento real, descartado: {titulo[:70]}")
                 continue
 
             # Validate date — allow ongoing multi-day events
@@ -1383,7 +1430,7 @@ async def scrape_agenda_sources() -> dict:
                         if not ev.get("imagen_url") and source_og_image:
                             ev["imagen_url"] = source_og_image
                     print(f"  ✅ Código: {len(events)} evento(s)")
-                elif settings.groq_api_key:
+                else:
                     text = _html_to_text(html_raw)[:4000]
                     prompt = EVENT_EXTRACTION_PROMPT.format(
                         fecha_actual=now_iso,
@@ -1396,9 +1443,9 @@ async def scrape_agenda_sources() -> dict:
                         fuente_url=src["url"],
                         contenido=text,
                     )
-                    events = _extract_events_with_groq(prompt)
+                    events = _extract_events_with_ai(prompt)
                     if events:
-                        print(f"  🧠 Groq: {len(events)} evento(s)")
+                        print(f"  🧠 IA: {len(events)} evento(s)")
                 if not events:
                     feed_url = await get_or_discover_feed(src["url"])
                     if feed_url:
@@ -1423,6 +1470,14 @@ async def scrape_agenda_sources() -> dict:
                 try:
                     titulo = _sanitize_text(ev.get("titulo"))
                     if not titulo:
+                        continue
+                    if not is_likely_cultural_event(
+                        titulo,
+                        ev.get("descripcion"),
+                        fuente_url=ev.get("_fuente_url") or src["url"],
+                        categoria=ev.get("categoria_principal") or src["categoria_default"],
+                    ):
+                        print(f"    ⛔ Candidato descartado (no evento): {titulo[:70]}")
                         continue
 
                     fecha_str = ev.get("fecha_inicio")

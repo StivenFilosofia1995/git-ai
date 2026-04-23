@@ -7,6 +7,7 @@ from app.config import settings
 from app.database import supabase
 from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
 from app.services.gemini_client import gemini_chat
+from app.services.ollama_client import ollama_chat
 
 CO_TZ = ZoneInfo("America/Bogota")
 EVENT_SELECT_FIELDS = "id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion"
@@ -348,18 +349,22 @@ def _chat_via_gemini(system_prompt: str, messages: list) -> Optional[str]:
 
 def _engine_order() -> List[str]:
     engine = (settings.chat_engine or "auto").lower()
+    if engine == "ollama":
+        return ["ollama", "groq", "gemini", "anthropic"]
     if engine == "groq":
-        return ["groq", "gemini", "anthropic"]
+        return ["groq", "ollama", "gemini", "anthropic"]
     if engine == "gemini":
-        return ["gemini", "groq", "anthropic"]
+        return ["gemini", "ollama", "groq", "anthropic"]
     if engine == "anthropic":
-        return ["anthropic", "groq", "gemini"]
-    return ["groq", "gemini", "anthropic"]
+        return ["anthropic", "ollama", "groq", "gemini"]
+    return ["ollama", "groq", "gemini", "anthropic"]
 
 
 def _generate_llm_response(prompt: str, historial_msgs: list) -> Optional[str]:
     for engine in _engine_order():
-        if engine == "groq":
+        if engine == "ollama":
+            respuesta = _chat_via_ollama(prompt, historial_msgs)
+        elif engine == "groq":
             respuesta = _chat_via_groq(prompt, historial_msgs)
         elif engine == "gemini":
             respuesta = _chat_via_gemini(prompt, historial_msgs)
@@ -424,6 +429,19 @@ def _chat_via_groq(system_prompt: str, messages: list) -> Optional[str]:
         return resp.choices[0].message.content.strip()
     except Exception as e:
         print(f"[chat_service] Groq falló: {e}")
+        return None
+
+
+def _chat_via_ollama(system_prompt: str, messages: list) -> Optional[str]:
+    try:
+        return ollama_chat(
+            system_prompt=system_prompt,
+            messages=messages,
+            max_tokens=settings.chat_max_tokens,
+            temperature=settings.chat_temperature,
+        )
+    except Exception as e:
+        print(f"[chat_service] Ollama falló: {e}")
         return None
 
 

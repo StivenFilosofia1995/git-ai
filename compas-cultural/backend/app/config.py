@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     # Groq AI (fast/cheap LLM for scraping — replaces Claude for non-chat tasks)
     groq_api_key: str = ""
-    chat_engine: str = "groq"  # groq | gemini | anthropic | auto
+    chat_engine: str = "ollama"  # ollama | groq | gemini | anthropic | auto
     chat_max_tokens: int = 900
     chat_temperature: float = 0.7
     chat_history_messages: int = 8
@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # Gemini (Google AI) — primary model for user chat (free tier: 1500 req/day)
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
+
+    # Ollama local LLM (zero external API keys)
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "gemma4-local:latest"
 
     # Meta (Instagram/Facebook) Graph API
     meta_access_token: str = ""

@@ -22,6 +22,7 @@ from app.services.auto_scraper import (
     _sanitize_payload,
     _slugify,
 )
+from app.services.data_quality import is_likely_cultural_event
 from app.services.html_event_extractor import extract_events_code
 
 # ── Known Medellín / Valle de Aburrá cultural sites with their agenda URLs ──
@@ -567,6 +568,13 @@ def _build_candidate_event_data(
     titulo = ev.get("titulo")
     if not titulo:
         return None
+    if not is_likely_cultural_event(
+        titulo,
+        ev.get("descripcion"),
+        fuente_url=source_url,
+        categoria=ev.get("categoria_principal") or default_categoria,
+    ):
+        return None
 
     fecha = _parse_iso_maybe(ev.get("fecha_inicio"))
     if not fecha:
@@ -865,6 +873,14 @@ def commit_discovered_events(candidatos: list[dict]) -> dict:
     }
     for ev in candidatos or []:
         try:
+            if not is_likely_cultural_event(
+                ev.get("titulo"),
+                ev.get("descripcion"),
+                fuente_url=ev.get("fuente_url"),
+                categoria=ev.get("categoria_principal"),
+            ):
+                result["errores"] += 1
+                continue
             inserted, duplicate = _insert_discovered_event(ev)
             if inserted:
                 result["nuevos"] += 1

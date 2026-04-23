@@ -30,7 +30,7 @@ export default function Nosotros() {
           style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.97) 38%, rgba(255,255,255,0.66) 58%, rgba(255,255,255,0.05) 78%)' }}
           aria-hidden="true"
         />
-        <div className="max-w-4xl mx-auto px-6 py-16 lg:py-24">
+        <div className="relative z-10 max-w-4xl mx-auto px-6 py-16 lg:py-24">
           <div className="relative flex items-center gap-3 mb-8">
             <span className="w-3 h-3 bg-black" />
             <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">

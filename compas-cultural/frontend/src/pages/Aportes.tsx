@@ -67,7 +67,7 @@ export default function Aportes() {
           style={{ background: 'linear-gradient(to right, rgba(253,224,71,0.97) 38%, rgba(253,224,71,0.74) 58%, rgba(253,224,71,0.2) 80%)' }}
           aria-hidden="true"
         />
-        <div className="max-w-4xl mx-auto px-6 py-16 text-center">
+        <div className="relative z-10 max-w-4xl mx-auto px-6 py-16 text-center">
           <p className="relative text-[11px] font-mono font-bold uppercase tracking-[0.3em] mb-4">
             Cultura ETÉREA · Vaki Aportes
           </p>
