@@ -1,4 +1,6 @@
 import json
+import re
+import unicodedata
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Optional
@@ -61,6 +63,100 @@ BARRIOS_MEDELLIN_MAP = {
     "la candelaria": ["la candelaria", "candelaria"],
 }
 
+VALLE_MUNICIPIOS_NORMALIZED = {
+    "medellin", "itagui", "envigado", "sabaneta", "copacabana",
+    "bello", "girardota", "barbosa", "la estrella", "la_estrella",
+    "caldas",
+}
+
+CHAT_EVENT_NEGATIVE_TERMS = {
+    "boletin", "boletin filbo", "filbo", "haz clic", "haz click", "click aqui",
+    "20%", "off", "descuento", "compra", "promocion", "promoción",
+    "devolv", "tickets para todos", "boletos para todos",
+}
+
+CHAT_EVENT_POSITIVE_TERMS = {
+    "teatro", "concierto", "festival", "taller", "cine", "danza", "charla",
+    "funcion", "función", "obra", "recital", "presenta", "musica", "música",
+}
+
+
+def _normalize_str(value: Optional[str]) -> str:
+    text = (value or "").strip().lower()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _is_smalltalk_message(message: str) -> bool:
+    msg = _normalize_str(message)
+    if not msg:
+        return True
+    smalltalk = {
+        "hola", "buenas", "buenos dias", "buenas tardes", "buenas noches",
+        "que mas", "como vas", "como estas", "todo bien", "gracias", "ok",
+    }
+    if msg in smalltalk:
+        return True
+    return len(msg.split()) <= 2 and any(s in msg for s in ["hola", "buenas", "hey"])
+
+
+def _is_valle_municipio(raw_municipio: Optional[str]) -> bool:
+    municipio = _normalize_str(raw_municipio).replace("_", " ")
+    if not municipio:
+        return True
+    if municipio in VALLE_MUNICIPIOS_NORMALIZED:
+        return True
+    return municipio.replace(" ", "_") in VALLE_MUNICIPIOS_NORMALIZED
+
+
+def _is_valid_event_for_chat(ev: dict) -> bool:
+    title = _normalize_str(ev.get("titulo"))
+    desc = _normalize_str(ev.get("descripcion"))
+    if len(title) < 6:
+        return False
+    if not _is_valle_municipio(ev.get("municipio")):
+        return False
+
+    blob = f"{title} {desc}".strip()
+    neg_hits = sum(1 for t in CHAT_EVENT_NEGATIVE_TERMS if t in blob)
+    pos_hits = sum(1 for t in CHAT_EVENT_POSITIVE_TERMS if t in blob)
+
+    # Block obvious promotional/non-agenda records.
+    if neg_hits >= 1 and pos_hits == 0:
+        return False
+    if title.count("http") > 0 or "haz clic" in blob or "click" in blob:
+        return False
+
+    return True
+
+
+def _is_valid_space_for_chat(esp: dict) -> bool:
+    name = _normalize_str(esp.get("nombre"))
+    if len(name) < 3:
+        return False
+    return _is_valle_municipio(esp.get("municipio"))
+
+
+def _to_human_datetime_label(raw_iso: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if not raw_iso:
+        return None, None
+    try:
+        dt = datetime.fromisoformat(str(raw_iso))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=CO_TZ)
+        else:
+            dt = dt.astimezone(CO_TZ)
+    except Exception:
+        return None, None
+
+    days = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"]
+    months = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    fecha = f"{days[dt.weekday()]}, {dt.day} {months[dt.month - 1]}"
+    hora = dt.strftime("%I:%M %p").lower()
+    return fecha, hora
+
 
 def _extract_location_from_message(mensaje: str) -> Optional[str]:
     """Extract zone/location (municipality or neighborhood) from user message."""
@@ -117,7 +213,7 @@ def _obtener_espacios(msg_clean: str, zona_filtro: Optional[str]) -> tuple:
     query_espacios = supabase.table("lugares").select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,descripcion,instagram_handle,sitio_web,direccion,nivel_actividad,telefono,email").neq("nivel_actividad", "cerrado")
     query_espacios = _apply_location_filter_to_query(query_espacios, zona_filtro)
     resp = query_espacios.limit(100).execute()
-    espacios = resp.data
+    espacios = [e for e in (resp.data or []) if _is_valid_space_for_chat(e)]
     
     keywords = _extract_keywords(msg_clean, max_keywords=3)
     if keywords:
@@ -125,7 +221,9 @@ def _obtener_espacios(msg_clean: str, zona_filtro: Optional[str]) -> tuple:
             query_kw = supabase.table("lugares").select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,instagram_handle,sitio_web,direccion,telefono").or_(f"nombre.ilike.%{kw}%,descripcion.ilike.%{kw}%,barrio.ilike.%{kw}%,categoria_principal.ilike.%{kw}%").neq("nivel_actividad", "cerrado")
             query_kw = _apply_location_filter_to_query(query_kw, zona_filtro)
             resp_kw = query_kw.limit(20).execute()
-            for e in resp_kw.data:
+            for e in (resp_kw.data or []):
+                if not _is_valid_space_for_chat(e):
+                    continue
                 if not any(x["id"] == e["id"] for x in espacios_relevantes):
                     espacios_relevantes.append(e)
     
@@ -144,19 +242,19 @@ def _obtener_eventos(zona_filtro: Optional[str]) -> tuple:
     
     query_hoy = supabase.table("eventos").select(EVENT_SELECT_FIELDS).gte("fecha_inicio", hoy_iso).lt("fecha_inicio", manana_iso)
     query_hoy = _apply_location_filter_to_query(query_hoy, zona_filtro)
-    eventos_hoy = query_hoy.order("fecha_inicio").limit(50).execute().data
+    eventos_hoy = [e for e in (query_hoy.order("fecha_inicio").limit(50).execute().data or []) if _is_valid_event_for_chat(e)]
     
     query_en_curso = supabase.table("eventos").select(EVENT_SELECT_FIELDS).lt("fecha_inicio", hoy_iso).gte("fecha_fin", hoy_iso)
     query_en_curso = _apply_location_filter_to_query(query_en_curso, zona_filtro)
-    eventos_en_curso = query_en_curso.order("fecha_inicio").limit(20).execute().data
+    eventos_en_curso = [e for e in (query_en_curso.order("fecha_inicio").limit(20).execute().data or []) if _is_valid_event_for_chat(e)]
     
     resp_ayer = supabase.table("eventos").select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url").gte("fecha_inicio", ayer_iso).lt("fecha_inicio", hoy_iso).is_("fecha_fin", "null").order("fecha_inicio", desc=True).limit(10).execute()
-    eventos_anteriores = resp_ayer.data
+    eventos_anteriores = [e for e in (resp_ayer.data or []) if _is_valid_event_for_chat(e)]
     
     semana_iso = (hoy_inicio + timedelta(days=7)).isoformat()
     query_semana = supabase.table("eventos").select(EVENT_SELECT_FIELDS).gte("fecha_inicio", manana_iso).lte("fecha_inicio", semana_iso)
     query_semana = _apply_location_filter_to_query(query_semana, zona_filtro)
-    eventos_semana = query_semana.order("fecha_inicio").limit(30).execute().data
+    eventos_semana = [e for e in (query_semana.order("fecha_inicio").limit(30).execute().data or []) if _is_valid_event_for_chat(e)]
     
     return eventos_hoy, eventos_en_curso, eventos_anteriores, eventos_semana, hoy_iso
 
@@ -169,7 +267,9 @@ def _buscar_eventos_por_keywords(keywords: List[str], hoy_iso: str, zona_filtro:
             query = supabase.table("eventos").select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url").gte("fecha_inicio", hoy_iso).or_(f"titulo.ilike.%{kw}%,descripcion.ilike.%{kw}%,nombre_lugar.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
             query = _apply_location_filter_to_query(query, zona_filtro)
             resp = query.order("fecha_inicio").limit(15).execute()
-            for ev in resp.data:
+            for ev in (resp.data or []):
+                if not _is_valid_event_for_chat(ev):
+                    continue
                 if ev["id"] not in eventos_existentes_ids:
                     resultados.append(ev)
                     eventos_existentes_ids.add(ev["id"])
@@ -225,6 +325,7 @@ def _price_label(ev: dict) -> str:
 
 
 def _compact_event(ev: dict) -> dict:
+    fecha_h, hora_h = _to_human_datetime_label(ev.get("fecha_inicio"))
     return {
         "id": ev.get("id"),
         "slug": ev.get("slug"),
@@ -238,6 +339,8 @@ def _compact_event(ev: dict) -> dict:
         "precio": _price_label(ev),
         "direccion": _trim_text(ev.get("direccion"), 110),
         "descripcion": _trim_text(ev.get("descripcion"), 260),
+        "fecha_humana": fecha_h,
+        "hora_humana": hora_h,
     }
 
 
@@ -259,6 +362,10 @@ def _compact_space(esp: dict) -> dict:
 def _compact_context(contexto: Dict, user_message: str) -> Dict:
     max_events = settings.chat_context_events_limit
     max_spaces = settings.chat_context_spaces_limit
+
+    if _is_smalltalk_message(user_message):
+        max_events = 0
+        max_spaces = min(6, max_spaces)
 
     ctx = {
         "zona_usuario": contexto.get("zona_usuario"),
@@ -359,6 +466,10 @@ def _generate_llm_response(prompt: str, historial_msgs: list) -> Optional[str]:
 
 
 def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
+    if _is_smalltalk_message(request.mensaje):
+        respuesta = "Hola, soy ETÉREA. Te ayudo a encontrar planes culturales reales en Medellín y el Valle de Aburrá. ¿Qué te gusta más: música, teatro, cine o algo para hoy?"
+        return ChatResponse(respuesta=respuesta, fuentes=[])
+
     contexto = _obtener_contexto(request.mensaje)
 
     contexto_compacto = _compact_context(contexto, request.mensaje)
