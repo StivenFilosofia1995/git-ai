@@ -414,6 +414,8 @@ export interface PublicarEventoData {
   titulo: string
   fecha_inicio: string // ISO
   fecha_fin?: string
+  hora_inicio?: string
+  hora_fin?: string
   descripcion?: string
   categoria_principal?: string
   municipio?: string
@@ -422,7 +424,10 @@ export interface PublicarEventoData {
   espacio_id?: string
   precio?: string
   es_gratuito?: boolean
+  aforo?: number
+  sesion_numero?: number
   imagen_url?: string
+  imagen_url_alternativa?: string
   contacto_instagram?: string
   contacto_email?: string
 }
