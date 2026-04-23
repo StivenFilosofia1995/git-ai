@@ -134,7 +134,7 @@ export default function EspacioDetalle() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-mono font-bold uppercase tracking-wider text-xs">PRÓXIMOS EVENTOS</h3>
               <BuscarConAI
-                label="Buscar eventos"
+                label="Ayudanos a buscar eventos en este perfil o lugar"
                 onSearch={async () => {
                   const res = await discoverEventosAI({
                     colectivo_slug: espacio.slug,

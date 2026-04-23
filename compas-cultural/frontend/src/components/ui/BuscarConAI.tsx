@@ -90,6 +90,28 @@ export default function BuscarConAI({ label = 'Buscar con AI', onSearch, onCommi
                 <p className="text-[10px] font-mono mt-1 opacity-70 line-clamp-2">{ev.nombre_lugar ?? ev.municipio ?? 'Valle de Aburrá'}</p>
                 <p className="text-[10px] font-mono mt-1 opacity-70 line-clamp-1">{ev.fecha_inicio?.slice(0, 10)}</p>
                 <p className="text-[10px] font-mono mt-1 opacity-70 line-clamp-1">{ev.categoria_principal}</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {ev.imagen_url && (
+                    <a
+                      href={ev.imagen_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[9px] font-mono font-bold uppercase border border-black px-1.5 py-0.5 hover:bg-black hover:text-white transition-all"
+                    >
+                      Ver poster
+                    </a>
+                  )}
+                  {ev.fuente_url && (
+                    <a
+                      href={ev.fuente_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[9px] font-mono font-bold uppercase border border-black px-1.5 py-0.5 hover:bg-black hover:text-white transition-all"
+                    >
+                      Abrir fuente
+                    </a>
+                  )}
+                </div>
               </div>
             ))}
           </div>

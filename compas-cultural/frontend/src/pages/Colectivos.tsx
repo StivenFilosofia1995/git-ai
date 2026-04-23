@@ -50,9 +50,21 @@ export default function Colectivos() {
       </Helmet>
 
       {/* HERO */}
-      <section className="bg-white border-b-2 border-black">
+      <section className="relative bg-white border-b-2 border-black overflow-hidden">
+        <img
+          src="/medellin-ilustracion.png"
+          alt=""
+          aria-hidden="true"
+          className="absolute right-0 bottom-0 h-full w-auto max-w-[55%] object-contain object-right-bottom pointer-events-none select-none"
+          style={{ opacity: 0.25 }}
+        />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.97) 40%, rgba(255,255,255,0.68) 58%, rgba(255,255,255,0.08) 80%)' }}
+          aria-hidden="true"
+        />
         <div className="max-w-7xl mx-auto px-6 py-16 lg:py-24">
-          <div className="max-w-2xl">
+          <div className="relative max-w-2xl">
             <div className="flex items-center gap-3 mb-6">
               <span className="w-3 h-3 bg-black" />
               <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
@@ -92,7 +104,7 @@ export default function Colectivos() {
             </div>
             <div className="mt-6">
               <BuscarConAI
-                label="Buscar eventos de colectivos"
+                label="Ayudanos a buscar eventos en este perfil o lugar"
                 onSearch={async () => {
                   const res = await discoverEventosAI({
                     categoria: filtro || undefined,

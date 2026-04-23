@@ -4,10 +4,16 @@ import asyncio
 import re
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import quote_plus
 from zoneinfo import ZoneInfo
 
 import httpx
 from bs4 import BeautifulSoup
+
+try:
+    from playwright.async_api import async_playwright
+except Exception:
+    async_playwright = None
 
 from app.database import supabase
 from app.services.auto_scraper import (
@@ -224,6 +230,18 @@ async def _google_search_urls(query: str, max_results: int = 8) -> list[str]:
                         break
         except Exception:
             pass
+
+    # Fallback 3: browser search (Chromium/Playwright) for anti-bot pages.
+    if len(urls) < max_results:
+        try:
+            browser_urls = await _search_urls_with_browser(query, max_results=max_results)
+            for href in browser_urls:
+                if href not in urls:
+                    urls.append(href)
+                if len(urls) >= max_results:
+                    break
+        except Exception:
+            pass
     return urls
 
 
@@ -273,13 +291,89 @@ async def _fetch_html_from_url(url: str) -> Optional[str]:
         "User-Agent": UA,
         "Accept-Language": ACCEPT_LANG,
     }
+    html = None
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
-            return resp.text
+            html = resp.text
+    except Exception:
+        html = None
+
+    if html and len(html) >= 120:
+        return html
+
+    # Fallback to full browser render for JS-heavy sites.
+    browser_html = await _fetch_html_via_browser(url)
+    if browser_html and len(browser_html) >= 120:
+        return browser_html
+    return html
+
+
+async def _fetch_html_via_browser(url: str) -> Optional[str]:
+    if async_playwright is None:
+        return None
+    browser = None
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            page = await browser.new_page(user_agent=UA, locale="es-CO")
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(1500)
+            return await page.content()
     except Exception:
         return None
+    finally:
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+
+
+async def _search_urls_with_browser(query: str, max_results: int = 8) -> list[str]:
+    if async_playwright is None:
+        return []
+
+    collected: list[str] = []
+    browser = None
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            page = await browser.new_page(user_agent=UA, locale="es-CO")
+            bing_url = f"https://www.bing.com/search?q={quote_plus(query)}&setlang=es-CO&cc=CO"
+            await page.goto(bing_url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(1200)
+
+            links = await page.eval_on_selector_all(
+                "li.b_algo h2 a[href], a[href]",
+                "els => els.map(e => e.href)",
+            )
+            for href in links or []:
+                if not isinstance(href, str) or not href.startswith("http"):
+                    continue
+                if any(skip in href for skip in ["bing.com", "microsoft.com"]):
+                    continue
+                if href not in collected:
+                    collected.append(href)
+                if len(collected) >= max_results:
+                    break
+    except Exception:
+        return collected
+    finally:
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+
+    return collected
 
 
 def _extract_og_image_from_html(html: str) -> Optional[str]:

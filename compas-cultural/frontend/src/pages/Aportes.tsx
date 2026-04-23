@@ -54,9 +54,21 @@ export default function Aportes() {
       </Helmet>
 
       {/* HERO */}
-      <section className="border-b-2 border-black bg-yellow-300">
+      <section className="relative border-b-2 border-black bg-yellow-300 overflow-hidden">
+        <img
+          src="/medellin-ilustracion.png"
+          alt=""
+          aria-hidden="true"
+          className="absolute right-0 bottom-0 h-full w-auto max-w-[55%] object-contain object-right-bottom pointer-events-none select-none"
+          style={{ opacity: 0.2 }}
+        />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'linear-gradient(to right, rgba(253,224,71,0.97) 38%, rgba(253,224,71,0.74) 58%, rgba(253,224,71,0.2) 80%)' }}
+          aria-hidden="true"
+        />
         <div className="max-w-4xl mx-auto px-6 py-16 text-center">
-          <p className="text-[11px] font-mono font-bold uppercase tracking-[0.3em] mb-4">
+          <p className="relative text-[11px] font-mono font-bold uppercase tracking-[0.3em] mb-4">
             Cultura ETÉREA · Vaki Aportes
           </p>
           <h1 className="text-4xl md:text-6xl font-heading font-black uppercase tracking-tight leading-none mb-6">
