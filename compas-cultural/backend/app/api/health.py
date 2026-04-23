@@ -54,6 +54,7 @@ async def scraper_status():
     status = {
         "service": "compas-cultural-api",
         "env": os.getenv("APP_ENV", "production"),
+        "build_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GITHUB_SHA") or "unknown",
         "uptime_seconds": uptime_seconds,
         "disable_scraper": os.getenv("DISABLE_SCRAPER", "false").lower() in ("true", "1", "yes"),
         "now_colombia": now_co.isoformat(),
