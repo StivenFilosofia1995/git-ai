@@ -182,7 +182,7 @@ export default function Agenda() {
       try {
         const municipioParam = municipioFilter || undefined
         if (timeFilter === 'hoy') {
-          setEventos(await getEventos({ limit: 1200, municipio: municipioParam }))
+          setEventos(await getEventosHoy(municipioParam))
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana())
         } else if (timeFilter === 'proximas') {

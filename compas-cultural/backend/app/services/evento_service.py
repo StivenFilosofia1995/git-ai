@@ -144,7 +144,7 @@ def get_eventos(
 # Vistas temporales
 # ══════════════════════════════════════════════════════════════
 
-def get_eventos_hoy() -> List[dict]:
+def get_eventos_hoy(municipio: Optional[str] = None) -> List[dict]:
     """Eventos que ocurren HOY (inician hoy o en curso multi-día)."""
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -153,25 +153,27 @@ def get_eventos_hoy() -> List[dict]:
     manana_iso = hoy_fin.isoformat()
 
     # Events that START today
-    resp_inicio = (
+    q_inicio = (
         supabase.table("eventos")
         .select("*")
         .gte("fecha_inicio", hoy_iso)
         .lt("fecha_inicio", manana_iso)
-        .order("fecha_inicio")
-        .execute()
     )
+    if municipio:
+        q_inicio = q_inicio.eq("municipio", municipio)
+    resp_inicio = q_inicio.order("fecha_inicio").execute()
     eventos = resp_inicio.data or []
 
     # Multi-day events that started before today but end today or later
-    resp_en_curso = (
+    q_en_curso = (
         supabase.table("eventos")
         .select("*")
         .lt("fecha_inicio", hoy_iso)
         .gte("fecha_fin", hoy_iso)
-        .order("fecha_inicio")
-        .execute()
     )
+    if municipio:
+        q_en_curso = q_en_curso.eq("municipio", municipio)
+    resp_en_curso = q_en_curso.order("fecha_inicio").execute()
     seen_ids = {e["id"] for e in eventos}
     for ev in (resp_en_curso.data or []):
         if ev["id"] not in seen_ids:

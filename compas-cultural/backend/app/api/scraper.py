@@ -113,15 +113,21 @@ async def trigger_discover_events_publico(
         auto_insert=auto_insert,
     )
 
+    candidatos_n = len(result.get("candidatos") or [])
     if auto_insert:
         message = (
             f"Descubrimiento completado: {result.get('nuevos', 0)} nuevos, "
             f"{result.get('duplicados', 0)} duplicados."
         )
+    elif candidatos_n > 0:
+        message = (
+            f"Se encontraron {candidatos_n} eventos candidatos para el Valle. "
+            "¿Deseas agregarlos al sistema para otros habitantes?"
+        )
     else:
         message = (
-            f"Se encontraron {result.get('encontrados', 0)} candidatos. "
-            "¿Deseas agregarlos al sistema para otros habitantes del Valle?"
+            "No se encontraron eventos nuevos con esos filtros. "
+            "Intenta cambiar municipio, categoría o texto."
         )
 
     return {

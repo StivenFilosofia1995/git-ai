@@ -120,8 +120,8 @@ async def publicar_evento(body: dict, request: Request):
 
 
 @router.get("/hoy")
-def get_eventos_hoy():
-    return evento_service.get_eventos_hoy()
+def get_eventos_hoy(municipio: Optional[str] = None):
+    return evento_service.get_eventos_hoy(municipio=municipio)
 
 
 @router.get("/feed")

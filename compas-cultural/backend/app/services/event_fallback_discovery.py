@@ -18,6 +18,84 @@ from app.services.auto_scraper import (
 )
 from app.services.html_event_extractor import extract_events_code
 
+# ── Known Medellín / Valle de Aburrá cultural sites with their agenda URLs ──
+# These are scraped DIRECTLY (no Google needed) using the site-specific parsers
+# already built in html_event_extractor.py.
+KNOWN_CULTURAL_SITES: list[dict] = [
+    {
+        "url": "https://www.teatropablotobon.com/programacion",
+        "nombre": "Teatro Pablo Tobón Uribe",
+        "municipio": "medellin",
+        "categorias": ["teatro", "danza", "musica_en_vivo"],
+    },
+    {
+        "url": "https://www.matacandelas.com/",
+        "nombre": "Teatro Matacandelas",
+        "municipio": "medellin",
+        "categorias": ["teatro"],
+    },
+    {
+        "url": "https://bibliotecapiloto.gov.co/agenda/",
+        "nombre": "Biblioteca Pública Piloto",
+        "municipio": "medellin",
+        "categorias": ["casa_cultura", "taller", "conferencia"],
+    },
+    {
+        "url": "https://www.comfenalcoantioquia.com.co/cultura-y-educacion/eventos/",
+        "nombre": "Comfenalco Antioquia",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "taller", "teatro"],
+    },
+    {
+        "url": "https://comfama.com/agenda-cultural/",
+        "nombre": "Comfama",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural"],
+    },
+    {
+        "url": "https://www.elperpetuosocorro.org/agenda",
+        "nombre": "Teatro El Perpetuo Socorro",
+        "municipio": "medellin",
+        "categorias": ["teatro"],
+    },
+    {
+        "url": "https://www.culturamedellín.gov.co/agenda",
+        "nombre": "Alcaldía de Medellín - Cultura",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "festival", "taller"],
+    },
+    {
+        "url": "https://www.parqueexplora.org/agenda",
+        "nombre": "Parque Explora",
+        "municipio": "medellin",
+        "categorias": ["taller", "conferencia"],
+    },
+    {
+        "url": "https://www.jardibotanicomedellin.org/eventos/",
+        "nombre": "Jardín Botánico de Medellín",
+        "municipio": "medellin",
+        "categorias": ["festival", "taller"],
+    },
+    {
+        "url": "https://www.museodeantioquia.co/agenda/",
+        "nombre": "Museo de Antioquia",
+        "municipio": "medellin",
+        "categorias": ["arte_contemporaneo", "galeria", "conferencia"],
+    },
+    {
+        "url": "https://www.mamm.org.co/programacion/",
+        "nombre": "Museo de Arte Moderno de Medellín",
+        "municipio": "medellin",
+        "categorias": ["arte_contemporaneo", "cine", "conferencia"],
+    },
+    {
+        "url": "https://www.casateatroenviado.com/agenda",
+        "nombre": "Casa Teatro El Poblado",
+        "municipio": "medellin",
+        "categorias": ["teatro", "musica_en_vivo"],
+    },
+]
+
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -175,6 +253,49 @@ def _extract_og_image_from_html(html: str) -> Optional[str]:
     if tag and tag.get("content"):
         return str(tag.get("content"))
     return None
+
+
+async def _scrape_known_sites(
+    *,
+    municipio: Optional[str],
+    categoria: Optional[str],
+    max_sites: int = 6,
+) -> list[dict]:
+    """Directly scrape known Medellín cultural sites using code-based parsers.
+
+    Filters by municipio and/or categoria when provided. Returns raw event dicts
+    as returned by extract_events_code() (NOT yet _build_candidate_event_data).
+    """
+    def _matches(site: dict) -> bool:
+        if municipio and site.get("municipio") and site["municipio"] != municipio:
+            return False
+        if categoria and site.get("categorias"):
+            cat_norm = categoria.replace("_", " ").lower()
+            site_cats = [c.replace("_", " ").lower() for c in site["categorias"]]
+            if not any(cat_norm in sc or sc in cat_norm for sc in site_cats):
+                return False
+        return True
+
+    matching_sites = [s for s in KNOWN_CULTURAL_SITES if _matches(s)]
+    if not matching_sites:
+        matching_sites = list(KNOWN_CULTURAL_SITES)
+
+    async def _fetch_site(site: dict) -> list[dict]:
+        html = await _fetch_html_from_url(site["url"])
+        if not html:
+            return []
+        cat = site["categorias"][0] if site["categorias"] else "otro"
+        events = extract_events_code(html, site["url"], site["nombre"], cat, site["municipio"])
+        print(f"  [known_sites] {site['nombre']}: {len(events)} evento(s)")
+        return events
+
+    tasks = [_fetch_site(s) for s in matching_sites[:max_sites]]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    found: list[dict] = []
+    for r in results:
+        if isinstance(r, list):
+            found.extend(r)
+    return found
 
 
 def _resolve_colectivo_by_slug(slug: Optional[str]) -> Optional[dict]:
@@ -360,6 +481,37 @@ async def discover_events_for_filters(
         "texto_usuario": texto or "",
     }
 
+    # ── 1. Direct scrape of known Medellín cultural sites (reliable, no Google) ──
+    known_events = await _scrape_known_sites(
+        municipio=municipio,
+        categoria=categoria,
+        max_sites=6,
+    )
+    known_source = "conocido_directo"
+    for ev in known_events:
+        try:
+            evento_data = _build_candidate_event_data(
+                ev,
+                source_url=ev.get("_source") or known_source,
+                default_categoria=categoria,
+                default_municipio=municipio,
+                colectivo=colectivo,
+            )
+            if not evento_data:
+                continue
+            stats["encontrados"] += 1
+            if len(stats["candidatos"]) < 80:
+                stats["candidatos"].append(evento_data)
+            if auto_insert:
+                inserted, duplicate = _insert_discovered_event(evento_data)
+                if inserted:
+                    stats["nuevos"] += 1
+                elif duplicate:
+                    stats["duplicados"] += 1
+        except Exception:
+            stats["errores"] += 1
+
+    # ── 2. Google discovery (supplementary — fills gaps) ─────────────────────
     queries = _build_google_queries(
         municipio=municipio,
         categoria=categoria,

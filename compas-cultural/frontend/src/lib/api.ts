@@ -155,8 +155,9 @@ export async function getEspacio(slug: string): Promise<Espacio> {
   return data as Espacio
 }
 
-export async function getEventosHoy(): Promise<Evento[]> {
-  return apiGet<Evento[]>('/eventos/hoy')
+export async function getEventosHoy(municipio?: string): Promise<Evento[]> {
+  const qs = municipio ? `?municipio=${encodeURIComponent(municipio)}` : ''
+  return apiGet<Evento[]>(`/eventos/hoy${qs}`)
 }
 
 export async function getEventosFeed(limit = 20): Promise<Evento[]> {
