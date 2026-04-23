@@ -49,6 +49,9 @@ async def chat_test():
             "ollama_model": settings.ollama_model,
         }
         from app.services.chat_service import _chat_via_groq, _chat_via_ollama
+        from app.services.ollama_client import ollama_health
+
+        result["ollama_health"] = ollama_health()
 
         if (settings.chat_engine or "").lower() == "ollama":
             r = _chat_via_ollama("Di solo: OK", [{"role": "user", "content": "test"}])

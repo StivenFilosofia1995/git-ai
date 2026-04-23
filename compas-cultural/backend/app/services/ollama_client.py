@@ -1,6 +1,7 @@
 """Local LLM client via Ollama (no external API keys)."""
 
 from typing import Optional
+import httpx
 from openai import OpenAI
 from app.config import settings
 
@@ -33,3 +34,30 @@ def ollama_chat(
     except Exception as e:
         print(f"[ollama_client] chat failed: {e}")
         return None
+
+
+def ollama_health() -> dict:
+    """Connectivity check against native Ollama API (/api/tags)."""
+    base = (settings.ollama_base_url or "").rstrip("/")
+    native = base[:-3] if base.endswith("/v1") else base
+    tags_url = f"{native}/api/tags"
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            r = client.get(tags_url)
+            r.raise_for_status()
+            payload = r.json() if r.content else {}
+        models = [m.get("name") for m in payload.get("models", []) if m.get("name")]
+        return {
+            "ok": True,
+            "tags_url": tags_url,
+            "models": models,
+            "model_configured": settings.ollama_model,
+            "model_present": settings.ollama_model in models,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "tags_url": tags_url,
+            "error": str(exc),
+            "model_configured": settings.ollama_model,
+        }

@@ -497,14 +497,14 @@ def _chat_via_gemini(system_prompt: str, messages: list) -> Optional[str]:
 def _engine_order() -> List[str]:
     engine = (settings.chat_engine or "auto").lower()
     if engine in {"ollama", "auto"}:
-        return ["ollama"]
+        return ["ollama", "groq", "gemini", "anthropic"]
     if engine == "groq":
-        return ["groq"]
+        return ["groq", "gemini", "anthropic"]
     if engine == "gemini":
-        return ["gemini"]
+        return ["gemini", "groq", "anthropic"]
     if engine == "anthropic":
-        return ["anthropic"]
-    return ["ollama"]
+        return ["anthropic", "groq", "gemini"]
+    return ["ollama", "groq", "gemini", "anthropic"]
 
 
 def _generate_llm_response(prompt: str, historial_msgs: list) -> Optional[str]:
