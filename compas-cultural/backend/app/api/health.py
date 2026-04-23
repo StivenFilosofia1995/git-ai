@@ -19,7 +19,11 @@ async def health_check():
         "service": "compas-cultural-api",
         "groq_configured": bool(settings.groq_api_key),
         "supabase_configured": bool(settings.supabase_url),
-        "chat_engine": "groq-llama-3.1-8b-instant",
+        "chat_engine": settings.chat_engine,
+        "ollama_base_url": settings.ollama_base_url,
+        "ollama_model": settings.ollama_model,
+        "ollama_uses_localhost": settings.ollama_uses_localhost,
+        "ollama_config_warning": settings.ollama_config_warning or None,
         "version": "9e1bb43",
     }
 

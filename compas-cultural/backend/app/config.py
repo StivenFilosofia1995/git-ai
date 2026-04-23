@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from typing import List, Union
 import json
 import secrets
+from urllib.parse import urlparse
 
 
 class Settings(BaseSettings):
@@ -96,6 +97,29 @@ class Settings(BaseSettings):
             if domain and domain not in origins:
                 origins.append(domain)
         return origins
+
+    @property
+    def ollama_host(self) -> str:
+        parsed = urlparse(self.ollama_base_url or "")
+        return (parsed.hostname or "").lower()
+
+    @property
+    def ollama_uses_localhost(self) -> bool:
+        return self.ollama_host in {"localhost", "127.0.0.1", "::1"}
+
+    @property
+    def ollama_needs_remote_hint(self) -> bool:
+        env = (self.app_env or "").lower()
+        return env in {"production", "staging"} and self.ollama_uses_localhost
+
+    @property
+    def ollama_config_warning(self) -> str:
+        if self.ollama_needs_remote_hint:
+            return (
+                "OLLAMA_BASE_URL apunta a localhost en un entorno no local. "
+                "Eso solo funciona si Ollama corre dentro del mismo servicio que FastAPI."
+            )
+        return ""
 
     class Config:
         env_file = ".env"

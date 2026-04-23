@@ -32,10 +32,15 @@ try:
     from app.config import settings
     print(f"✅ Config loaded — supabase_url={settings.supabase_url[:30] if settings.supabase_url else '(empty)'}...")
     print(f"   CORS origins: {settings.effective_cors_origins}")
+    print(f"   Chat engine: {settings.chat_engine}")
+    print(f"   Ollama URL: {settings.ollama_base_url}")
+    print(f"   Ollama model: {settings.ollama_model}")
     if not settings.supabase_url:
         print("⚠️  SUPABASE_URL not set — data endpoints will fail")
     if not settings.anthropic_api_key:
         print("⚠️  ANTHROPIC_API_KEY not set — chat will use fallback")
+    if settings.ollama_config_warning:
+        print(f"⚠️  {settings.ollama_config_warning}")
 except Exception as e:
     print(f"❌ Config FAILED: {e}")
     traceback.print_exc()
@@ -43,11 +48,16 @@ except Exception as e:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"🚀 Starting Cultura ETÉREA API")
+    print("🚀 Starting Cultura ETÉREA API")
     try:
         print(f"   CORS origins: {settings.effective_cors_origins}")
         print(f"   Frontend URL: {settings.frontend_url}")
         print(f"   Supabase URL: {settings.supabase_url[:40]}...")
+        print(f"   Chat engine: {settings.chat_engine}")
+        print(f"   Ollama URL: {settings.ollama_base_url}")
+        print(f"   Ollama model: {settings.ollama_model}")
+        if settings.ollama_config_warning:
+            print(f"⚠️  {settings.ollama_config_warning}")
     except Exception as e:
         print(f"⚠️  Config print failed: {e}")
 
