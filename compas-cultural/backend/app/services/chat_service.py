@@ -541,12 +541,12 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
         respuesta = _generate_llm_response(prompt, historial_msgs)
 
         if not respuesta:
-            respuesta = _respuesta_fallback(contexto)
+            respuesta = _respuesta_fallback(contexto, request.mensaje)
         respuesta = _normalize_chat_response(respuesta)
 
     except Exception as exc:
         print(f"[chat_service] Error general: {exc}")
-        respuesta = _normalize_chat_response(_respuesta_fallback(contexto))
+        respuesta = _normalize_chat_response(_respuesta_fallback(contexto, request.mensaje))
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
@@ -630,12 +630,76 @@ def _fallback_spaces_block(spaces: list[dict]) -> str:
     return "\n".join(lineas)
 
 
-def _respuesta_fallback(contexto: Dict) -> str:
+def _event_matches_filters(ev: dict, user_text: str, zona_filtro: Optional[str], keywords: list[str]) -> bool:
+    text = _normalize_str(user_text)
+    event_blob = _normalize_str(
+        f"{ev.get('titulo', '')} {ev.get('categoria_principal', '')} {ev.get('nombre_lugar', '')} {ev.get('barrio', '')} {ev.get('municipio', '')} {ev.get('descripcion', '')}"
+    )
+
+    if zona_filtro:
+        z = _normalize_str(zona_filtro)
+        location_blob = _normalize_str(f"{ev.get('barrio', '')} {ev.get('municipio', '')} {ev.get('nombre_lugar', '')}")
+        if z and z not in location_blob:
+            return False
+
+    category_tokens = [
+        "teatro", "jazz", "hip hop", "hiphop", "cine", "danza", "poesia", "poesia",
+        "libreria", "libreria", "galeria", "galeria", "musica", "musica", "conferencia",
+    ]
+    requested = [t for t in category_tokens if t in text]
+    if requested and not any(_normalize_str(t) in event_blob for t in requested):
+        return False
+
+    if keywords and not any(_normalize_str(kw) in event_blob for kw in keywords[:4]):
+        return False
+
+    return True
+
+
+def _space_matches_filters(esp: dict, user_text: str, zona_filtro: Optional[str], keywords: list[str]) -> bool:
+    text = _normalize_str(user_text)
+    blob = _normalize_str(
+        f"{esp.get('nombre', '')} {esp.get('categoria_principal', '')} {esp.get('barrio', '')} {esp.get('municipio', '')} {esp.get('descripcion', '')}"
+    )
+
+    if zona_filtro:
+        z = _normalize_str(zona_filtro)
+        location_blob = _normalize_str(f"{esp.get('barrio', '')} {esp.get('municipio', '')} {esp.get('nombre', '')}")
+        if z and z not in location_blob:
+            return False
+
+    category_tokens = [
+        "teatro", "jazz", "hip hop", "hiphop", "cine", "danza", "poesia", "poesia",
+        "libreria", "libreria", "galeria", "galeria", "musica", "musica", "conferencia",
+    ]
+    requested = [t for t in category_tokens if t in text]
+    if requested and not any(_normalize_str(t) in blob for t in requested):
+        return False
+
+    if keywords and not any(_normalize_str(kw) in blob for kw in keywords[:4]):
+        return False
+
+    return True
+
+
+def _respuesta_fallback(contexto: Dict, user_message: str = "") -> str:
     """Fallback para mantener el chat funcional cuando Claude falla."""
     evento_foco = contexto.get("evento_foco")
-    eventos_hoy = contexto.get("eventos_hoy", [])[:5]
-    eventos_semana = contexto.get("eventos_semana", [])[:5]
-    espacios = (contexto.get("espacios_relevantes", []) or contexto.get("espacios", []))[:5]
+    zona_filtro = contexto.get("zona_usuario")
+    keywords = _extract_keywords(user_message, max_keywords=4)
+
+    raw_eventos_hoy = contexto.get("eventos_hoy", [])
+    raw_eventos_semana = contexto.get("eventos_semana", [])
+    raw_espacios = (contexto.get("espacios_relevantes", []) or contexto.get("espacios", []))
+
+    eventos_hoy = [e for e in raw_eventos_hoy if _event_matches_filters(e, user_message, zona_filtro, keywords)][:6]
+    eventos_semana = [e for e in raw_eventos_semana if _event_matches_filters(e, user_message, zona_filtro, keywords)][:6]
+    espacios = [e for e in raw_espacios if _space_matches_filters(e, user_message, zona_filtro, keywords)][:6]
+
+    if not eventos_hoy and not eventos_semana and not espacios:
+        eventos_hoy = raw_eventos_hoy[:4]
+        eventos_semana = raw_eventos_semana[:4]
+        espacios = raw_espacios[:4]
 
     bloques = []
 
@@ -651,7 +715,10 @@ def _respuesta_fallback(contexto: Dict) -> str:
     if espacios:
         bloques.append(_fallback_spaces_block(espacios))
 
-    bloques.append("¿Querés que te filtre por barrio, zona o categoría? Contame qué te interesa y te ayudo mejor.")
+    if zona_filtro:
+        bloques.append(f"Si querés, te sigo filtrando dentro de {zona_filtro} por precio, horario o tipo de plan.")
+    else:
+        bloques.append("¿Querés que te filtre por barrio, zona o categoría? Contame qué te interesa y te ayudo mejor.")
     return "\n\n".join(bloques) if bloques else "¡Hola! Soy ETÉREA. ¿En qué barrio o municipio estás y qué tipo de experiencias culturales te interesan?"
 
 
