@@ -136,7 +136,7 @@ export default function Agenda() {
   const [zonaFilter, setZonaFilter] = useState('')
   const [textFilter, setTextFilter] = useState('')
   const [municipioFilter, setMunicipioFilter] = useState('')
-  const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('gratuito')
+  const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('')
   const [page, setPage] = useState(1)
   const fechaActual = useColombiaClock()
 
