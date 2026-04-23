@@ -319,7 +319,7 @@ def _find_candidate_lugares(
     municipio: Optional[str],
     categoria: Optional[str],
     texto: Optional[str],
-    limit: int = 6,
+    limit: int = 12,
 ) -> list[dict]:
     """Find likely matching lugares for user search filters.
 
@@ -328,7 +328,7 @@ def _find_candidate_lugares(
     """
     try:
         query = supabase.table("lugares").select(
-            "id,nombre,slug,municipio,categoria_principal"
+            "id,nombre,slug,municipio,barrio,categoria_principal,sitio_web"
         )
         if municipio:
             query = query.eq("municipio", municipio)
@@ -340,6 +340,43 @@ def _find_candidate_lugares(
         return resp.data or []
     except Exception:
         return []
+
+
+async def _scrape_candidate_lugares_websites(
+    *,
+    lugares: list[dict],
+    categoria: Optional[str],
+    municipio: Optional[str],
+) -> list[dict]:
+    """Scrape website pages from DB lugares using pure code extractors.
+
+    This reuses the same parser stack (JSON-LD, microdata, site-specific, generic)
+    and does not rely on Google search result pages.
+    """
+    if not lugares:
+        return []
+
+    async def _fetch_lugar(lugar: dict) -> list[dict]:
+        sitio_web = (lugar.get("sitio_web") or "").strip()
+        if not sitio_web:
+            return []
+        html = await _fetch_html_from_url(sitio_web)
+        if not html:
+            return []
+        cat = categoria or lugar.get("categoria_principal") or "otro"
+        muni = municipio or lugar.get("municipio") or "medellin"
+        nombre = lugar.get("nombre") or "Lugar cultural"
+        events = extract_events_code(html, sitio_web, nombre, cat, muni)
+        print(f"  [lugares_db] {nombre}: {len(events)} evento(s)")
+        return events
+
+    tasks = [_fetch_lugar(l) for l in lugares]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    found: list[dict] = []
+    for r in results:
+        if isinstance(r, list):
+            found.extend(r)
+    return found
 
 
 def _parse_iso_maybe(value: Optional[str]) -> Optional[datetime]:
@@ -511,7 +548,42 @@ async def discover_events_for_filters(
         except Exception:
             stats["errores"] += 1
 
-    # ── 2. Google discovery (supplementary — fills gaps) ─────────────────────
+    # ── 2. Scrape websites from matching lugares in DB (pure code) ───────────
+    candidate_lugares = _find_candidate_lugares(
+        municipio=municipio,
+        categoria=categoria,
+        texto=texto,
+        limit=12,
+    )
+    lugares_events = await _scrape_candidate_lugares_websites(
+        lugares=candidate_lugares,
+        categoria=categoria,
+        municipio=municipio,
+    )
+    for ev in lugares_events:
+        try:
+            evento_data = _build_candidate_event_data(
+                ev,
+                source_url=ev.get("_source") or "lugares_db",
+                default_categoria=categoria,
+                default_municipio=municipio,
+                colectivo=colectivo,
+            )
+            if not evento_data:
+                continue
+            stats["encontrados"] += 1
+            if len(stats["candidatos"]) < 80:
+                stats["candidatos"].append(evento_data)
+            if auto_insert:
+                inserted, duplicate = _insert_discovered_event(evento_data)
+                if inserted:
+                    stats["nuevos"] += 1
+                elif duplicate:
+                    stats["duplicados"] += 1
+        except Exception:
+            stats["errores"] += 1
+
+    # ── 3. Google discovery (last resort — fills remaining gaps) ─────────────
     queries = _build_google_queries(
         municipio=municipio,
         categoria=categoria,
@@ -571,6 +643,18 @@ async def discover_events_for_filters(
                             stats["duplicados"] += 1
                 except Exception:
                     stats["errores"] += 1
+
+    # Keep only unique candidates by slug (or title+date fallback).
+    deduped: list[dict] = []
+    seen_keys: set[str] = set()
+    for ev in stats["candidatos"]:
+        key = ev.get("slug") or f"{(ev.get('titulo') or '').strip().lower()}::{str(ev.get('fecha_inicio') or '')[:10]}"
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(ev)
+    stats["candidatos"] = deduped[:80]
+    stats["encontrados"] = len(stats["candidatos"])
 
     try:
         supabase.table("scraping_log").insert(
