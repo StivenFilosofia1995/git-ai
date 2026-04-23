@@ -4,10 +4,52 @@ Endpoints para el sistema de auto-scraping, descubrimiento y social listener.
 import asyncio
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from app.config import settings
-from app.services.auto_scraper import run_auto_scraper, scrape_single_lugar, scrape_zona, enrich_event_images, scrape_agenda_sources, scrape_compas_urbano
-from app.services.event_fallback_discovery import discover_events_for_filters, commit_discovered_events
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
+
+
+def _get_auto_scraper_services():
+    """Lazy import heavy scraping services so router can load even if optional deps fail."""
+    try:
+        from app.services.auto_scraper import (
+            run_auto_scraper,
+            scrape_single_lugar,
+            scrape_zona,
+            enrich_event_images,
+            scrape_agenda_sources,
+            scrape_compas_urbano,
+        )
+        return {
+            "run_auto_scraper": run_auto_scraper,
+            "scrape_single_lugar": scrape_single_lugar,
+            "scrape_zona": scrape_zona,
+            "enrich_event_images": enrich_event_images,
+            "scrape_agenda_sources": scrape_agenda_sources,
+            "scrape_compas_urbano": scrape_compas_urbano,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Servicio de scraping no disponible: {e}",
+        )
+
+
+def _get_discovery_services():
+    """Lazy import discovery services so /scraper routes stay mounted in production."""
+    try:
+        from app.services.event_fallback_discovery import (
+            discover_events_for_filters,
+            commit_discovered_events,
+        )
+        return {
+            "discover_events_for_filters": discover_events_for_filters,
+            "commit_discovered_events": commit_discovered_events,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Servicio de discovery no disponible: {e}",
+        )
 
 
 def _verify_scraper_key(x_scraper_key: str = Header(..., alias="X-Scraper-Key")):
@@ -22,7 +64,8 @@ async def trigger_full_scraper(
     limit: int = Query(default=None, description="Máximo de lugares a scrapear"),
 ):
     """Trigger manual del auto-scraper completo (se ejecuta en background)."""
-    background_tasks.add_task(run_auto_scraper, limit=limit)
+    svc = _get_auto_scraper_services()
+    background_tasks.add_task(svc["run_auto_scraper"], limit=limit)
     return {
         "status": "started",
         "message": f"Auto-scraper iniciado en background{f' (limit={limit})' if limit else ''}",
@@ -32,7 +75,8 @@ async def trigger_full_scraper(
 @router.post("/lugar/{lugar_id}", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_lugar_scraper(lugar_id: str):
     """Scrape un lugar específico (síncrono, retorna resultados)."""
-    result = await scrape_single_lugar(lugar_id)
+    svc = _get_auto_scraper_services()
+    result = await svc["scrape_single_lugar"](lugar_id)
     return result
 
 
@@ -42,7 +86,8 @@ async def trigger_lugar_scraper_publico(lugar_id: str):
     Intenta scraping directo; si no tiene web/IG, usa búsqueda con Claude.
     """
     try:
-        result = await asyncio.wait_for(scrape_single_lugar(lugar_id), timeout=90.0)
+        svc = _get_auto_scraper_services()
+        result = await asyncio.wait_for(svc["scrape_single_lugar"](lugar_id), timeout=90.0)
     except asyncio.TimeoutError:
         return {
             "status": "timeout",
@@ -80,7 +125,8 @@ async def trigger_zona_scraper_publico(
     """Scrape todos los espacios de un municipio/zona (acceso público, síncrono).
     Busca eventos en las redes y sitios web de los espacios de esa zona.
     """
-    result = await scrape_zona(municipio, limit=limit)
+    svc = _get_auto_scraper_services()
+    result = await svc["scrape_zona"](municipio, limit=limit)
     return {
         "status": "completed",
         "message": f"Búsqueda completada: {result.get('eventos_nuevos', 0)} eventos nuevos en {municipio}.",
@@ -106,7 +152,8 @@ async def trigger_discover_events_publico(
     Ejecuta búsqueda web (Google) guiada por filtros y devuelve candidatos.
     El frontend puede pedir confirmación del usuario para agregar los eventos.
     """
-    result = await discover_events_for_filters(
+    discovery = _get_discovery_services()
+    result = await discovery["discover_events_for_filters"](
         municipio=municipio,
         categoria=categoria,
         es_gratuito=es_gratuito,
@@ -158,7 +205,8 @@ async def commit_discover_events_publico(body: dict):
     if not isinstance(candidatos, list) or not candidatos:
         raise HTTPException(status_code=400, detail="Debes enviar una lista de candidatos")
 
-    result = commit_discovered_events(candidatos)
+    discovery = _get_discovery_services()
+    result = discovery["commit_discovered_events"](candidatos)
     return {
         "status": "completed",
         "message": (
@@ -188,7 +236,8 @@ async def get_scraping_log(
 @router.post("/enrich-images", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_enrich_images(background_tasks: BackgroundTasks):
     """Buscar og:image en fuentes y actualizar eventos sin imagen."""
-    background_tasks.add_task(enrich_event_images)
+    svc = _get_auto_scraper_services()
+    background_tasks.add_task(svc["enrich_event_images"])
     return {"status": "started", "message": "Enriquecimiento de imágenes iniciado"}
 
 
@@ -245,8 +294,9 @@ async def get_scraper_status():
 @router.post("/agenda-alternativa", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_agenda_alternativa(background_tasks: BackgroundTasks):
     """Scrape fuentes de agenda alternativa e independiente."""
-    background_tasks.add_task(scrape_agenda_sources)
-    background_tasks.add_task(scrape_compas_urbano)
+    svc = _get_auto_scraper_services()
+    background_tasks.add_task(svc["scrape_agenda_sources"])
+    background_tasks.add_task(svc["scrape_compas_urbano"])
     return {"status": "started", "message": "Scraping de agenda alternativa + Compás Urbano iniciado"}
 
 
