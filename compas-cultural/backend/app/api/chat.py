@@ -22,10 +22,15 @@ async def chat_cultural(body: ChatRequest, request: Request):
             media_type="application/json; charset=utf-8",
         )
     except Exception as e:
-        import traceback
         print(f"[ERROR] Chat failed: {e}\n{traceback.format_exc()}")
         return JSONResponse(
-            content={"respuesta": f"[DEBUG] {type(e).__name__}: {e}", "fuentes": []},
+            content={
+                "respuesta": (
+                    "Perdón, tuve un problema técnico momentáneo. "
+                    "¿Me repetís tu mensaje? También podés decirme zona, categoría o si buscás algo para hoy."
+                ),
+                "fuentes": [],
+            },
             media_type="application/json; charset=utf-8",
         )
 

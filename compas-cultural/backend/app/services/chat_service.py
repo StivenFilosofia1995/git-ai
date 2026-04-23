@@ -77,6 +77,29 @@ def _normalize_chat_response(text: Optional[str]) -> str:
     return out
 
 
+def _extract_keywords(text: str, max_keywords: int = 3) -> List[str]:
+    """Extract safe keywords for PostgREST ilike/or filters."""
+    import re
+
+    stopwords = {
+        "que", "hay", "hoy", "para", "por", "con", "las", "los", "una", "del",
+        "mas", "más", "como", "son", "qué", "hola", "buenas", "buenos", "dias", "días",
+    }
+    tokens = re.findall(r"[a-zA-Z0-9áéíóúÁÉÍÓÚñÑüÜ]+", (text or "").lower())
+    cleaned: List[str] = []
+    seen: set[str] = set()
+    for t in tokens:
+        if len(t) <= 2 or t in stopwords:
+            continue
+        if t in seen:
+            continue
+        seen.add(t)
+        cleaned.append(t)
+        if len(cleaned) >= max_keywords:
+            break
+    return cleaned
+
+
 def _price_label(ev: dict) -> str:
     if ev.get("es_gratuito") is True:
         return "gratis"
@@ -340,7 +363,7 @@ def _obtener_contexto(mensaje: str) -> Dict:
     contexto["espacios"] = resp_espacios.data
 
     # 2. Search for spaces matching the query keywords (like a search engine)
-    keywords = [w for w in msg_clean.lower().split() if len(w) > 2 and w not in ("que", "hay", "hoy", "para", "por", "con", "las", "los", "una", "del", "más", "como", "son", "qué")]
+    keywords = _extract_keywords(msg_clean, max_keywords=3)
     if keywords:
         for kw in keywords[:3]:
             resp_kw = (
