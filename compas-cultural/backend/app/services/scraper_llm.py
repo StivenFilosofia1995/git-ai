@@ -1,6 +1,6 @@
 """
 Scraper basado en LLM.
-Extrae información cultural de URLs usando httpx + BeautifulSoup + Groq (Claude como fallback).
+Extrae informacion cultural de URLs usando httpx + BeautifulSoup + Ollama local.
 """
 import json
 import re
@@ -11,9 +11,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from bs4 import BeautifulSoup
 
-from app.config import settings
 from app.database import supabase
-from app.services.groq_client import groq_chat, MODEL_SMART
 from app.services.ollama_client import ollama_chat
 
 CO_TZ = ZoneInfo("America/Bogota")
@@ -210,7 +208,7 @@ def _extract_ig_handle(url: str) -> str:
 
 
 def _extract_with_llm(url: str, page_text: str) -> dict:
-    """Send page text to Ollama first for cultural data extraction. Fallbacks: Groq, then Claude."""
+    """Send page text to local Ollama for cultural data extraction."""
     now_co = _now_co()
     prompt = EXTRACTION_PROMPT.format(
         url=url,
@@ -226,27 +224,8 @@ def _extract_with_llm(url: str, page_text: str) -> dict:
         temperature=0.0,
     )
 
-    # Prioridad 2: Groq (solo si Ollama no responde)
     if not raw:
-        raw = groq_chat(prompt, model=MODEL_SMART, max_tokens=2048, temperature=0)
-
-    # Claude fallback only if Groq unavailable and key exists
-    if not raw and settings.anthropic_api_key:
-        try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-            response = client.messages.create(
-                model=settings.anthropic_model,
-                max_tokens=2048,
-                temperature=0.1,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = response.content[0].text.strip()
-        except Exception as e:
-            print(f"[scraper_llm] Claude fallback failed: {e}")
-
-    if not raw:
-        raise RuntimeError("No AI backend disponible para extraer datos")
+        raise RuntimeError("Ollama no disponible para extraer datos")
 
     # Strip markdown code fences if present
     if raw.startswith("```"):

@@ -396,10 +396,7 @@ def _extract_events_with_ollama(prompt: str) -> list[dict]:
 
 
 def _extract_events_with_ai(prompt: str) -> list[dict]:
-    events = _extract_events_with_ollama(prompt)
-    if events:
-        return events
-    return _extract_events_with_groq(prompt)
+    return _extract_events_with_ollama(prompt)
 
 
 def _slugify(text: str) -> str:
@@ -672,7 +669,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                         )
                         events_ai = _extract_events_with_ai(prompt)
                         for ev in events_ai:
-                            ev["_fuente"] = "sitio_web_groq"
+                            ev["_fuente"] = "sitio_web_ai"
                             ev["_fuente_url"] = sitio
                         if events_ai:
                             print(f"    🧠 IA: {len(events_ai)} evento(s)")
