@@ -1,12 +1,14 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter
 from app.database import supabase
 
 router = APIRouter()
+CO_TZ = ZoneInfo("America/Bogota")
 
 # Track startup time and last scraper run for /status
-_startup_time = datetime.utcnow()
+_startup_time = datetime.now(timezone.utc)
 
 
 @router.get("/")
@@ -45,8 +47,9 @@ async def scraper_status():
     Devuelve: estado del scraper, últimos logs, eventos hoy, token Meta.
     """
     import os
-    now_co = datetime.utcnow() - timedelta(hours=5)
-    uptime_seconds = int((datetime.utcnow() - _startup_time).total_seconds())
+    now_utc = datetime.now(timezone.utc)
+    now_co = datetime.now(CO_TZ)
+    uptime_seconds = int((now_utc - _startup_time).total_seconds())
 
     status = {
         "service": "compas-cultural-api",
@@ -62,6 +65,13 @@ async def scraper_status():
         "meta_token": "unknown",
     }
 
+    _fill_db_status(status, now_co)
+    status["meta_token"] = _get_meta_token_status(now_utc)
+
+    return status
+
+
+def _fill_db_status(status: dict, now_co: datetime) -> None:
     try:
         ev_resp = supabase.table("eventos").select("id", count="exact").execute()
         status["eventos_totales"] = ev_resp.count or len(ev_resp.data or [])
@@ -80,26 +90,27 @@ async def scraper_status():
             "fuente,registros_nuevos,errores,ejecutado_en"
         ).order("ejecutado_en", desc=True).limit(5).execute()
         status["last_scraping_logs"] = logs_resp.data or []
-
     except Exception as e:
         status["db"] = f"error: {str(e)[:100]}"
 
+
+def _get_meta_token_status(now_utc: datetime) -> str:
     try:
         token_resp = supabase.table("config_kv").select(
             "value,expires_at,updated_at"
         ).eq("key", "meta_access_token").execute()
-        if token_resp.data:
-            row = token_resp.data[0]
-            expires_at = row.get("expires_at")
-            if expires_at:
-                exp_dt = datetime.fromisoformat(expires_at.replace("Z", ""))
-                days_left = (exp_dt - datetime.utcnow()).days
-                status["meta_token"] = f"valid ({days_left}d left)" if days_left > 0 else "expired"
-            else:
-                status["meta_token"] = "present (no expiry set)"
-        else:
-            status["meta_token"] = "not set"
-    except Exception:
-        status["meta_token"] = "unknown"
+        if not token_resp.data:
+            return "not set"
 
-    return status
+        row = token_resp.data[0]
+        expires_at = row.get("expires_at")
+        if not expires_at:
+            return "present (no expiry set)"
+
+        exp_dt = datetime.fromisoformat(expires_at.replace("Z", ""))
+        if exp_dt.tzinfo is None:
+            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+        days_left = (exp_dt - now_utc).days
+        return f"valid ({days_left}d left)" if days_left > 0 else "expired"
+    except Exception:
+        return "unknown"

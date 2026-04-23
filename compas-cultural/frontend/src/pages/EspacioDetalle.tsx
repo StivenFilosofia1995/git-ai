@@ -1,10 +1,11 @@
 import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
-import { discoverEventosAI, getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, scrapeLugar, type Espacio, type Evento } from '../lib/api'
+import { commitEventosDescubiertos, discoverEventosAI, getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, type Espacio, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import ReviewSection from '../components/ui/ReviewSection'
 import { formatEventDate, getEventDateParts } from '../lib/datetime'
+import BuscarConAI from '../components/ui/BuscarConAI'
 
 export default function EspacioDetalle() {
   const { slug } = useParams()
@@ -14,8 +15,6 @@ export default function EspacioDetalle() {
   const [cercanos, setCercanos] = useState<Espacio[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [scrapingEventos, setScrapingEventos] = useState(false)
-  const [scrapeMsg, setScrapeMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const cargarEspacio = async () => {
@@ -134,47 +133,37 @@ export default function EspacioDetalle() {
           <div className="border-t-2 border-black pt-8">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-mono font-bold uppercase tracking-wider text-xs">PRÓXIMOS EVENTOS</h3>
-              <button
-                onClick={async () => {
-                  setScrapingEventos(true)
-                  setScrapeMsg('Buscando eventos en redes y sitios web...')
-                  try {
-                    try {
-                      const res = await discoverEventosAI({
-                        colectivo_slug: espacio.slug,
-                        municipio: espacio.municipio,
-                        categoria: espacio.categoria_principal,
-                        texto: espacio.nombre,
-                        max_queries: 2,
-                        max_results_per_query: 4,
-                      })
-                      const nuevos = (res.result?.nuevos as number | undefined) ?? 0
-                      const duplicados = (res.result?.duplicados as number | undefined) ?? 0
-                      setScrapeMsg(`Búsqueda completada para ${espacio.nombre}: ${nuevos} nuevos, ${duplicados} ya existentes.`)
-                    } catch {
-                      const fast = await scrapeLugar(espacio.id)
-                      setScrapeMsg(fast.message)
-                    }
-                    // Re-fetch events immediately since scrape is now synchronous
-                    getEventosByEspacio(espacio.id).then(setEventos).catch(() => {})
-                  } catch {
-                    setScrapeMsg('No se pudo iniciar la búsqueda. Intenta de nuevo.')
-                  } finally {
-                    setScrapingEventos(false)
+              <BuscarConAI
+                label="Buscar eventos"
+                onSearch={async () => {
+                  const res = await discoverEventosAI({
+                    colectivo_slug: espacio.slug,
+                    municipio: espacio.municipio,
+                    categoria: espacio.categoria_principal,
+                    texto: espacio.nombre,
+                    max_queries: 2,
+                    max_results_per_query: 4,
+                    auto_insert: false,
+                  })
+                  return {
+                    message: res.message,
+                    candidatos: res.result.candidatos ?? [],
+                    variables: {
+                      tipo_evento: espacio.categoria_principal,
+                      zona: espacio.municipio,
+                      fecha_actual: new Date().toISOString().slice(0, 10),
+                    },
                   }
                 }}
-                disabled={scrapingEventos}
-                className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {scrapingEventos
-                  ? <><span className="w-2 h-2 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" /> Buscando...</>
-                  : <>🔍 Buscar eventos</>
-                }
-              </button>
+                onCommit={async candidatos => {
+                  const saved = await commitEventosDescubiertos(candidatos)
+                  return saved.message
+                }}
+                onComplete={() => {
+                  getEventosByEspacio(espacio.id).then(setEventos).catch(() => {})
+                }}
+              />
             </div>
-            {scrapeMsg && (
-              <p className="text-xs font-mono text-neutral-500 mb-3 border border-neutral-300 px-3 py-2">{scrapeMsg}</p>
-            )}
             {eventos.length === 0 ? (
               <p className="font-mono text-sm">No hay eventos próximos programados en este espacio.</p>
             ) : (

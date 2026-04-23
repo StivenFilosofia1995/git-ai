@@ -70,48 +70,48 @@ async def _run_agenda_alternativa():
 def start_scheduler():
     """Start the periodic scraper. Called from FastAPI lifespan."""
 
-    # ── Auto-scraper: cada 6 horas ──────────────────────────────────────────
+    # ── Auto-scraper: horarios fijos Colombia (evita drift por reinicios) ──
     scheduler.add_job(
         _run_scraper_job,
-        trigger=IntervalTrigger(hours=6),
+        trigger=CronTrigger(hour="6,9,12,15,18,21", minute=5, timezone=CO_TZ),
         id="auto_scraper",
-        name="Auto-scraper cultural (cada 6h)",
+        name="Auto-scraper cultural (6x día, hora Colombia)",
         replace_existing=True,
     )
 
-    # ── Social Listener: cada 6 horas ──────────────────────────────────────
+    # ── Social Listener: cada 3 horas ──────────────────────────────────────
     scheduler.add_job(
         _run_social_listener,
-        trigger=IntervalTrigger(hours=6),
+        trigger=CronTrigger(hour="*/3", minute=25, timezone=CO_TZ),
         id="social_listener",
-        name="Social Listener — redes sociales",
+        name="Social Listener — redes sociales (cada 3h)",
         replace_existing=True,
     )
 
-    # ── Discovery: cada 12 horas ───────────────────────────────────────────
+    # ── Discovery: 2 veces al día ──────────────────────────────────────────
     scheduler.add_job(
         _run_discovery,
-        trigger=IntervalTrigger(hours=12),
+        trigger=CronTrigger(hour="8,20", minute=10, timezone=CO_TZ),
         id="discovery",
-        name="Discovery — nuevos colectivos",
+        name="Discovery — nuevos colectivos (08:10, 20:10)",
         replace_existing=True,
     )
 
-    # ── Enriquecimiento de imágenes: cada 12 horas ─────────────────────────
+    # ── Enriquecimiento de imágenes: 2 veces al día ────────────────────────
     scheduler.add_job(
         _run_image_enrichment,
-        trigger=IntervalTrigger(hours=12),
+        trigger=CronTrigger(hour="10,22", minute=20, timezone=CO_TZ),
         id="image_enrichment",
-        name="Enriquecimiento de imágenes",
+        name="Enriquecimiento de imágenes (10:20, 22:20)",
         replace_existing=True,
     )
 
-    # ── Agenda alternativa: cada 6 horas ────────────────────────────────────
+    # ── Agenda alternativa: 4 veces al día ─────────────────────────────────
     scheduler.add_job(
         _run_agenda_alternativa,
-        trigger=IntervalTrigger(hours=6),
+        trigger=CronTrigger(hour="7,11,16,21", minute=40, timezone=CO_TZ),
         id="agenda_alternativa",
-        name="Agenda alternativa — medios independientes (cada 6h)",
+        name="Agenda alternativa — medios independientes (4x día)",
         replace_existing=True,
     )
 
@@ -169,11 +169,11 @@ def start_scheduler():
     print("⏰ Scheduler iniciado (zona Colombia):")
     print("   • Limpieza inicial: en 30s (startup)")
     print("   • Scrape inicial: en 90s (startup)")
-    print("   • Auto-scraper: cada 6h")
-    print("   • Social Listener: cada 6h (inicio en 3min)")
-    print("   • Discovery: cada 12h")
-    print("   • Imágenes: cada 12h")
-    print("   • Agenda alternativa: cada 6h")
+    print("   • Auto-scraper: 06:05, 09:05, 12:05, 15:05, 18:05, 21:05")
+    print("   • Social Listener: cada 3h (minuto 25, inicio en 3min)")
+    print("   • Discovery: 08:10 y 20:10")
+    print("   • Imágenes: 10:20 y 22:20")
+    print("   • Agenda alternativa: 07:40, 11:40, 16:40, 21:40")
     print("   • Limpieza eventos pasados: diaria a las 1:00am")
 
 

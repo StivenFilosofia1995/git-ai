@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode
 import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import HomeChatSection from '../components/chat/HomeChatSection'
-import { discoverEventosAI, getEventos, getEventosHoy, getEventosSemana, getEventosProximasSemanas, getZonas, getStats, scrapeZona, type Evento, type Zona } from '../lib/api'
+import { commitEventosDescubiertos, discoverEventosAI, getEventos, getEventosHoy, getEventosSemana, getEventosProximasSemanas, getZonas, getStats, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
@@ -89,20 +89,27 @@ function normalizeText(value: string | null | undefined): string {
   if (!value) return ''
   return value
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/[_-]+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim()
 }
 
 function buildZonaTokens(zonaNombre: string): string[] {
   const base = normalizeText(zonaNombre)
   if (!base) return []
-  const noParen = base.replace(/\(.*?\)/g, '').trim()
-  const noDash = noParen.replace(/\s+-\s+/g, ' ').trim()
+  const noParen = base.replaceAll(/\(.*?\)/g, '').trim()
+  const noDash = noParen.replaceAll(/\s+-\s+/g, ' ').trim()
   const parts = noParen.split(/\s+-\s+/).map(t => t.trim()).filter(Boolean)
   return Array.from(new Set([base, noParen, noDash, ...parts].filter(Boolean)))
+}
+
+function inferTimeLabel(timeFilter: TimeFilter): string {
+  if (timeFilter === 'hoy') return 'hoy'
+  if (timeFilter === 'semana') return 'esta semana y la próxima'
+  if (timeFilter === 'proximas') return 'próximas 3 semanas'
+  return 'próximamente'
 }
 
 export default function Agenda() {
@@ -116,35 +123,32 @@ export default function Agenda() {
   const [zonaFilter, setZonaFilter] = useState('')
   const [textFilter, setTextFilter] = useState('')
   const [municipioFilter, setMunicipioFilter] = useState('')
-  const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('')
+  const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('gratuito')
   const [page, setPage] = useState(1)
   const fechaActual = useColombiaClock()
 
   const runZonaScrape = async (limit = 15) => {
     const municipio = municipioFilter || undefined
     const zona = zonas.find(z => z.slug === zonaFilter)
-    const texto = [textFilter, zona?.nombre].filter(Boolean).join(' ').trim() || undefined
-    try {
-      const res = await discoverEventosAI({
-        municipio,
-        categoria: catFilter || undefined,
-        texto,
-        max_queries: 2,
-        max_results_per_query: Math.min(6, Math.max(3, Math.floor(limit / 3))),
-      })
-      const nuevos =
-        (res.result?.eventos_nuevos as number | undefined) ??
-        (res.result?.nuevos as number | undefined) ??
-        0
-      const duplicados = (res.result?.duplicados as number | undefined) ?? 0
-      const scope = municipio ? `en ${municipio}` : 'con tus filtros'
-      return `Búsqueda completada ${scope}: ${nuevos} nuevos, ${duplicados} ya existentes.`
-    } catch {
-      const fallbackMunicipio = municipio || 'medellin'
-      const res = await scrapeZona(fallbackMunicipio, Math.min(limit, 12))
-      const nuevos = (res.result?.eventos_nuevos as number | undefined) ?? 0
-      const duplicados = (res.result?.duplicados as number | undefined) ?? 0
-      return `Búsqueda completada en ${fallbackMunicipio} (modo rápido): ${nuevos} nuevos, ${duplicados} ya existentes.`
+    const tiempo = inferTimeLabel(timeFilter)
+    const texto = [textFilter, zona?.nombre, tiempo].filter(Boolean).join(' ').trim() || undefined
+    const res = await discoverEventosAI({
+      municipio,
+      categoria: catFilter || undefined,
+      texto,
+      max_queries: 2,
+      max_results_per_query: Math.min(6, Math.max(3, Math.floor(limit / 3))),
+      auto_insert: false,
+    })
+
+    return {
+      message: res.message,
+      candidatos: res.result.candidatos ?? [],
+      variables: {
+        tipo_evento: catFilter || 'cultural',
+        zona: zona?.nombre || municipioFilter || 'valle de aburra',
+        fecha_actual: new Date().toISOString().slice(0, 10),
+      },
     }
   }
 
@@ -376,6 +380,10 @@ export default function Agenda() {
           <BuscarConAI
             label="Buscar con AI"
             onSearch={() => runZonaScrape(15)}
+            onCommit={async candidatos => {
+              const saved = await commitEventosDescubiertos(candidatos)
+              return saved.message
+            }}
             onComplete={reloadEventos}
           />
         </div>
@@ -505,6 +513,10 @@ export default function Agenda() {
               <BuscarConAI
                 label="Buscar eventos con AI"
                 onSearch={() => runZonaScrape(20)}
+                onCommit={async candidatos => {
+                  const saved = await commitEventosDescubiertos(candidatos)
+                  return saved.message
+                }}
                 onComplete={reloadEventos}
               />
             </div>

@@ -5,7 +5,7 @@ import asyncio
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from app.config import settings
 from app.services.auto_scraper import run_auto_scraper, scrape_single_lugar, scrape_zona, enrich_event_images, scrape_agenda_sources, scrape_compas_urbano
-from app.services.event_fallback_discovery import discover_events_for_filters
+from app.services.event_fallback_discovery import discover_events_for_filters, commit_discovered_events
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
 
@@ -15,10 +15,6 @@ def _verify_scraper_key(x_scraper_key: str = Header(..., alias="X-Scraper-Key"))
     if x_scraper_key != settings.scraper_api_key:
         raise HTTPException(status_code=403, detail="Invalid scraper API key")
 
-
-# ═══════════════════════════════════════════════════════════════
-# AUTO-SCRAPER (existente)
-# ═══════════════════════════════════════════════════════════════
 
 @router.post("/run", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_full_scraper(
@@ -100,11 +96,12 @@ async def trigger_discover_events_publico(
     texto: str | None = Query(default=None),
     max_queries: int = Query(default=2, ge=1, le=8),
     max_results_per_query: int = Query(default=3, ge=1, le=10),
+    auto_insert: bool = Query(default=False, description="Si true, inserta automáticamente en BD"),
 ):
     """Descubrimiento inteligente público cuando no hay resultados en filtros.
 
-    Ejecuta scraping interno por lugar/zona y fallback web (Google) con extracción
-    de eventos. Todo lo encontrado se normaliza y se guarda en la tabla eventos.
+    Ejecuta búsqueda web (Google) guiada por filtros y devuelve candidatos.
+    El frontend puede pedir confirmación del usuario para agregar los eventos.
     """
     result = await discover_events_for_filters(
         municipio=municipio,
@@ -113,11 +110,39 @@ async def trigger_discover_events_publico(
         texto=texto,
         max_queries=max_queries,
         max_results_per_query=max_results_per_query,
+        auto_insert=auto_insert,
     )
+
+    if auto_insert:
+        message = (
+            f"Descubrimiento completado: {result.get('nuevos', 0)} nuevos, "
+            f"{result.get('duplicados', 0)} duplicados."
+        )
+    else:
+        message = (
+            f"Se encontraron {result.get('encontrados', 0)} candidatos. "
+            "¿Deseas agregarlos al sistema para otros habitantes del Valle?"
+        )
+
+    return {
+        "status": "completed",
+        "message": message,
+        "result": result,
+    }
+
+
+@router.post("/discover-events/publico/commit")
+async def commit_discover_events_publico(body: dict):
+    """Confirma y agrega al sistema los eventos descubiertos por usuarios."""
+    candidatos = body.get("candidatos") or []
+    if not isinstance(candidatos, list) or not candidatos:
+        raise HTTPException(status_code=400, detail="Debes enviar una lista de candidatos")
+
+    result = commit_discovered_events(candidatos)
     return {
         "status": "completed",
         "message": (
-            f"Descubrimiento completado: {result.get('nuevos', 0)} nuevos, "
+            f"Aporte guardado: {result.get('nuevos', 0)} nuevos, "
             f"{result.get('duplicados', 0)} duplicados."
         ),
         "result": result,

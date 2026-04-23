@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 from typing import Optional
@@ -14,13 +15,14 @@ _TIME_RE = re.compile(
 )
 
 _HAS_EVENING_CONTEXT_RE = re.compile(
-    r"\b(noche|tarde|show|concierto|funcion|funcion|presentacion|presentacion|en vivo|festival)\b",
+    r"\b(noche|tarde|show|concierto|funcion|presentacion|en vivo|festival)\b",
     re.I,
 )
 
 _OCR_DISABLED = False
 _EASYOCR_READER = None
 _CACHE: dict[str, Optional[tuple[int, int]]] = {}
+_TEXT_CACHE: dict[str, Optional[str]] = {}
 
 
 def _normalize_hour(hour: int, minute: int, meridian: str, context_text: str) -> Optional[tuple[int, int]]:
@@ -75,29 +77,114 @@ def _get_easyocr_reader():
         return None
 
 
+def _ocr_backends() -> list[str]:
+    """Ordered OCR backend list from env (default: easyocr,tesseract)."""
+    raw = os.getenv("OCR_BACKENDS", "easyocr,tesseract")
+    return [b.strip().lower() for b in raw.split(",") if b.strip()]
+
+
+def _preprocess_for_ocr(image_path: str) -> str:
+    """Best-effort preprocessing to improve OCR on IG flyers."""
+    try:
+        import cv2  # type: ignore
+
+        img = cv2.imread(image_path)
+        if img is None:
+            return image_path
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        proc = cv2.adaptiveThreshold(
+            gray,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,
+            2,
+        )
+        out_path = f"{image_path}.proc.png"
+        cv2.imwrite(out_path, proc)
+        return out_path
+    except Exception:
+        return image_path
+
+
+def _extract_text_easyocr(image_path: str) -> Optional[str]:
+    reader = _get_easyocr_reader()
+    if reader is None:
+        return None
+    try:
+        lines = reader.readtext(image_path, detail=0, paragraph=True)
+        text = "\n".join(str(x) for x in lines).strip()
+        return text or None
+    except Exception:
+        return None
+
+
+def _extract_text_tesseract(image_path: str) -> Optional[str]:
+    """Optional fallback OCR backend (requires tesseract binary installed)."""
+    try:
+        import pytesseract  # type: ignore
+        from PIL import Image  # type: ignore
+
+        text = pytesseract.image_to_string(
+            Image.open(image_path),
+            lang="spa+eng",
+            config="--oem 3 --psm 6",
+        )
+        text = (text or "").strip()
+        return text or None
+    except Exception:
+        return None
+
+
+def extract_text_from_image_url(image_url: Optional[str]) -> Optional[str]:
+    """Extract raw OCR text from an image URL.
+
+    Backends:
+      - easyocr (PyTorch)
+      - tesseract (optional local install)
+    """
+    if not image_url:
+        return None
+    if image_url in _TEXT_CACHE:
+        return _TEXT_CACHE[image_url]
+
+    try:
+        with httpx.Client(timeout=20, follow_redirects=True) as client:
+            resp = client.get(image_url)
+            resp.raise_for_status()
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as fp:
+            fp.write(resp.content)
+            fp.flush()
+            processed = _preprocess_for_ocr(fp.name)
+
+            text: Optional[str] = None
+            for backend in _ocr_backends():
+                if backend == "easyocr":
+                    text = _extract_text_easyocr(processed)
+                elif backend == "tesseract":
+                    text = _extract_text_tesseract(processed)
+                if text:
+                    break
+
+            _TEXT_CACHE[image_url] = text
+            return text
+    except Exception:
+        _TEXT_CACHE[image_url] = None
+        return None
+
+
 def extract_hour_from_image_url(image_url: Optional[str]) -> Optional[tuple[int, int]]:
     if not image_url:
         return None
     if image_url in _CACHE:
         return _CACHE[image_url]
 
-    reader = _get_easyocr_reader()
-    if reader is None:
+    text = extract_text_from_image_url(image_url)
+    if not text:
         _CACHE[image_url] = None
         return None
-
-    try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
-            resp = client.get(image_url)
-            resp.raise_for_status()
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as fp:
-            fp.write(resp.content)
-            fp.flush()
-            lines = reader.readtext(fp.name, detail=0, paragraph=True)
-        text = "\n".join(str(x) for x in lines)
-        parsed = parse_hour_from_text(text)
-        _CACHE[image_url] = parsed
-        return parsed
-    except Exception:
-        _CACHE[image_url] = None
-        return None
+    parsed = parse_hour_from_text(text)
+    _CACHE[image_url] = parsed
+    return parsed

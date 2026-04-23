@@ -9,19 +9,20 @@ from zoneinfo import ZoneInfo
 import httpx
 from bs4 import BeautifulSoup
 
-from app.config import settings
 from app.database import supabase
 from app.services.auto_scraper import (
     CO_TZ,
-    EVENT_EXTRACTION_PROMPT,
-    _extract_events_with_groq,
     _normalize_scraped_datetime,
     _sanitize_payload,
     _slugify,
-    scrape_single_lugar,
-    scrape_zona,
 )
 from app.services.html_event_extractor import extract_events_code
+
+UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+ACCEPT_LANG = "es-CO,es;q=0.9,en;q=0.8"
 
 
 def _normalize_text(value: Optional[str]) -> str:
@@ -58,9 +59,8 @@ def _build_google_queries(
 
 async def _google_search_urls(query: str, max_results: int = 8) -> list[str]:
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+        "User-Agent": UA,
+        "Accept-Language": ACCEPT_LANG,
     }
     params = {
         "q": query,
@@ -123,9 +123,8 @@ VALLE_ABURRA_MUNICIPIOS = [
 
 async def _fetch_text_from_url(url: str) -> Optional[str]:
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+        "User-Agent": UA,
+        "Accept-Language": ACCEPT_LANG,
     }
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
@@ -155,9 +154,8 @@ async def _fetch_text_from_url(url: str) -> Optional[str]:
 
 async def _fetch_html_from_url(url: str) -> Optional[str]:
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+        "User-Agent": UA,
+        "Accept-Language": ACCEPT_LANG,
     }
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
@@ -166,6 +164,17 @@ async def _fetch_html_from_url(url: str) -> Optional[str]:
             return resp.text
     except Exception:
         return None
+
+
+def _extract_og_image_from_html(html: str) -> Optional[str]:
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        soup = BeautifulSoup(html, "html.parser")
+    tag = soup.find("meta", property="og:image")
+    if tag and tag.get("content"):
+        return str(tag.get("content"))
+    return None
 
 
 def _resolve_colectivo_by_slug(slug: Optional[str]) -> Optional[dict]:
@@ -235,37 +244,30 @@ def _enrich_event_description(descripcion: Optional[str], fecha: datetime) -> st
     return f"Hora del evento: {hora_label}. {base}".strip()
 
 
-def _insert_discovered_event(
+def _build_candidate_event_data(
     ev: dict,
     *,
     source_url: str,
     default_categoria: Optional[str],
     default_municipio: Optional[str],
     colectivo: Optional[dict],
-) -> tuple[bool, bool]:
+) -> Optional[dict]:
     titulo = ev.get("titulo")
     if not titulo:
-        return False, False
+        return None
 
     fecha = _parse_iso_maybe(ev.get("fecha_inicio"))
     if not fecha:
-        return False, False
+        return None
 
     fecha = _normalize_scraped_datetime(fecha, "google_discovery")
     now_co = datetime.now(ZoneInfo("America/Bogota"))
     if fecha < now_co - timedelta(days=1):
-        return False, False
+        return None
 
     fecha_fin = _parse_iso_maybe(ev.get("fecha_fin"))
     base_slug = _slugify(titulo)
     slug = f"{base_slug}-{fecha.strftime('%Y-%m-%d')}"
-
-    try:
-        exists = supabase.table("eventos").select("id").eq("slug", slug).execute()
-        if exists.data:
-            return False, True
-    except Exception:
-        return False, False
 
     categoria = ev.get("categoria_principal") or default_categoria or "otro"
     municipio = ev.get("municipio") or default_municipio or (colectivo or {}).get("municipio")
@@ -292,6 +294,24 @@ def _insert_discovered_event(
         "fuente_url": source_url,
         "verificado": False,
     }
+    return _sanitize_payload(evento_data)
+
+
+def _event_exists(slug: str) -> bool:
+    try:
+        exists = supabase.table("eventos").select("id").eq("slug", slug).execute()
+        return bool(exists.data)
+    except Exception:
+        return False
+
+
+def _insert_discovered_event(evento_data: dict) -> tuple[bool, bool]:
+    slug = evento_data.get("slug")
+    if not slug:
+        return False, False
+    if _event_exists(slug):
+        return False, True
+
     evento_data = _sanitize_payload(evento_data)
     supabase.table("eventos").insert(evento_data).execute()
     return True, False
@@ -305,22 +325,25 @@ async def discover_events_for_filters(
     texto: Optional[str] = None,
     max_queries: int = 2,
     max_results_per_query: int = 3,
+    auto_insert: bool = False,
 ) -> dict:
     """Discover events when filter views are empty.
 
     Strategy:
-    1) Use internal scrapers first (single lugar / zona).
-    2) If still low results, fallback to Google web discovery + LLM extraction.
-    3) Insert normalized cards into eventos table so all users benefit.
+    1) Google discovery by filters.
+    2) Return normalized candidate cards.
+    3) Optionally insert when auto_insert=True.
     """
     stats = {
         "nuevos": 0,
         "duplicados": 0,
         "errores": 0,
-        "lugares_scrapeados": 0,
+        "encontrados": 0,
         "consultas": [],
         "urls_analizadas": 0,
         "colectivo": None,
+        "candidatos": [],
+        "variables": {},
     }
 
     municipio = _normalize_text(municipio) or None
@@ -330,53 +353,12 @@ async def discover_events_for_filters(
     if colectivo:
         stats["colectivo"] = colectivo.get("slug")
 
-    # 0) Scrape lugares que coinciden con lo que buscó el usuario.
-    #    Esto hace que la búsqueda "con AI" también actualice agendas de
-    #    espacios relevantes para toda la plataforma.
-    candidate_lugares = _find_candidate_lugares(
-        municipio=municipio,
-        categoria=categoria,
-        texto=texto,
-        limit=6,
-    )
-    seen_lugar_ids: set[str] = set()
-    if colectivo and colectivo.get("id"):
-        seen_lugar_ids.add(colectivo["id"])
-
-    for lugar in candidate_lugares:
-        lugar_id = lugar.get("id")
-        if not lugar_id or lugar_id in seen_lugar_ids:
-            continue
-        seen_lugar_ids.add(lugar_id)
-        try:
-            single = await asyncio.wait_for(scrape_single_lugar(lugar_id), timeout=20)
-            stats["lugares_scrapeados"] += 1
-            stats["nuevos"] += int(single.get("nuevos", 0) or 0)
-            stats["duplicados"] += int(single.get("duplicados", 0) or 0)
-        except Exception:
-            stats["errores"] += 1
-
-    try:
-        if colectivo and colectivo.get("id") and colectivo["id"] not in seen_lugar_ids:
-            single = await asyncio.wait_for(scrape_single_lugar(colectivo["id"]), timeout=25)
-            stats["lugares_scrapeados"] += 1
-            stats["nuevos"] += int(single.get("nuevos", 0) or 0)
-            stats["duplicados"] += int(single.get("duplicados", 0) or 0)
-    except Exception:
-        stats["errores"] += 1
-
-    municipios_objetivo = [municipio] if municipio else VALLE_ABURRA_MUNICIPIOS
-    for mun in municipios_objetivo:
-        try:
-            zona = await asyncio.wait_for(scrape_zona(mun, limit=5), timeout=25)
-            stats["nuevos"] += int(zona.get("eventos_nuevos", 0) or 0)
-            stats["duplicados"] += int(zona.get("duplicados", 0) or 0)
-        except Exception:
-            stats["errores"] += 1
-
-    # If we already got events from internal sources, still return quickly.
-    if stats["nuevos"] > 0:
-        return stats
+    stats["variables"] = {
+        "tipo_evento": categoria or "cultural",
+        "zona": municipio or (colectivo or {}).get("municipio") or "valle de aburra",
+        "fecha_actual": datetime.now(CO_TZ).strftime("%Y-%m-%d"),
+        "texto_usuario": texto or "",
+    }
 
     queries = _build_google_queries(
         municipio=municipio,
@@ -384,10 +366,6 @@ async def discover_events_for_filters(
         colectivo_nombre=(colectivo or {}).get("nombre"),
         texto=texto,
     )[:max_queries]
-
-    now_co = datetime.now(CO_TZ)
-    anio = now_co.year
-    now_iso = now_co.strftime("%Y-%m-%d")
 
     seen_urls: set[str] = set()
     for query in queries:
@@ -402,8 +380,9 @@ async def discover_events_for_filters(
             html = await _fetch_html_from_url(url)
             if not html or len(html) < 120:
                 continue
+            og_image = _extract_og_image_from_html(html)
 
-            # 1) Code-first extraction (no AI cost)
+            # Code-first extraction only: no paid AI fallback.
             events = extract_events_code(
                 html,
                 url,
@@ -411,42 +390,33 @@ async def discover_events_for_filters(
                 categoria or "otro",
                 municipio or (colectivo or {}).get("municipio") or "medellin",
             )
-
-            # 2) Optional LLM extraction only if key exists and code extraction failed
-            if not events and settings.groq_api_key:
-                text = await _fetch_text_from_url(url)
-                if not text or len(text) < 120:
-                    continue
-
-                lugar_nombre = (colectivo or {}).get("nombre") or "Descubierto en Google"
-                prompt = EVENT_EXTRACTION_PROMPT.format(
-                    fecha_actual=now_iso,
-                    anio_actual=anio,
-                    nombre_lugar=lugar_nombre,
-                    lugar_id=(colectivo or {}).get("id") or "N/A",
-                    categoria=categoria or "otro",
-                    municipio=municipio or (colectivo or {}).get("municipio") or "medellin",
-                    fuente_tipo="google",
-                    fuente_url=url,
-                    contenido=text,
-                )
-                events = _extract_events_with_groq(prompt)
             if not events:
                 continue
 
             for ev in events:
                 try:
-                    inserted, duplicate = _insert_discovered_event(
+                    if not ev.get("imagen_url") and og_image:
+                        ev["imagen_url"] = og_image
+                    evento_data = _build_candidate_event_data(
                         ev,
                         source_url=url,
                         default_categoria=categoria,
                         default_municipio=municipio,
                         colectivo=colectivo,
                     )
-                    if inserted:
-                        stats["nuevos"] += 1
-                    elif duplicate:
-                        stats["duplicados"] += 1
+                    if not evento_data:
+                        continue
+
+                    stats["encontrados"] += 1
+                    if len(stats["candidatos"]) < 80:
+                        stats["candidatos"].append(evento_data)
+
+                    if auto_insert:
+                        inserted, duplicate = _insert_discovered_event(evento_data)
+                        if inserted:
+                            stats["nuevos"] += 1
+                        elif duplicate:
+                            stats["duplicados"] += 1
                 except Exception:
                     stats["errores"] += 1
 
@@ -458,6 +428,7 @@ async def discover_events_for_filters(
                 "registros_actualizados": 0,
                 "errores": stats["errores"],
                 "detalle": {
+                    "auto_insert": auto_insert,
                     "municipio": municipio,
                     "categoria": categoria,
                     "colectivo_slug": colectivo_slug,
@@ -470,3 +441,22 @@ async def discover_events_for_filters(
         pass
 
     return stats
+
+
+def commit_discovered_events(candidatos: list[dict]) -> dict:
+    """Insert candidate events selected by the user contribution flow."""
+    result = {
+        "nuevos": 0,
+        "duplicados": 0,
+        "errores": 0,
+    }
+    for ev in candidatos or []:
+        try:
+            inserted, duplicate = _insert_discovered_event(ev)
+            if inserted:
+                result["nuevos"] += 1
+            elif duplicate:
+                result["duplicados"] += 1
+        except Exception:
+            result["errores"] += 1
+    return result

@@ -156,27 +156,11 @@ export async function getEspacio(slug: string): Promise<Espacio> {
 }
 
 export async function getEventosHoy(): Promise<Evento[]> {
-  const today = new Date().toISOString().slice(0, 10)
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .gte('fecha_inicio', today)
-    .lte('fecha_inicio', today + 'T23:59:59')
-    .order('fecha_inicio')
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  return apiGet<Evento[]>('/eventos/hoy')
 }
 
 export async function getEventosFeed(limit = 20): Promise<Evento[]> {
-  const now = new Date().toISOString()
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .gte('fecha_inicio', now)
-    .order('fecha_inicio')
-    .limit(limit)
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  return apiGet<Evento[]>(`/eventos/feed?limit=${limit}`)
 }
 
 export async function getEventosSemana(): Promise<Evento[]> {
@@ -225,9 +209,54 @@ export interface DiscoverEventosParams {
   texto?: string
   max_queries?: number
   max_results_per_query?: number
+  auto_insert?: boolean
 }
 
-export async function discoverEventosAI(params: DiscoverEventosParams): Promise<{ status: string; message: string; result: Record<string, unknown> }> {
+export interface DescubiertoEvento {
+  titulo: string
+  slug: string
+  fecha_inicio: string
+  fecha_fin?: string | null
+  categoria_principal: string
+  categorias?: string[]
+  municipio?: string | null
+  barrio?: string | null
+  nombre_lugar?: string | null
+  descripcion?: string | null
+  imagen_url?: string | null
+  precio?: string | null
+  es_gratuito?: boolean
+  fuente_url?: string | null
+}
+
+export interface DiscoverEventosResponse {
+  status: string
+  message: string
+  result: {
+    nuevos?: number
+    duplicados?: number
+    encontrados?: number
+    candidatos?: DescubiertoEvento[]
+    variables?: {
+      tipo_evento?: string
+      zona?: string
+      fecha_actual?: string
+      texto_usuario?: string
+    }
+  }
+}
+
+export interface CommitEventosResponse {
+  status: string
+  message: string
+  result: {
+    nuevos: number
+    duplicados: number
+    errores: number
+  }
+}
+
+export async function discoverEventosAI(params: DiscoverEventosParams): Promise<DiscoverEventosResponse> {
   const search = new URLSearchParams()
   if (params.municipio) search.set('municipio', params.municipio)
   if (params.categoria) search.set('categoria', params.categoria)
@@ -235,10 +264,15 @@ export async function discoverEventosAI(params: DiscoverEventosParams): Promise<
   if (params.texto) search.set('texto', params.texto)
   if (params.max_queries) search.set('max_queries', String(params.max_queries))
   if (params.max_results_per_query) search.set('max_results_per_query', String(params.max_results_per_query))
+  search.set('auto_insert', String(Boolean(params.auto_insert)))
 
   const qs = search.toString()
-  const path = `/scraper/discover-events/publico${qs ? `?${qs}` : ''}`
-  return apiPost<{ status: string; message: string; result: Record<string, unknown> }>(path, {})
+  const path = '/scraper/discover-events/publico' + (qs ? `?${qs}` : '')
+  return apiPost<DiscoverEventosResponse>(path, {})
+}
+
+export async function commitEventosDescubiertos(candidatos: DescubiertoEvento[]): Promise<CommitEventosResponse> {
+  return apiPost<CommitEventosResponse>('/scraper/discover-events/publico/commit', { candidatos })
 }
 
 export async function getEventos(params?: {
@@ -249,25 +283,12 @@ export async function getEventos(params?: {
 }): Promise<Evento[]> {
   const limit = params?.limit ?? 500
   const offset = params?.offset ?? 0
-  const today = new Date().toISOString().slice(0, 10)
-
-  let query = supabase
-    .from('eventos')
-    .select('*')
-    .gte('fecha_inicio', today)
-    .order('fecha_inicio', { ascending: true })
-    .range(offset, offset + limit - 1)
-
-  if (params?.categoria) {
-    query = query.eq('categoria_principal', params.categoria)
-  }
-  if (params?.municipio) {
-    query = query.ilike('municipio', `%${params.municipio}%`)
-  }
-
-  const { data, error } = await query
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  const search = new URLSearchParams()
+  search.set('limit', String(limit))
+  search.set('offset', String(offset))
+  if (params?.categoria) search.set('categoria', params.categoria)
+  if (params?.municipio) search.set('municipio', params.municipio)
+  return apiGet<Evento[]>(`/eventos/?${search.toString()}`)
 }
 
 export async function buscar(q: string): Promise<BusquedaResponse> {

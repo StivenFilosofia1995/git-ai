@@ -20,7 +20,7 @@ from app.database import supabase
 from app.services.groq_client import groq_chat, parse_json_response, MODEL_SMART
 from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
-from app.services.event_ocr import extract_hour_from_image_url
+from app.services.event_ocr import extract_hour_from_image_url, extract_text_from_image_url
 from app.services.rss_scraper import get_or_discover_feed, parse_rss_events
 
 CO_TZ = ZoneInfo("America/Bogota")
@@ -369,6 +369,17 @@ def _html_to_text(html: str) -> str:
     return text
 
 
+def _extract_og_image(html: str) -> Optional[str]:
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        soup = BeautifulSoup(html, "html.parser")
+    og_tag = soup.find("meta", property="og:image")
+    if og_tag and og_tag.get("content"):
+        return str(og_tag.get("content"))
+    return None
+
+
 async def _fetch_website(url: str) -> Optional[str]:
     """Fetch and extract text from a website (used by agenda sources)."""
     html = await _fetch_website_raw(url)
@@ -605,6 +616,18 @@ async def _scrape_lugar(lugar: dict) -> dict:
             if not events_ig and settings.groq_api_key:
                 from app.services.instagram_pw_scraper import profile_to_scraper_text
                 ig_text = profile_to_scraper_text(profile, clean_handle)[:5000]
+                # OCR fallback: leer texto del flyer cuando el caption no trae fecha/hora.
+                ocr_blocks: list[str] = []
+                for idx, img in enumerate((profile.get("image_urls") or [])[:5]):
+                    if not img:
+                        continue
+                    ocr_text = extract_text_from_image_url(img)
+                    if ocr_text and len(ocr_text.strip()) >= 20:
+                        ocr_blocks.append(f"[OCR_FLYER_{idx+1}]\n{ocr_text[:1200]}")
+
+                if ocr_blocks:
+                    ig_text = f"{ig_text}\n\nOCR de flyers:\n" + "\n\n".join(ocr_blocks)
+
                 if ig_text and len(ig_text) > 100:
                     prompt = IG_PROFILE_PROMPT.format(
                         fecha_actual=now_iso,
@@ -1143,10 +1166,12 @@ async def scrape_agenda_sources() -> dict:
             events: list[dict] = []
 
             if html_raw and len(html_raw) > 200:
+                source_og_image = _extract_og_image(html_raw)
                 if needs_playwright(src["url"]):
                     html_pw = await fetch_with_playwright(src["url"])
                     if html_pw and len(html_pw) > len(html_raw):
                         html_raw = html_pw
+                        source_og_image = _extract_og_image(html_raw) or source_og_image
                 events = extract_events_code(
                     html_raw, src["url"],
                     src["nombre"], src["categoria_default"], src["municipio"]
@@ -1166,6 +1191,9 @@ async def scrape_agenda_sources() -> dict:
                         if len(events_pw) > len(events):
                             events = events_pw
                 if events:
+                    for ev in events:
+                        if not ev.get("imagen_url") and source_og_image:
+                            ev["imagen_url"] = source_og_image
                     print(f"  ✅ Código: {len(events)} evento(s)")
                 elif settings.groq_api_key:
                     text = _html_to_text(html_raw)[:4000]
@@ -1199,7 +1227,7 @@ async def scrape_agenda_sources() -> dict:
                             events = rss_events
                             print(f"  📰 RSS: {len(events)} evento(s) desde {feed_url}")
             else:
-                print(f"  ⚠ Sin eventos de código para {src['nombre']} (sin fallback AI)")  
+                print(f"  ⚠ Sin eventos de código para {src['nombre']} (sin fallback AI)")
             if not events:
                 continue
 
