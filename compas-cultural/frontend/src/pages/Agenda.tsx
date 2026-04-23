@@ -145,12 +145,10 @@ export default function Agenda() {
     const zona = zonas.find(z => z.slug === zonaFilter)
     const tiempo = inferTimeLabel(timeFilter)
     const daysAhead = TIME_DAYS_AHEAD[timeFilter]
-    const esGratuito = priceFilterToBool(precioFilter)
     const texto = [textFilter, zona?.nombre, tiempo].filter(Boolean).join(' ').trim() || undefined
     const res = await discoverEventosAI({
       municipio,
       categoria: catFilter || undefined,
-      es_gratuito: esGratuito,
       texto,
       max_queries: 2,
       max_results_per_query: Math.min(6, Math.max(3, Math.floor(limit / 3))),

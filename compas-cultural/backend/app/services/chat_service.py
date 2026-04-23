@@ -43,6 +43,9 @@ Reglas:
 12. Sé exhaustiva: si hay 10 resultados relevantes, mostrá todos.
 13. Podés recomendar por categoría: "Si te gusta la filosofía, mirá Café Filosófico y Fundación Estanislao Zuleta. Si te va el hip-hop, andá a una batalla en Aranjuez..."
 14. Si te hacen una pregunta general (no cultural), respondela con naturalidad y claridad; si aplica, conectala luego con una recomendación cultural útil.
+15. Escribí como persona real: frases cortas, tono cercano, sin sonar a manual técnico.
+16. No repitas reglas ni plantillas. Evitá bloques excesivamente largos; priorizá claridad.
+17. Si la persona solo quiere conversar, conversá normal y recién después ofrecé ayuda cultural.
 
 Fecha y hora actual en Colombia: {fecha_actual_co}
 
@@ -61,6 +64,17 @@ def _trim_text(value: Optional[str], max_len: int) -> str:
     if len(text) <= max_len:
         return text
     return text[: max_len - 1].rstrip() + "…"
+
+
+def _normalize_chat_response(text: Optional[str]) -> str:
+    """Small post-process to keep responses natural and readable."""
+    out = (text or "").strip()
+    if not out:
+        return "Estoy aquí para ayudarte. ¿Qué te gustaría explorar hoy?"
+    # Avoid overlong walls of text in chat UI.
+    if len(out) > 2600:
+        out = out[:2600].rstrip() + "…"
+    return out
 
 
 def _price_label(ev: dict) -> str:
@@ -216,10 +230,11 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
 
         if not respuesta:
             respuesta = _respuesta_fallback(contexto)
+        respuesta = _normalize_chat_response(respuesta)
 
     except Exception as exc:
         print(f"[chat_service] Error general: {exc}")
-        respuesta = _respuesta_fallback(contexto)
+        respuesta = _normalize_chat_response(_respuesta_fallback(contexto))
 
     fuentes = _extraer_fuentes(respuesta, contexto)
 
