@@ -166,6 +166,71 @@ async def trigger_discover_events_publico(
         auto_insert=auto_insert,
     )
 
+    # Rescue mode: when strict/short filters return nothing, retry across categories
+    # and a wider date window to avoid empty UX in agenda exploration.
+    first_found = len(result.get("candidatos") or [])
+    first_new = int(result.get("nuevos") or 0)
+    if first_found == 0 and first_new == 0:
+        sweep_categories = [categoria] if categoria else [
+            "teatro",
+            "musica_en_vivo",
+            "cine",
+            "danza",
+            "festival",
+            "galeria",
+            "libreria",
+            "conferencia",
+        ]
+        widened_days = max(days_ahead or 0, 14)
+
+        merged = {
+            **result,
+            "nuevos": 0,
+            "duplicados": 0,
+            "errores": 0,
+            "encontrados": 0,
+            "consultas": [],
+            "urls_analizadas": 0,
+            "candidatos": [],
+            "variables": {
+                **(result.get("variables") or {}),
+                "rescue_mode": "category_sweep",
+                "rescue_days_ahead": str(widened_days),
+            },
+        }
+
+        seen_keys: set[str] = set()
+        for cat in sweep_categories:
+            retry = await discovery["discover_events_for_filters"](
+                municipio=municipio,
+                categoria=cat,
+                es_gratuito=es_gratuito,
+                colectivo_slug=colectivo_slug,
+                texto=texto,
+                max_queries=max(max_queries, 4),
+                max_results_per_query=max(max_results_per_query, 6),
+                days_ahead=widened_days,
+                strict_categoria=False,
+                auto_insert=auto_insert,
+            )
+            merged["nuevos"] += int(retry.get("nuevos") or 0)
+            merged["duplicados"] += int(retry.get("duplicados") or 0)
+            merged["errores"] += int(retry.get("errores") or 0)
+            merged["urls_analizadas"] += int(retry.get("urls_analizadas") or 0)
+            merged["consultas"].extend(retry.get("consultas") or [])
+
+            for ev in (retry.get("candidatos") or []):
+                key = ev.get("slug") or f"{(ev.get('titulo') or '').strip().lower()}::{str(ev.get('fecha_inicio') or '')[:10]}"
+                if not key or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                if len(merged["candidatos"]) < 80:
+                    merged["candidatos"].append(ev)
+
+        merged["consultas"] = list(dict.fromkeys(merged["consultas"]))[:120]
+        merged["encontrados"] = len(merged["candidatos"])
+        result = merged
+
     candidatos_n = len(result.get("candidatos") or [])
     if auto_insert:
         nuevos = result.get("nuevos", 0)
