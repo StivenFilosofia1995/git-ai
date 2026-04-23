@@ -210,6 +210,8 @@ export interface DiscoverEventosParams {
   texto?: string
   max_queries?: number
   max_results_per_query?: number
+  days_ahead?: number
+  strict_categoria?: boolean
   auto_insert?: boolean
 }
 
@@ -265,6 +267,8 @@ export async function discoverEventosAI(params: DiscoverEventosParams): Promise<
   if (params.texto) search.set('texto', params.texto)
   if (params.max_queries) search.set('max_queries', String(params.max_queries))
   if (params.max_results_per_query) search.set('max_results_per_query', String(params.max_results_per_query))
+  if (typeof params.days_ahead === 'number') search.set('days_ahead', String(params.days_ahead))
+  if (typeof params.strict_categoria === 'boolean') search.set('strict_categoria', String(params.strict_categoria))
   search.set('auto_insert', String(Boolean(params.auto_insert)))
 
   const qs = search.toString()

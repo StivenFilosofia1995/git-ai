@@ -96,6 +96,8 @@ async def trigger_discover_events_publico(
     texto: str | None = Query(default=None),
     max_queries: int = Query(default=2, ge=1, le=8),
     max_results_per_query: int = Query(default=3, ge=1, le=10),
+    days_ahead: int | None = Query(default=None, ge=0, le=120),
+    strict_categoria: bool = Query(default=False),
     auto_insert: bool = Query(default=False, description="Si true, inserta automáticamente en BD"),
 ):
     """Descubrimiento inteligente público cuando no hay resultados en filtros.
@@ -110,6 +112,8 @@ async def trigger_discover_events_publico(
         texto=texto,
         max_queries=max_queries,
         max_results_per_query=max_results_per_query,
+        days_ahead=days_ahead,
+        strict_categoria=strict_categoria,
         auto_insert=auto_insert,
     )
 

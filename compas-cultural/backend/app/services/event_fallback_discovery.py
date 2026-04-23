@@ -409,6 +409,8 @@ def _build_candidate_event_data(
     default_categoria: Optional[str],
     default_municipio: Optional[str],
     colectivo: Optional[dict],
+    days_ahead: Optional[int] = None,
+    strict_categoria: bool = False,
 ) -> Optional[dict]:
     titulo = ev.get("titulo")
     if not titulo:
@@ -422,12 +424,20 @@ def _build_candidate_event_data(
     now_co = datetime.now(ZoneInfo("America/Bogota"))
     if fecha < now_co - timedelta(days=1):
         return None
+    if days_ahead is not None:
+        max_date = (now_co + timedelta(days=days_ahead)).date()
+        if fecha.date() > max_date:
+            return None
 
     fecha_fin = _parse_iso_maybe(ev.get("fecha_fin"))
     base_slug = _slugify(titulo)
     slug = f"{base_slug}-{fecha.strftime('%Y-%m-%d')}"
 
-    categoria = ev.get("categoria_principal") or default_categoria or "otro"
+    extracted_categoria = ev.get("categoria_principal") or "otro"
+    categoria = default_categoria if (strict_categoria and default_categoria) else (extracted_categoria or default_categoria or "otro")
+    categorias = ev.get("categorias") or [extracted_categoria]
+    if default_categoria and default_categoria not in categorias:
+        categorias = [default_categoria, *categorias]
     municipio = ev.get("municipio") or default_municipio or (colectivo or {}).get("municipio")
     nombre_lugar = ev.get("nombre_lugar") or (colectivo or {}).get("nombre") or "Descubierto en web"
 
@@ -438,7 +448,7 @@ def _build_candidate_event_data(
         "fecha_inicio": fecha.isoformat(),
         "fecha_fin": fecha_fin.isoformat() if fecha_fin else None,
         "hora_confirmada": not (fecha.hour == 0 and fecha.minute == 0),
-        "categorias": ev.get("categorias") or [categoria],
+        "categorias": categorias,
         "categoria_principal": categoria,
         "municipio": municipio,
         "barrio": ev.get("barrio") or (colectivo or {}).get("barrio"),
@@ -483,6 +493,8 @@ async def discover_events_for_filters(
     texto: Optional[str] = None,
     max_queries: int = 2,
     max_results_per_query: int = 3,
+    days_ahead: Optional[int] = None,
+    strict_categoria: bool = False,
     auto_insert: bool = False,
 ) -> dict:
     """Discover events when filter views are empty.
@@ -533,6 +545,8 @@ async def discover_events_for_filters(
                 default_categoria=categoria,
                 default_municipio=municipio,
                 colectivo=colectivo,
+                days_ahead=days_ahead,
+                strict_categoria=strict_categoria,
             )
             if not evento_data:
                 continue
@@ -568,6 +582,8 @@ async def discover_events_for_filters(
                 default_categoria=categoria,
                 default_municipio=municipio,
                 colectivo=colectivo,
+                days_ahead=days_ahead,
+                strict_categoria=strict_categoria,
             )
             if not evento_data:
                 continue
@@ -627,6 +643,8 @@ async def discover_events_for_filters(
                         default_categoria=categoria,
                         default_municipio=municipio,
                         colectivo=colectivo,
+                        days_ahead=days_ahead,
+                        strict_categoria=strict_categoria,
                     )
                     if not evento_data:
                         continue
