@@ -53,10 +53,143 @@ Contexto cultural (base de datos en tiempo real):
 {contexto}
 """
 
+# Geographic data for location extraction
+MUNICIPIOS_VALLE = {
+    "medellín": ["medellín", "medellin", "mde"],
+    "itagüí": ["itagüí", "itagui"],
+    "envigado": ["envigado"],
+    "sabaneta": ["sabaneta"],
+    "copacabana": ["copacabana"],
+    "bello": ["bello"],
+    "girardota": ["girardota"],
+    "barbosa": ["barbosa"],
+    "la estrella": ["la estrella"],
+}
+
+BARRIOS_MEDELLIN_MAP = {
+    "el poblado": ["el poblado", "poblado"],
+    "centro": ["centro", "downtown"],
+    "aranjuez": ["aranjuez"],
+    "manrique": ["manrique"],
+    "belén": ["belén", "belen"],
+    "laureles": ["laureles"],
+    "estadio": ["estadio"],
+    "la candelaria": ["la candelaria", "candelaria"],
+}
+
+
+def _extract_location_from_message(mensaje: str) -> Optional[str]:
+    """Extract zone/location (municipality or neighborhood) from user message."""
+    import re
+    msg_lower = mensaje.lower()
+    
+    # Check for explicit format [Zona: ...] or [Ubicación: ...]
+    zm = re.search(r'\[Zona:\s*([^\]]+)\]', mensaje)
+    if zm:
+        return zm.group(1).strip()
+    
+    # Extract natural language location references ("en Itagúí", "de Envigado", etc.)
+    for municipio, aliases in MUNICIPIOS_VALLE.items():
+        for alias in aliases:
+            if re.search(r'(?:en|de|por|desde|para)\s+' + alias + r'\b', msg_lower):
+                return municipio
+    
+    # Check for barrios
+    for barrio, aliases in BARRIOS_MEDELLIN_MAP.items():
+        for alias in aliases:
+            if re.search(r'(?:en|de|por|desde|para)\s+' + alias + r'\b', msg_lower):
+                return barrio
+    
+    return None
+
+
+def _is_municipality(location: str) -> bool:
+    """Check if location is a municipality or a neighborhood."""
+    return any(location in municipio_aliases for municipio_aliases in MUNICIPIOS_VALLE.values())
+
+
+def _apply_location_filter_to_query(query, location: Optional[str]):
+    """Apply location filter to a Supabase query."""
+    if not location:
+        return query
+    
+    is_municipality = _is_municipality(location)
+    if is_municipality:
+        return query.ilike("municipio", location)
+    else:
+        return query.ilike("barrio", location)
+
 
 def _now_co() -> datetime:
     """Current time in Colombia (America/Bogota)."""
     return datetime.now(CO_TZ)
+
+
+def _obtener_espacios(msg_clean: str, zona_filtro: Optional[str]) -> tuple:
+    """Get general spaces and spaces matching keywords."""
+    espacios = []
+    espacios_relevantes = []
+    
+    query_espacios = supabase.table("lugares").select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,descripcion,instagram_handle,sitio_web,direccion,nivel_actividad,telefono,email").neq("nivel_actividad", "cerrado")
+    query_espacios = _apply_location_filter_to_query(query_espacios, zona_filtro)
+    resp = query_espacios.limit(100).execute()
+    espacios = resp.data
+    
+    keywords = _extract_keywords(msg_clean, max_keywords=3)
+    if keywords:
+        for kw in keywords[:3]:
+            query_kw = supabase.table("lugares").select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,instagram_handle,sitio_web,direccion,telefono").or_(f"nombre.ilike.%{kw}%,descripcion.ilike.%{kw}%,barrio.ilike.%{kw}%,categoria_principal.ilike.%{kw}%").neq("nivel_actividad", "cerrado")
+            query_kw = _apply_location_filter_to_query(query_kw, zona_filtro)
+            resp_kw = query_kw.limit(20).execute()
+            for e in resp_kw.data:
+                if not any(x["id"] == e["id"] for x in espacios_relevantes):
+                    espacios_relevantes.append(e)
+    
+    return espacios, espacios_relevantes, keywords
+
+
+def _obtener_eventos(zona_filtro: Optional[str]) -> tuple:
+    """Get events for today, ongoing, yesterday, and this week."""
+    ahora_co = _now_co()
+    hoy_inicio = ahora_co.replace(hour=0, minute=0, second=0, microsecond=0)
+    hoy_fin = hoy_inicio + timedelta(days=1)
+    ayer_inicio = hoy_inicio - timedelta(days=1)
+    hoy_iso = hoy_inicio.isoformat()
+    manana_iso = hoy_fin.isoformat()
+    ayer_iso = ayer_inicio.isoformat()
+    
+    query_hoy = supabase.table("eventos").select(EVENT_SELECT_FIELDS).gte("fecha_inicio", hoy_iso).lt("fecha_inicio", manana_iso)
+    query_hoy = _apply_location_filter_to_query(query_hoy, zona_filtro)
+    eventos_hoy = query_hoy.order("fecha_inicio").limit(50).execute().data
+    
+    query_en_curso = supabase.table("eventos").select(EVENT_SELECT_FIELDS).lt("fecha_inicio", hoy_iso).gte("fecha_fin", hoy_iso)
+    query_en_curso = _apply_location_filter_to_query(query_en_curso, zona_filtro)
+    eventos_en_curso = query_en_curso.order("fecha_inicio").limit(20).execute().data
+    
+    resp_ayer = supabase.table("eventos").select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url").gte("fecha_inicio", ayer_iso).lt("fecha_inicio", hoy_iso).is_("fecha_fin", "null").order("fecha_inicio", desc=True).limit(10).execute()
+    eventos_anteriores = resp_ayer.data
+    
+    semana_iso = (hoy_inicio + timedelta(days=7)).isoformat()
+    query_semana = supabase.table("eventos").select(EVENT_SELECT_FIELDS).gte("fecha_inicio", manana_iso).lte("fecha_inicio", semana_iso)
+    query_semana = _apply_location_filter_to_query(query_semana, zona_filtro)
+    eventos_semana = query_semana.order("fecha_inicio").limit(30).execute().data
+    
+    return eventos_hoy, eventos_en_curso, eventos_anteriores, eventos_semana, hoy_iso
+
+
+def _buscar_eventos_por_keywords(keywords: List[str], hoy_iso: str, zona_filtro: Optional[str], eventos_existentes_ids: set) -> List:
+    """Search events by keywords and avoid duplicates."""
+    resultados = []
+    if keywords:
+        for kw in keywords[:3]:
+            query = supabase.table("eventos").select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url").gte("fecha_inicio", hoy_iso).or_(f"titulo.ilike.%{kw}%,descripcion.ilike.%{kw}%,nombre_lugar.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
+            query = _apply_location_filter_to_query(query, zona_filtro)
+            resp = query.order("fecha_inicio").limit(15).execute()
+            for ev in resp.data:
+                if ev["id"] not in eventos_existentes_ids:
+                    resultados.append(ev)
+                    eventos_existentes_ids.add(ev["id"])
+    return resultados
 
 
 def _trim_text(value: Optional[str], max_len: int) -> str:
@@ -335,129 +468,35 @@ def _obtener_contexto(mensaje: str) -> Dict:
     contexto: Dict = {
         "espacios": [],
         "eventos_hoy": [],
-        "eventos_en_curso": [],   # multi-day events still running today
+        "eventos_en_curso": [],
         "eventos_semana": [],
-        "eventos_anteriores": [], # events from yesterday shown at bottom
+        "eventos_anteriores": [],
         "espacios_relevantes": [],
     }
 
-    # Extract zone/location context from message
-    zona_filtro = None
     msg_clean = mensaje
-    zm = re.search(r'\[Zona:\s*([^\]]+)\]', mensaje)
-    if zm:
-        zona_filtro = zm.group(1).strip()
-        msg_clean = re.sub(r'\[Zona:[^\]]+\]', '', msg_clean).strip()
     um = re.search(r'\[Ubicación:\s*([\d.-]+),\s*([\d.-]+)\]', mensaje)
     if um:
         msg_clean = re.sub(r'\[Ubicación:[^\]]+\]', '', msg_clean).strip()
 
-    # 1. Get more spaces for comprehensive search (100 instead of 15)
-    resp_espacios = (
-        supabase.table("lugares")
-        .select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,descripcion,instagram_handle,sitio_web,direccion,nivel_actividad,telefono,email")
-        .neq("nivel_actividad", "cerrado")
-        .limit(100)
-        .execute()
-    )
-    contexto["espacios"] = resp_espacios.data
+    zona_filtro = _extract_location_from_message(mensaje)
 
-    # 2. Search for spaces matching the query keywords (like a search engine)
-    keywords = _extract_keywords(msg_clean, max_keywords=3)
-    if keywords:
-        for kw in keywords[:3]:
-            resp_kw = (
-                supabase.table("lugares")
-                .select("id,nombre,slug,categoria_principal,barrio,municipio,descripcion_corta,instagram_handle,sitio_web,direccion,telefono")
-                .or_(f"nombre.ilike.%{kw}%,descripcion.ilike.%{kw}%,barrio.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
-                .neq("nivel_actividad", "cerrado")
-                .limit(20)
-                .execute()
-            )
-            for e in resp_kw.data:
-                if not any(x["id"] == e["id"] for x in contexto["espacios_relevantes"]):
-                    contexto["espacios_relevantes"].append(e)
+    # Get spaces and keywords
+    espacios, espacios_relevantes, keywords = _obtener_espacios(msg_clean, zona_filtro)
+    contexto["espacios"] = espacios
+    contexto["espacios_relevantes"] = espacios_relevantes
 
-    # 3. Events today — use .isoformat() to preserve -05:00 offset so Supabase
-    #    compares timestamps correctly (strftime strips the tz and Supabase
-    #    treats the bare string as UTC, causing an ~5-hour shift).
-    ahora_co = _now_co()
-    hoy_inicio = ahora_co.replace(hour=0, minute=0, second=0, microsecond=0)
-    hoy_fin = hoy_inicio + timedelta(days=1)
-    ayer_inicio = hoy_inicio - timedelta(days=1)
-    hoy_iso = hoy_inicio.isoformat()       # "2026-04-21T00:00:00-05:00"
-    manana_iso = hoy_fin.isoformat()       # "2026-04-22T00:00:00-05:00"
-    ayer_iso = ayer_inicio.isoformat()     # "2026-04-20T00:00:00-05:00"
+    # Get events
+    eventos_hoy, eventos_en_curso, eventos_anteriores, eventos_semana, hoy_iso = _obtener_eventos(zona_filtro)
+    contexto["eventos_hoy"] = eventos_hoy
+    contexto["eventos_en_curso"] = eventos_en_curso
+    contexto["eventos_anteriores"] = eventos_anteriores
+    
+    # Search events by keywords
+    all_ev_ids = {e["id"] for e in eventos_hoy + eventos_en_curso + eventos_semana}
+    eventos_semana_extra = _buscar_eventos_por_keywords(keywords, hoy_iso, zona_filtro, all_ev_ids)
+    contexto["eventos_semana"] = eventos_semana + eventos_semana_extra
 
-    resp_hoy = (
-        supabase.table("eventos")
-        .select(EVENT_SELECT_FIELDS)
-        .gte("fecha_inicio", hoy_iso)
-        .lt("fecha_inicio", manana_iso)
-        .order("fecha_inicio")
-        .limit(50)
-        .execute()
-    )
-    contexto["eventos_hoy"] = resp_hoy.data
-
-    # 3b. Multi-day / ongoing events: started before today, fecha_fin >= today start
-    resp_en_curso = (
-        supabase.table("eventos")
-        .select(EVENT_SELECT_FIELDS)
-        .lt("fecha_inicio", hoy_iso)
-        .gte("fecha_fin", hoy_iso)
-        .order("fecha_inicio")
-        .limit(20)
-        .execute()
-    )
-    contexto["eventos_en_curso"] = resp_en_curso.data
-
-    # 3c. Yesterday's events without fecha_fin (single-day, started yesterday)
-    #     shown at the bottom so user knows what they missed
-    resp_ayer = (
-        supabase.table("eventos")
-        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url")
-        .gte("fecha_inicio", ayer_iso)
-        .lt("fecha_inicio", hoy_iso)
-        .is_("fecha_fin", "null")
-        .order("fecha_inicio", desc=True)
-        .limit(10)
-        .execute()
-    )
-    contexto["eventos_anteriores"] = resp_ayer.data
-
-    # 4. Events this week
-    semana_iso = (hoy_inicio + timedelta(days=7)).isoformat()
-    resp_semana = (
-        supabase.table("eventos")
-        .select(EVENT_SELECT_FIELDS)
-        .gte("fecha_inicio", manana_iso)
-        .lte("fecha_inicio", semana_iso)
-        .order("fecha_inicio")
-        .limit(30)
-        .execute()
-    )
-    contexto["eventos_semana"] = resp_semana.data
-
-    # 5. Search events by keywords too (search engine style)
-    if keywords:
-        all_ev_ids = {e["id"] for e in contexto["eventos_hoy"] + contexto["eventos_en_curso"] + contexto["eventos_semana"]}
-        for kw in keywords[:3]:
-            resp_ev_kw = (
-                supabase.table("eventos")
-                .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url")
-                .gte("fecha_inicio", hoy_iso)
-                .or_(f"titulo.ilike.%{kw}%,descripcion.ilike.%{kw}%,nombre_lugar.ilike.%{kw}%,categoria_principal.ilike.%{kw}%")
-                .order("fecha_inicio")
-                .limit(15)
-                .execute()
-            )
-            for ev in resp_ev_kw.data:
-                if ev["id"] not in all_ev_ids:
-                    contexto["eventos_semana"].append(ev)
-                    all_ev_ids.add(ev["id"])
-
-    # 6. Zone context
     if zona_filtro:
         contexto["zona_usuario"] = zona_filtro
 
