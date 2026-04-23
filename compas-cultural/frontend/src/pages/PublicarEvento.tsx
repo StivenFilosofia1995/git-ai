@@ -30,7 +30,8 @@ export default function PublicarEvento() {
   const [form, setForm] = useState({
     titulo: '',
     fecha_inicio: '',
-    hora: '19:00',
+    hora_inicio: '19:00',
+    hora_fin: '',
     descripcion: '',
     categoria_principal: 'otro',
     municipio: 'medellin',
@@ -39,6 +40,9 @@ export default function PublicarEvento() {
     precio: '',
     es_gratuito: false,
     imagen_url: '',
+    imagen_url_alternativa: '',
+    aforo: '',
+    sesion_numero: '',
     contacto_instagram: '',
     contacto_email: '',
   })
@@ -51,7 +55,7 @@ export default function PublicarEvento() {
     setResultado(null)
 
     try {
-      const fechaISO = `${form.fecha_inicio}T${form.hora}:00`
+      const fechaISO = `${form.fecha_inicio}T${form.hora_inicio}:00`
       const res = await publicarEvento({
         titulo: form.titulo,
         fecha_inicio: fechaISO,
@@ -62,16 +66,22 @@ export default function PublicarEvento() {
         nombre_lugar: form.nombre_lugar || undefined,
         precio: form.precio || undefined,
         es_gratuito: form.es_gratuito,
+        hora_inicio: form.hora_inicio,
+        hora_fin: form.hora_fin || undefined,
         imagen_url: form.imagen_url || undefined,
+        imagen_url_alternativa: form.imagen_url_alternativa || undefined,
+        aforo: form.aforo ? parseInt(form.aforo) : undefined,
+        sesion_numero: form.sesion_numero ? parseInt(form.sesion_numero) : undefined,
         contacto_instagram: form.contacto_instagram || undefined,
         contacto_email: form.contacto_email || undefined,
       })
       setResultado(res)
       if (res.ok) {
         setForm({
-          titulo: '', fecha_inicio: '', hora: '19:00', descripcion: '',
+          titulo: '', fecha_inicio: '', hora_inicio: '19:00', hora_fin: '', descripcion: '',
           categoria_principal: 'otro', municipio: 'medellin', barrio: '',
           nombre_lugar: '', precio: '', es_gratuito: false, imagen_url: '',
+          imagen_url_alternativa: '', aforo: '', sesion_numero: '',
           contacto_instagram: '', contacto_email: '',
         })
       }
@@ -116,7 +126,7 @@ export default function PublicarEvento() {
               placeholder="Ej: Noche de Jazz en Otraparte" className={inputClass} />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={labelClass}>Fecha *</label>
               <input type="date" required value={form.fecha_inicio}
@@ -124,9 +134,15 @@ export default function PublicarEvento() {
                 className={inputClass} />
             </div>
             <div>
-              <label className={labelClass}>Hora</label>
-              <input type="time" value={form.hora}
-                onChange={e => setForm({ ...form, hora: e.target.value })}
+              <label className={labelClass}>Hora inicio *</label>
+              <input type="time" required value={form.hora_inicio}
+                onChange={e => setForm({ ...form, hora_inicio: e.target.value })}
+                className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Hora fin (opcional)</label>
+              <input type="time" value={form.hora_fin}
+                onChange={e => setForm({ ...form, hora_fin: e.target.value })}
                 className={inputClass} />
             </div>
           </div>
@@ -192,10 +208,34 @@ export default function PublicarEvento() {
           </div>
 
           <div>
-            <label className={labelClass}>URL de imagen (opcional)</label>
+            <label className={labelClass}>URL de imagen principal (opcional)</label>
             <input type="url" value={form.imagen_url}
               onChange={e => setForm({ ...form, imagen_url: e.target.value })}
               placeholder="https://..." className={inputClass} />
+            <p className="text-xs text-neutral-500 mt-1 font-mono">Pega la URL de una imagen (flyer, poster, foto del evento, etc.)</p>
+          </div>
+
+          <div>
+            <label className={labelClass}>URL de imagen alternativa (opcional)</label>
+            <input type="url" value={form.imagen_url_alternativa}
+              onChange={e => setForm({ ...form, imagen_url_alternativa: e.target.value })}
+              placeholder="https://..." className={inputClass} />
+            <p className="text-xs text-neutral-500 mt-1 font-mono">Segunda imagen (galería, captura, etc.)</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Aforo / Capacidad (opcional)</label>
+              <input type="number" min="1" value={form.aforo}
+                onChange={e => setForm({ ...form, aforo: e.target.value })}
+                placeholder="Ej: 200" className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Número de sesión (opcional)</label>
+              <input type="number" min="1" value={form.sesion_numero}
+                onChange={e => setForm({ ...form, sesion_numero: e.target.value })}
+                placeholder="Ej: 1, 2, 3..." className={inputClass} />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

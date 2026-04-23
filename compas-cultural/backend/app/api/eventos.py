@@ -45,6 +45,8 @@ def get_eventos(
 async def publicar_evento(body: dict, request: Request):
     """Endpoint público para que colectivos/usuarios publiquen eventos.
     No requiere auth — cualquiera puede proponer un evento (queda sin verificar).
+    
+    Soporta campos completos: hora_inicio, hora_fin, aforo, sesion_numero, imagen_url_alternativa.
     """
     from app.schemas.evento import EventoPublicoCreate
     import re
@@ -88,7 +90,11 @@ async def publicar_evento(body: dict, request: Request):
         "espacio_id": evento.espacio_id,
         "fecha_inicio": evento.fecha_inicio.isoformat(),
         "fecha_fin": evento.fecha_fin.isoformat() if evento.fecha_fin else None,
-        "hora_confirmada": True,
+        "hora_inicio": evento.hora_inicio,  # HH:MM format
+        "hora_fin": evento.hora_fin,        # HH:MM format
+        "aforo": evento.aforo,              # Event capacity
+        "sesion_numero": evento.sesion_numero,  # Session number
+        "tiene_hora_confirmada": bool(evento.hora_inicio),
         "categorias": [evento.categoria_principal],
         "categoria_principal": evento.categoria_principal,
         "municipio": evento.municipio,
@@ -98,6 +104,10 @@ async def publicar_evento(body: dict, request: Request):
         "precio": evento.precio,
         "es_gratuito": evento.es_gratuito,
         "imagen_url": evento.imagen_url,
+        "imagen_url_principal": evento.imagen_url,  # Primary image
+        "imagen_url_alternativa": evento.imagen_url_alternativa,  # Alternative
+        "tiene_imagen_confirmada": bool(evento.imagen_url),
+        "es_evento_registrado": True,  # Mark as user-registered
         "fuente": "colectivo_directo",
         "fuente_url": evento.contacto_instagram or evento.contacto_email,
         "verificado": False,
@@ -105,10 +115,25 @@ async def publicar_evento(body: dict, request: Request):
 
     try:
         resp = supabase.table("eventos").insert(evento_data).execute()
+        new_evento = resp.data[0] if resp.data else None
+        
+        # If alternative image provided, add it to evento_imagenes table
+        if evento.imagen_url_alternativa and new_evento:
+            try:
+                supabase.table("evento_imagenes").insert({
+                    "evento_id": new_evento["id"],
+                    "imagen_url": evento.imagen_url_alternativa,
+                    "tipo": "galeria",
+                    "es_principal": False,
+                    "subida_por_usuario": True,
+                }).execute()
+            except Exception as e:
+                print(f"[evento_publish] No se pudo guardar imagen alternativa: {e}")
+        
         return {
             "ok": True,
-            "mensaje": "Evento publicado. Será visible en la agenda inmediatamente.",
-            "evento": resp.data[0] if resp.data else None,
+            "mensaje": "✅ Evento publicado. Será visible en la agenda inmediatamente.",
+            "evento": new_evento,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error guardando evento: {e}")

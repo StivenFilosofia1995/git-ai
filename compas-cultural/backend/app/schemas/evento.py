@@ -62,6 +62,8 @@ class EventoPublicoCreate(BaseModel):
     titulo: str
     fecha_inicio: datetime
     fecha_fin: Optional[datetime] = None
+    hora_inicio: Optional[str] = None  # HH:MM format, e.g., "19:30"
+    hora_fin: Optional[str] = None     # HH:MM format
     descripcion: Optional[str] = None
     categoria_principal: str = "otro"
     municipio: str = "medellin"
@@ -70,7 +72,10 @@ class EventoPublicoCreate(BaseModel):
     espacio_id: Optional[str] = None
     precio: Optional[str] = None
     es_gratuito: bool = False
-    imagen_url: Optional[str] = None
+    imagen_url: Optional[str] = None  # Main/primary image URL
+    imagen_url_alternativa: Optional[str] = None  # Alternative image URL
+    aforo: Optional[int] = None  # Event capacity
+    sesion_numero: Optional[int] = None  # Session number if multi-session
     contacto_instagram: Optional[str] = None
     contacto_email: Optional[str] = None
 
