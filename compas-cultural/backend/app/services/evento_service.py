@@ -82,6 +82,39 @@ def _event_matches_precio(ev: dict, es_gratuito: Optional[bool]) -> bool:
     return bool(ev.get("es_gratuito")) is es_gratuito
 
 
+def _event_datetime_co(ev: dict, field: str) -> Optional[datetime]:
+    raw = ev.get(field)
+    if not raw:
+        return None
+    if isinstance(raw, datetime):
+        dt = raw
+    else:
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=CO_TZ)
+    return dt.astimezone(CO_TZ)
+
+
+def _is_event_happening_today(ev: dict, today_start: datetime, tomorrow_start: datetime) -> bool:
+    """Strict timezone-aware check to avoid misclassified 'hoy' events."""
+    start = _event_datetime_co(ev, "fecha_inicio")
+    if not start:
+        return False
+
+    # Starts today
+    if today_start <= start < tomorrow_start:
+        return True
+
+    # Multi-day in progress today
+    end = _event_datetime_co(ev, "fecha_fin")
+    if end and start < today_start <= end:
+        return True
+    return False
+
+
 def _filter_events(
     eventos: List[dict],
     *,
@@ -227,6 +260,9 @@ def get_eventos_hoy(
             ev["_en_curso"] = True
             eventos.append(ev)
             seen_ids.add(ev["id"])
+
+    # Final strict validation in Colombia timezone to avoid wrong-day leaks.
+    eventos = [ev for ev in eventos if _is_event_happening_today(ev, hoy_inicio, hoy_fin)]
 
     return _filter_events(
         eventos,

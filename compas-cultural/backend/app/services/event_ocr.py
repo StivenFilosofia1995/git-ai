@@ -7,6 +7,8 @@ from typing import Optional
 
 import httpx
 
+from app.database import supabase
+
 
 _TIME_RE = re.compile(
     r"\b(\d{1,2})[:\.h](\d{2})\s*(a\.?m\.?|p\.?m\.?|am|pm)?\b"
@@ -137,6 +139,49 @@ def _extract_text_tesseract(image_path: str) -> Optional[str]:
         return None
 
 
+def _persist_ocr_run(
+    image_url: str,
+    backend: str,
+    status: str,
+    raw_text: Optional[str],
+    parsed_hm: Optional[tuple[int, int]] = None,
+) -> None:
+    """Best-effort OCR audit logging into Supabase.
+
+    This allows quality monitoring and future reprocessing of problematic flyers.
+    """
+    try:
+        if parsed_hm:
+            confidence_time = 0.75
+        elif raw_text:
+            confidence_time = 0.15
+        else:
+            confidence_time = 0.0
+
+        extracted_hour = parsed_hm[0] if parsed_hm else None
+        extracted_minute = parsed_hm[1] if parsed_hm else None
+
+        payload = {
+            "image_url": image_url,
+            "backend": backend,
+            "status": status,
+            "raw_text": raw_text,
+            "extracted_time_text": None,
+            "extracted_hour": extracted_hour,
+            "extracted_minute": extracted_minut
+            "extracted_time_text": None,
+            "extracted_hour": extracted_hour,
+            "extracted_minute": extracted_minute,
+            "confidence_time": confidence_time,
+            "confidence_date": None,
+            "timezone": "America/Bogota",
+        }
+        supabase.table("event_ocr_runs").insert(payload).execute()
+    except Exception:
+        # Never block scraping if audit logging fails.
+        pass
+
+
 def extract_text_from_image_url(image_url: Optional[str]) -> Optional[str]:
     """Extract raw OCR text from an image URL.
 
@@ -160,7 +205,9 @@ def extract_text_from_image_url(image_url: Optional[str]) -> Optional[str]:
             processed = _preprocess_for_ocr(fp.name)
 
             text: Optional[str] = None
+            used_backend = "none"
             for backend in _ocr_backends():
+                used_backend = backend
                 if backend == "easyocr":
                     text = _extract_text_easyocr(processed)
                 elif backend == "tesseract":
@@ -169,9 +216,23 @@ def extract_text_from_image_url(image_url: Optional[str]) -> Optional[str]:
                     break
 
             _TEXT_CACHE[image_url] = text
+            _persist_ocr_run(
+                image_url=image_url,
+                backend=used_backend,
+                status="ok" if text else "empty",
+                raw_text=text,
+                parsed_hm=parse_hour_from_text(text) if text else None,
+            )
             return text
     except Exception:
         _TEXT_CACHE[image_url] = None
+        _persist_ocr_run(
+            image_url=image_url,
+            backend="none",
+            status="error",
+            raw_text=None,
+            parsed_hm=None,
+        )
         return None
 
 
