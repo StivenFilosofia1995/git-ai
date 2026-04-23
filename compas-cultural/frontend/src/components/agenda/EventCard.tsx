@@ -40,11 +40,12 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
   const sourceUrl = evento.fuente_url || null
   const isIg = evento.fuente?.includes('instagram')
   const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
+  const mapsSearchTarget = ubicacionLabel || `${evento.titulo}, Medellin`
   const mapsUrl = evento.lat && evento.lng
     ? `https://www.google.com/maps?q=${evento.lat},${evento.lng}`
-    : `https://www.google.com/maps/search/${encodeURIComponent(ubicacionLabel || `${evento.titulo}, Medellin`)}`
+    : `https://www.google.com/maps/search/${encodeURIComponent(mapsSearchTarget)}`
   const preguntaEterea = encodeURIComponent(
-    `Quiero saber mas sobre este evento: ${evento.titulo}. Fecha: ${dia} ${horaPrompt}. Lugar: ${ubicacionLabel || 'Medellin'}.`
+    `Quiero que me cuentes mas detalles solo de este evento: "${evento.titulo}". No me listes otros eventos. Fecha: ${dia} ${horaPrompt}. Lugar: ${ubicacionLabel || 'Medellin'}.`
   )
 
   return (

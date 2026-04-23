@@ -25,6 +25,7 @@ REGLAS CLAVE:
 - No inventes eventos, lugares, horarios ni precios.
 - Si el usuario saluda o conversa, responde breve y humana; no listes eventos sin que lo pida.
 - Si el usuario pide planes/eventos (hoy, semana, barrio, categoria), entonces sí recomienda con datos concretos.
+- Si `evento_foco` viene en el contexto, responde SOLO sobre ese evento. No listes otros salvo que el usuario lo pida.
 - Si la hora no es confiable, di "hora por confirmar".
 - Si no hay resultados, di: "No hay eventos registrados para eso. La agenda se actualiza cada día."
 - Prioriza claridad sobre cantidad. Mejor 3-6 buenas opciones que un bloque enorme.
@@ -189,6 +190,51 @@ def _extract_location_from_message(mensaje: str) -> Optional[str]:
                 return barrio
     
     return None
+
+
+def _extract_event_focus_query(message: str) -> Optional[str]:
+    clean = _strip_chat_context_prefixes(message)
+    quoted = re.search(r'"([^"]{4,180})"', clean)
+    if quoted:
+        return quoted.group(1).strip()
+
+    patterns = [
+        r'detalles solo de este evento:\s*([^\.\n]+)',
+        r'mas detalles solo de este evento:\s*([^\.\n]+)',
+        r'mas detalles de este evento:\s*([^\.\n]+)',
+        r'sobre este evento:\s*([^\.\n]+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, clean, flags=re.I)
+        if match:
+            candidate = match.group(1).strip().strip('"')
+            if len(candidate) >= 4:
+                return candidate
+    return None
+
+
+def _buscar_evento_foco(message: str, zona_filtro: Optional[str]) -> Optional[dict]:
+    focus_query = _extract_event_focus_query(message)
+    if not focus_query:
+        return None
+
+    query = supabase.table("eventos").select(EVENT_SELECT_FIELDS).ilike("titulo", f"%{focus_query}%")
+    query = _apply_location_filter_to_query(query, zona_filtro)
+    resp = query.order("fecha_inicio").limit(5).execute()
+    candidates = [e for e in (resp.data or []) if _is_valid_event_for_chat(e)]
+    if candidates:
+        return candidates[0]
+
+    keywords = _extract_keywords(focus_query, max_keywords=4)
+    if not keywords:
+        return None
+    query = supabase.table("eventos").select(EVENT_SELECT_FIELDS).gte("fecha_inicio", (_now_co() - timedelta(days=1)).isoformat())
+    or_filter = ",".join([f"titulo.ilike.%{kw}%" for kw in keywords])
+    query = query.or_(or_filter)
+    query = _apply_location_filter_to_query(query, zona_filtro)
+    resp = query.order("fecha_inicio").limit(10).execute()
+    candidates = [e for e in (resp.data or []) if _is_valid_event_for_chat(e)]
+    return candidates[0] if candidates else None
 
 
 def _is_municipality(location: str) -> bool:
@@ -377,6 +423,7 @@ def _compact_context(contexto: Dict, user_message: str) -> Dict:
 
     ctx = {
         "zona_usuario": contexto.get("zona_usuario"),
+        "evento_foco": _compact_event(contexto.get("evento_foco")) if contexto.get("evento_foco") else None,
         "eventos_en_curso": [_compact_event(e) for e in (contexto.get("eventos_en_curso") or [])[:max_events]],
         "eventos_hoy": [_compact_event(e) for e in (contexto.get("eventos_hoy") or [])[:max_events]],
         "eventos_semana": [_compact_event(e) for e in (contexto.get("eventos_semana") or [])[:max_events]],
@@ -549,37 +596,60 @@ def _chat_via_ollama(system_prompt: str, messages: list) -> Optional[str]:
         return None
 
 
+def _fallback_focus_event_response(evento_foco: dict) -> str:
+    fecha_h, hora_h = _to_human_datetime_label(evento_foco.get("fecha_inicio"))
+    lugar = evento_foco.get("nombre_lugar") or evento_foco.get("barrio") or evento_foco.get("municipio") or "Medellín"
+    precio = "Gratis" if evento_foco.get("es_gratuito") else (evento_foco.get("precio") or "Precio por confirmar")
+    descripcion = _trim_text(evento_foco.get("descripcion"), 320)
+    detalle = [
+        f"{evento_foco.get('titulo', 'Evento')} — {lugar}.",
+        f"Fecha: {fecha_h or 'fecha por confirmar'}{f' · {hora_h}' if hora_h else ' · hora por confirmar'}.",
+        f"Precio: {precio}.",
+    ]
+    if descripcion:
+        detalle.append(f"Detalle: {descripcion}")
+    detalle.append("Si querés, también te cuento cómo llegar, qué otros planes quedan cerca o si parece buen plan para hoy.")
+    return "\n".join(detalle)
+
+
+def _fallback_events_block(title: str, events: list[dict]) -> str:
+    lineas = [title]
+    for ev in events:
+        lineas.append(
+            f"- {ev.get('titulo', 'Evento')} · {ev.get('fecha_inicio', '')} · {ev.get('nombre_lugar') or ev.get('barrio') or ev.get('municipio') or 'Medellín'}"
+        )
+    return "\n".join(lineas)
+
+
+def _fallback_spaces_block(spaces: list[dict]) -> str:
+    lineas = ["Espacios recomendados:"]
+    for esp in spaces:
+        lineas.append(
+            f"- {esp.get('nombre', 'Espacio')} · {esp.get('categoria_principal', 'cultura')} · {esp.get('barrio') or esp.get('municipio') or 'Medellín'}"
+        )
+    return "\n".join(lineas)
+
+
 def _respuesta_fallback(contexto: Dict) -> str:
     """Fallback para mantener el chat funcional cuando Claude falla."""
+    evento_foco = contexto.get("evento_foco")
     eventos_hoy = contexto.get("eventos_hoy", [])[:5]
     eventos_semana = contexto.get("eventos_semana", [])[:5]
     espacios = (contexto.get("espacios_relevantes", []) or contexto.get("espacios", []))[:5]
 
     bloques = []
 
+    if evento_foco:
+        return _fallback_focus_event_response(evento_foco)
+
     if eventos_hoy:
-        lineas = ["Eventos de hoy:"]
-        for ev in eventos_hoy:
-            lineas.append(
-                f"- {ev.get('titulo', 'Evento')} · {ev.get('fecha_inicio', '')} · {ev.get('nombre_lugar') or ev.get('barrio') or ev.get('municipio') or 'Medellín'}"
-            )
-        bloques.append("\n".join(lineas))
+        bloques.append(_fallback_events_block("Eventos de hoy:", eventos_hoy))
 
     if eventos_semana:
-        lineas = ["Próximos eventos:"]
-        for ev in eventos_semana:
-            lineas.append(
-                f"- {ev.get('titulo', 'Evento')} · {ev.get('fecha_inicio', '')} · {ev.get('nombre_lugar') or ev.get('barrio') or ev.get('municipio') or 'Medellín'}"
-            )
-        bloques.append("\n".join(lineas))
+        bloques.append(_fallback_events_block("Próximos eventos:", eventos_semana))
 
     if espacios:
-        lineas = ["Espacios recomendados:"]
-        for esp in espacios:
-            lineas.append(
-                f"- {esp.get('nombre', 'Espacio')} · {esp.get('categoria_principal', 'cultura')} · {esp.get('barrio') or esp.get('municipio') or 'Medellín'}"
-            )
-        bloques.append("\n".join(lineas))
+        bloques.append(_fallback_spaces_block(espacios))
 
     bloques.append("¿Querés que te filtre por barrio, zona o categoría? Contame qué te interesa y te ayudo mejor.")
     return "\n\n".join(bloques) if bloques else "¡Hola! Soy ETÉREA. ¿En qué barrio o municipio estás y qué tipo de experiencias culturales te interesan?"
@@ -589,6 +659,7 @@ def _obtener_contexto(mensaje: str) -> Dict:
     import re
     contexto: Dict = {
         "espacios": [],
+        "evento_foco": None,
         "eventos_hoy": [],
         "eventos_en_curso": [],
         "eventos_semana": [],
@@ -602,6 +673,7 @@ def _obtener_contexto(mensaje: str) -> Dict:
         msg_clean = re.sub(r'\[Ubicación:[^\]]+\]', '', msg_clean).strip()
 
     zona_filtro = _extract_location_from_message(mensaje)
+    contexto["evento_foco"] = _buscar_evento_foco(msg_clean, zona_filtro)
 
     # Get spaces and keywords
     espacios, espacios_relevantes, keywords = _obtener_espacios(msg_clean, zona_filtro)

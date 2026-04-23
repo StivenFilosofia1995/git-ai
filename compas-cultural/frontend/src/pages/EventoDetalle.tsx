@@ -38,17 +38,19 @@ export default function EventoDetalle() {
   const { diaLargo: fechaStr, hora: horaStr } = getEventDateParts(evento)
   const horaLabel = horaStr ?? 'Hora por confirmar'
   const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
+  const mapsSearchTarget = ubicacionLabel || `${evento.titulo}, Medellin`
   const mapsUrl = evento.lat && evento.lng
     ? `https://www.google.com/maps?q=${evento.lat},${evento.lng}`
-    : `https://www.google.com/maps/search/${encodeURIComponent(ubicacionLabel || `${evento.titulo}, Medellin`)}`
+    : `https://www.google.com/maps/search/${encodeURIComponent(mapsSearchTarget)}`
   const preguntaEterea = encodeURIComponent(
-    `Recomiendame mas detalles de este evento: ${evento.titulo}. Fecha: ${fechaStr} ${horaLabel}. Lugar: ${ubicacionLabel || 'Medellin'}.`
+    `Quiero que me cuentes mas detalles solo de este evento: "${evento.titulo}". No me listes otros eventos. Fecha: ${fechaStr} ${horaLabel}. Lugar: ${ubicacionLabel || 'Medellin'}.`
   )
 
   const canonicalUrl = `https://culturaetereamed.com/evento/${slug}`
   const ubicacionLine = ubicacionLabel ? `\n📍 ${ubicacionLabel}` : ''
+  const fechaShareLine = horaStr ? `${fechaStr} · ${horaStr}` : `${fechaStr} · Hora por confirmar`
   const whatsappText = encodeURIComponent(
-    `📅 *${evento.titulo}*\n🗓 ${fechaStr}${horaStr ? ` · ${horaStr}` : ' · Hora por confirmar'}${ubicacionLine}\n\n${canonicalUrl}`
+    `📅 *${evento.titulo}*\n🗓 ${fechaShareLine}${ubicacionLine}\n\n${canonicalUrl}`
   )
   const whatsappUrl = `https://wa.me/?text=${whatsappText}`
   const metaDescription =
@@ -115,7 +117,7 @@ export default function EventoDetalle() {
           {/* Header */}
           <div>
             <span className="inline-block px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black mb-4">
-              {evento.categoria_principal?.replace(/_/g, ' ')}
+              {evento.categoria_principal?.replaceAll('_', ' ')}
             </span>
             <h1 className="text-3xl md:text-4xl font-heading font-black tracking-tight mb-3 uppercase">
               {evento.titulo}
