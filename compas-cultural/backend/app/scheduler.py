@@ -70,12 +70,12 @@ async def _run_agenda_alternativa():
 def start_scheduler():
     """Start the periodic scraper. Called from FastAPI lifespan."""
 
-    # ── Auto-scraper: horarios fijos Colombia (evita drift por reinicios) ──
+    # ── Auto-scraper: diario 2:00 AM Colombia ─────────────────────────────
     scheduler.add_job(
         _run_scraper_job,
-        trigger=CronTrigger(hour="6,9,12,15,18,21", minute=5, timezone=CO_TZ),
+        trigger=CronTrigger(hour=2, minute=0, timezone=CO_TZ),
         id="auto_scraper",
-        name="Auto-scraper cultural (6x día, hora Colombia)",
+        name="Auto-scraper cultural (diario 2:00am, hora Colombia)",
         replace_existing=True,
     )
 
@@ -169,7 +169,7 @@ def start_scheduler():
     print("⏰ Scheduler iniciado (zona Colombia):")
     print("   • Limpieza inicial: en 30s (startup)")
     print("   • Scrape inicial: en 90s (startup)")
-    print("   • Auto-scraper: 06:05, 09:05, 12:05, 15:05, 18:05, 21:05")
+    print("   • Auto-scraper: diario a las 02:00")
     print("   • Social Listener: cada 3h (minuto 25, inicio en 3min)")
     print("   • Discovery: 08:10 y 20:10")
     print("   • Imágenes: 10:20 y 22:20")

@@ -117,6 +117,50 @@ def _apply_ocr_hour_if_missing(fecha: datetime, image_url: Optional[str]) -> dat
         return fecha
 
 
+def _apply_text_hour_if_missing(fecha: datetime, *texts: Optional[str]) -> tuple[datetime, bool]:
+    """Try extracting hour from free text when datetime has 00:00."""
+    if not (fecha.hour == 0 and fecha.minute == 0):
+        return fecha, True
+
+    for txt in texts:
+        hm = _extract_time(txt or "")
+        if not hm:
+            continue
+        h, m = hm
+        try:
+            return fecha.replace(hour=h, minute=m, second=0, microsecond=0), True
+        except Exception:
+            continue
+
+    return fecha, False
+
+
+def _finalize_event_datetime(
+    fecha: datetime,
+    *,
+    image_url: Optional[str],
+    fallback_hour: tuple[int, int] = (19, 0),
+    texts: tuple[Optional[str], ...] = (),
+) -> tuple[datetime, bool]:
+    """Resolve best available event time, forcing non-00:00 for UX consistency.
+
+    Returns (fecha_final, hora_confirmada).
+    """
+    fecha = _apply_ocr_hour_if_missing(fecha, image_url)
+    fecha, confirmed = _apply_text_hour_if_missing(fecha, *texts)
+    if confirmed:
+        return fecha, True
+
+    # Último fallback: evitar publicar "por definir" en experiencia pública.
+    # Mantiene hora_confirmada=False para distinguir estimaciones.
+    h, m = fallback_hour
+    try:
+        fecha = fecha.replace(hour=h, minute=m, second=0, microsecond=0)
+    except Exception:
+        pass
+    return fecha, False
+
+
 def _sanitize_text(value: Optional[str]) -> Optional[str]:
     """Drop lone surrogate characters that break UTF-8 inserts.
 
@@ -173,7 +217,8 @@ def _enrich_event_description(
         hora_txt = fecha.astimezone(CO_TZ).strftime("%H:%M")
         pref = f"Hora del evento: {hora_txt}."
     else:
-        pref = "Hora del evento: por confirmar."
+        hora_txt = fecha.astimezone(CO_TZ).strftime("%H:%M")
+        pref = f"Hora del evento (estimada): {hora_txt}."
     if "hora del evento" in base.lower():
         return base
     return f"{pref} {base}".strip()
@@ -378,6 +423,28 @@ def _extract_og_image(html: str) -> Optional[str]:
     if og_tag and og_tag.get("content"):
         return str(og_tag.get("content"))
     return None
+
+
+_OG_IMAGE_CACHE: dict[str, Optional[str]] = {}
+
+
+async def _resolve_event_image(image_url: Optional[str], source_url: Optional[str]) -> Optional[str]:
+    """Ensure event has an image URL; fallback to source page og:image."""
+    if image_url:
+        return image_url
+    if not source_url:
+        return None
+    if source_url in _OG_IMAGE_CACHE:
+        return _OG_IMAGE_CACHE[source_url]
+
+    html = await _fetch_website_raw(source_url)
+    if not html:
+        _OG_IMAGE_CACHE[source_url] = None
+        return None
+
+    og = _extract_og_image(html)
+    _OG_IMAGE_CACHE[source_url] = og
+    return og
 
 
 async def _fetch_website(url: str) -> Optional[str]:
@@ -656,7 +723,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
 
     for ev in all_events:
         try:
-            titulo = ev.get("titulo")
+            titulo = _sanitize_text(ev.get("titulo"))
             if not titulo:
                 continue
 
@@ -672,7 +739,12 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     else:
                         fecha = fecha.astimezone(CO_TZ)
                     fecha = _normalize_scraped_datetime(fecha, ev.get("_fuente", "web"))
-                    fecha = _apply_ocr_hour_if_missing(fecha, ev.get("imagen_url"))
+                    image_url = await _resolve_event_image(ev.get("imagen_url"), ev.get("_fuente_url") or sitio)
+                    fecha, hora_confirmada = _finalize_event_datetime(
+                        fecha,
+                        image_url=image_url,
+                        texts=(ev.get("descripcion"), titulo),
+                    )
                     fecha_fin = None
                     if fecha_fin_str:
                         try:
@@ -711,7 +783,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                             "fecha_inicio": fecha.isoformat(),
                             "fuente": "auto_scraper_instagram_hora",
                             "fuente_url": ev.get("_fuente_url") or current.get("fuente_url"),
-                            "imagen_url": ev.get("imagen_url"),
+                            "imagen_url": image_url,
                         }).eq("id", current["id"]).execute()
                         stats["corregidos_hora"] += 1
                         print(f"    🕒 Hora corregida: {titulo} -> {nueva_fecha.strftime('%H:%M')}")
@@ -734,7 +806,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                                     "fecha_inicio": fecha.isoformat(),
                                     "fuente": "auto_scraper_instagram_hora",
                                     "fuente_url": ev.get("_fuente_url") or legacy.get("fuente_url"),
-                                    "imagen_url": ev.get("imagen_url"),
+                                    "imagen_url": image_url,
                                 }).eq("id", legacy["id"]).execute()
                                 stats["corregidos_hora"] += 1
                                 print(f"    🕒 Hora corregida (legacy): {titulo} -> {nueva_fecha.strftime('%H:%M')}")
@@ -749,7 +821,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "espacio_id": lugar_id,
                 "fecha_inicio": fecha.isoformat(),
                 "fecha_fin": fecha_fin.isoformat() if fecha_fin else None,
-                "hora_confirmada": not (fecha.hour == 0 and fecha.minute == 0),
+                "hora_confirmada": hora_confirmada,
                 "categorias": ev.get("categorias", [categoria]),
                 "categoria_principal": ev.get("categoria_principal", categoria),
                 "municipio": municipio,
@@ -758,12 +830,12 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "descripcion": _enrich_event_description(
                     ev.get("descripcion"),
                     fecha,
-                    hora_confirmada=not (fecha.hour == 0 and fecha.minute == 0),
+                    hora_confirmada=hora_confirmada,
                 ),
                 "precio": ev.get("precio"),
                 "es_gratuito": ev.get("es_gratuito", False),
                 "es_recurrente": ev.get("es_recurrente", False),
-                "imagen_url": ev.get("imagen_url"),
+                "imagen_url": image_url,
                 "fuente": f"auto_scraper_{ev.get('_fuente', 'web')}",
                 "fuente_url": ev.get("_fuente_url"),
                 "verificado": False,
@@ -801,7 +873,13 @@ def _log_scraping(fuente: str, registros_nuevos: int, errores: int, detalle: dic
 # ──────────────────────────────────────────────────────────────────────────
 # Main entry points
 # ──────────────────────────────────────────────────────────────────────────
-async def run_auto_scraper(limit: Optional[int] = None) -> dict:
+async def run_auto_scraper(
+    limit: Optional[int] = None,
+    *,
+    post_enrich: bool = True,
+    image_enrich_limit: int = 250,
+    hour_enrich_limit: int = 800,
+) -> dict:
     """
     Scrape all active lugares with IG handle or website.
     Called by scheduler or manually via API.
@@ -867,11 +945,23 @@ async def run_auto_scraper(limit: Optional[int] = None) -> dict:
     elapsed = (_now_co() - start_time).total_seconds()
     total_stats["duracion_segundos"] = round(elapsed, 1)
 
+    # Post-process all upcoming events to improve image/hour consistency across sources.
+    if post_enrich:
+        img_enrich = await enrich_event_images(limit=image_enrich_limit)
+        hour_enrich = await enrich_event_hours(limit=hour_enrich_limit)
+        total_stats["imagenes_enriquecidas"] = img_enrich.get("actualizados", 0)
+        total_stats["horas_enriquecidas"] = hour_enrich.get("actualizados", 0)
+    else:
+        total_stats["imagenes_enriquecidas"] = 0
+        total_stats["horas_enriquecidas"] = 0
+
     print("\n✅ ═══════════════════════════════════════════════")
     print(f"   AUTO-SCRAPER completado en {elapsed:.0f}s")
     print(f"   Lugares: {total_stats['lugares_procesados']}")
     print(f"   Eventos nuevos: {total_stats['eventos_nuevos']}")
     print(f"   Horas corregidas: {total_stats['corregidos_hora']}")
+    print(f"   Imágenes enriquecidas: {total_stats.get('imagenes_enriquecidas', 0)}")
+    print(f"   Horas enriquecidas: {total_stats.get('horas_enriquecidas', 0)}")
     print(f"   Duplicados: {total_stats['duplicados']}")
     print(f"   Errores: {total_stats['errores']}")
     print("═══════════════════════════════════════════════════\n")
@@ -891,6 +981,10 @@ async def scrape_single_lugar(lugar_id: str) -> dict:
     lugar = resp.data
     print(f"\n🎯 Scraping individual: {lugar['nombre']}")
     stats = await _scrape_lugar(lugar)
+    img_enrich = await enrich_event_images(limit=120)
+    hour_enrich = await enrich_event_hours()
+    stats["imagenes_enriquecidas"] = img_enrich.get("actualizados", 0)
+    stats["horas_enriquecidas"] = hour_enrich.get("actualizados", 0)
 
     _log_scraping(
         fuente=lugar.get("sitio_web") or lugar.get("instagram_handle", "manual"),
@@ -941,10 +1035,15 @@ async def scrape_zona(municipio: str, limit: int = 20) -> dict:
         detalle=total_stats,
     )
 
+    img_enrich = await enrich_event_images(limit=200)
+    hour_enrich = await enrich_event_hours()
+    total_stats["imagenes_enriquecidas"] = img_enrich.get("actualizados", 0)
+    total_stats["horas_enriquecidas"] = hour_enrich.get("actualizados", 0)
+
     return total_stats
 
 
-async def enrich_event_images() -> dict:
+async def enrich_event_images(limit: int = 300) -> dict:
     """
     Scan eventos without imagen_url and try to fetch og:image from their
     fuente_url or the espacio's sitio_web.
@@ -952,7 +1051,7 @@ async def enrich_event_images() -> dict:
     print("\n🖼️  Enriqueciendo imágenes de eventos...")
     result = supabase.table("eventos").select(
         "id,titulo,fuente_url,espacio_id,imagen_url"
-    ).is_("imagen_url", "null").execute()
+    ).is_("imagen_url", "null").limit(limit).execute()
 
     eventos = result.data or []
     print(f"  📊 {len(eventos)} eventos sin imagen")
@@ -966,7 +1065,7 @@ async def enrich_event_images() -> dict:
             return og_cache[url]
         try:
             async with httpx.AsyncClient(
-                follow_redirects=True, timeout=12, http2=False
+                follow_redirects=True, timeout=8, http2=False
             ) as client:
                 resp = await client.get(url, headers=HEADERS)
                 if resp.status_code == 200:
@@ -975,6 +1074,9 @@ async def enrich_event_images() -> dict:
                     if tag and tag.get("content"):
                         og_cache[url] = tag["content"]
                         return tag["content"]
+        except asyncio.CancelledError:
+            og_cache[url] = None
+            return None
         except Exception as e:
             print(f"    ⚠ Error fetching {url[:50]}: {e}")
         og_cache[url] = None
@@ -1010,6 +1112,92 @@ async def enrich_event_images() -> dict:
 
     print(f"  ✅ {updated} eventos actualizados con imagen")
     return {"total_sin_imagen": len(eventos), "actualizados": updated}
+
+
+async def enrich_event_hours(limit: int = 800) -> dict:
+    """Enrich upcoming events with explicit hour using OCR/text heuristics.
+
+    - If hour is 00:00, tries OCR from image_url and regex from description/title.
+    - If still missing, sets a default estimated hour (19:00) to avoid unresolved schedules.
+    """
+    print("\n🕒 Enriqueciendo horas de eventos...")
+    today_iso = _now_co().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    try:
+        resp = (
+            supabase.table("eventos")
+            .select("id,titulo,descripcion,fecha_inicio,imagen_url,fuente_url,hora_confirmada")
+            .gte("fecha_inicio", today_iso)
+            .order("fecha_inicio")
+            .limit(limit)
+            .execute()
+        )
+    except Exception as e:
+        print(f"  ⚠ Error consultando eventos para horas: {e}")
+        return {"revisados": 0, "actualizados": 0, "confirmadas": 0, "estimadas": 0, "errores": 1}
+
+    eventos = resp.data or []
+    revisados = 0
+    actualizados = 0
+    confirmadas = 0
+    estimadas = 0
+    errores = 0
+
+    for ev in eventos:
+        revisados += 1
+        try:
+            fecha_raw = ev.get("fecha_inicio")
+            fecha = _parse_iso_to_co(fecha_raw)
+            if not fecha:
+                continue
+
+            hora_actual_confirmada = bool(ev.get("hora_confirmada"))
+            needs_fix = (fecha.hour == 0 and fecha.minute == 0) or (not hora_actual_confirmada)
+            if not needs_fix:
+                continue
+
+            image_url = await _resolve_event_image(ev.get("imagen_url"), ev.get("fuente_url"))
+            fecha_new, hora_confirmada = _finalize_event_datetime(
+                fecha,
+                image_url=image_url,
+                texts=(ev.get("descripcion"), ev.get("titulo")),
+            )
+
+            payload = {}
+            if fecha_new.isoformat() != fecha.isoformat():
+                payload["fecha_inicio"] = fecha_new.isoformat()
+            if image_url and image_url != ev.get("imagen_url"):
+                payload["imagen_url"] = image_url
+            if hora_confirmada != hora_actual_confirmada:
+                payload["hora_confirmada"] = hora_confirmada
+
+            desc_prev = ev.get("descripcion")
+            desc_new = _enrich_event_description(desc_prev, fecha_new, hora_confirmada=hora_confirmada)
+            if desc_new != (desc_prev or ""):
+                payload["descripcion"] = desc_new
+
+            if payload:
+                supabase.table("eventos").update(_sanitize_payload(payload)).eq("id", ev["id"]).execute()
+                actualizados += 1
+                if hora_confirmada:
+                    confirmadas += 1
+                else:
+                    estimadas += 1
+        except Exception as e:
+            errores += 1
+            print(f"  ⚠ Error enriqueciendo hora ({ev.get('titulo', 'evento')}): {e}")
+
+    print(
+        f"  ✅ Horas revisadas: {revisados} | actualizadas: {actualizados} | "
+        f"confirmadas: {confirmadas} | estimadas: {estimadas} | errores: {errores}"
+    )
+    return {
+        "revisados": revisados,
+        "actualizados": actualizados,
+        "confirmadas": confirmadas,
+        "estimadas": estimadas,
+        "errores": errores,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1233,7 +1421,7 @@ async def scrape_agenda_sources() -> dict:
 
             for ev in events:
                 try:
-                    titulo = ev.get("titulo")
+                    titulo = _sanitize_text(ev.get("titulo"))
                     if not titulo:
                         continue
 
@@ -1246,7 +1434,12 @@ async def scrape_agenda_sources() -> dict:
                             else:
                                 fecha = fecha.astimezone(CO_TZ)
                             fecha = _normalize_scraped_datetime(fecha, "agenda")
-                            fecha = _apply_ocr_hour_if_missing(fecha, ev.get("imagen_url"))
+                            image_url = await _resolve_event_image(ev.get("imagen_url"), ev.get("_fuente_url") or src["url"])
+                            fecha, hora_confirmada = _finalize_event_datetime(
+                                fecha,
+                                image_url=image_url,
+                                texts=(ev.get("descripcion"), titulo),
+                            )
                             hoy_inicio_ag = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
                             fecha_fin_ag = None
                             if ev.get("fecha_fin"):
@@ -1278,7 +1471,7 @@ async def scrape_agenda_sources() -> dict:
                         "slug": slug,
                         "fecha_inicio": fecha.isoformat(),
                         "fecha_fin": fecha_fin_ag.isoformat() if fecha_fin_ag else None,
-                        "hora_confirmada": not (fecha.hour == 0 and fecha.minute == 0),
+                        "hora_confirmada": hora_confirmada,
                         "categorias": ev.get("categorias", [src["categoria_default"]]),
                         "categoria_principal": ev.get("categoria_principal", src["categoria_default"]),
                         "municipio": ev.get("municipio", src["municipio"]),
@@ -1287,12 +1480,12 @@ async def scrape_agenda_sources() -> dict:
                         "descripcion": _enrich_event_description(
                             ev.get("descripcion"),
                             fecha,
-                            hora_confirmada=not (fecha.hour == 0 and fecha.minute == 0),
+                            hora_confirmada=hora_confirmada,
                         ),
                         "precio": ev.get("precio"),
                         "es_gratuito": ev.get("es_gratuito", False),
                         "es_recurrente": ev.get("es_recurrente", False),
-                        "imagen_url": ev.get("imagen_url"),
+                        "imagen_url": image_url,
                         "fuente": f"agenda_{src['nombre'][:30]}",
                         "fuente_url": src["url"],
                         "verificado": False,

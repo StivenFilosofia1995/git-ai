@@ -168,9 +168,6 @@ def _persist_ocr_run(
             "raw_text": raw_text,
             "extracted_time_text": None,
             "extracted_hour": extracted_hour,
-            "extracted_minute": extracted_minut
-            "extracted_time_text": None,
-            "extracted_hour": extracted_hour,
             "extracted_minute": extracted_minute,
             "confidence_time": confidence_time,
             "confidence_date": None,

@@ -548,8 +548,9 @@ def _enrich_event_description(descripcion: Optional[str], fecha: datetime) -> st
     hora_confirmada = not (fecha.hour == 0 and fecha.minute == 0)
     if "hora del evento" in base.lower():
         return base
-    hora_label = fecha.astimezone(CO_TZ).strftime("%H:%M") if hora_confirmada else "por confirmar"
-    return f"Hora del evento: {hora_label}. {base}".strip()
+    hora_label = fecha.astimezone(CO_TZ).strftime("%H:%M")
+    prefix = f"Hora del evento: {hora_label}." if hora_confirmada else f"Hora del evento (estimada): {hora_label}."
+    return f"{prefix} {base}".strip()
 
 
 def _build_candidate_event_data(
