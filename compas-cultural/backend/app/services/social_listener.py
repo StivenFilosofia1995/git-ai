@@ -14,64 +14,7 @@ import traceback
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import anthropic
-import httpx
-from bs4 import BeautifulSoup
-
-from app.config import settings
-from app.database import supabase
-from .discovery.config import HASHTAGS_MEDELLIN, CATEGORIAS, MUNICIPIOS, MUNICIPIO_SLUG_MAP
-from .discovery.utils import (
-    fetch_url, clean_text, extract_og_image, polite_delay,
-)
-from .discovery.seed_data import get_all_local_profiles, get_high_priority_profiles
-
-logger = logging.getLogger("social_listener")
-CO_TZ = ZoneInfo("America/Bogota")
-
-_CLIENT = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-
-# ── Prompt para extraer eventos de posts de redes sociales ───
-SOCIAL_EVENT_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
-Analiza estos posts de redes sociales y extrae TODOS los EVENTOS culturales mencionados.
-
-Fecha actual: {fecha_actual}
-
-Posts encontrados:
----
-{posts_content}
----
-
-Para cada evento encontrado, extrae esta información en JSON:
-[
-  {{
-    "titulo": "nombre del evento",
-    "descripcion": "descripción completa del evento",
-    "categoria_principal": "teatro | musica | literatura | filosofia | arte_general | hip_hop | jazz | electronica | galeria | danza | cine | fotografia | festival | otro",
-    "categorias": ["lista de categorías aplicables"],
-    "fecha_inicio": "YYYY-MM-DDTHH:MM:SS (si se puede determinar)",
-    "fecha_fin": "YYYY-MM-DDTHH:MM:SS (opcional)",
-    "municipio": "medellin | bello | itagui | envigado | sabaneta | caldas | la_estrella | copacabana | girardota | barbosa",
-    "barrio": "barrio si se menciona",
-    "nombre_lugar": "lugar donde se realiza",
-    "precio": "precio o 'Entrada libre'",
-    "es_gratuito": true/false,
-    "es_recurrente": true/false,
-    "imagen_url": "URL de la imagen del post/flyer si está disponible",
-    "fuente_url": "URL del post original",
-    "handle_organizador": "@handle del organizador",
-    "nombre_organizador": "nombre del colectivo/espacio organizador"
-  }}
-]
-
-Reglas:
-- Solo incluye eventos FUTUROS (después de {fecha_actual}).
-- Si un post es un flyer/afiche de evento, extrae toda la info visible.
-- Si un evento NO tiene fecha clara, NO lo incluyas. No inventes fechas ni asumas que es hoy.
-- Si no hay eventos válidos, responde: []
-- Responde SOLO con el JSON array, sin texto adicional.
-"""
-
+from app.services.ig_event_extractor import _caption_to_event, _now_co
 
 def _slugify(text: str) -> str:
     text = text.lower().strip()
@@ -240,50 +183,34 @@ async def _fetch_facebook_posts(page_url: str) -> list[dict]:
 
 
 async def _extract_events_from_posts(posts: list[dict]) -> list[dict]:
-    """Usa Claude para extraer eventos de posts de redes sociales."""
+    """Extrae eventos de posts de redes sociales mediante código determinista (Regex)."""
     if not posts:
         return []
 
-    # Formatear posts para el prompt
-    posts_text = ""
-    for i, p in enumerate(posts, 1):
-        posts_text += f"\n--- Post #{i} ---\n"
-        if p.get("handle"):
-            posts_text += f"De: {p['handle']}\n"
-        if p.get("caption"):
-            posts_text += f"Texto: {p['caption']}\n"
-        if p.get("image_url"):
-            posts_text += f"Imagen: {p['image_url']}\n"
-        if p.get("permalink"):
-            posts_text += f"Link: {p['permalink']}\n"
+    now = _now_co()
+    events = []
 
-    prompt = SOCIAL_EVENT_PROMPT.format(
-        fecha_actual=datetime.utcnow().strftime("%Y-%m-%d"),
-        posts_content=posts_text[:6000],
-    )
-
-    def _call_claude():
-        response = _CLIENT.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=3000,
-            temperature=0.1,
-            messages=[{"role": "user", "content": prompt}],
+    for p in posts:
+        caption = p.get("caption", "")
+        img = p.get("image_url")
+        handle = p.get("handle", "unknown")
+        
+        # Intentamos extraer un evento del caption determinísticamente
+        ev = _caption_to_event(
+            caption=caption,
+            image_url=img,
+            nombre_lugar=handle,
+            categoria="otro",
+            municipio="medellin",
+            now=now
         )
-        raw = response.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-        # Handle trailing commas
-        raw = re.sub(r",\s*([}\]])", r"\1", raw)
-        events = json.loads(raw)
-        return events if isinstance(events, list) else []
+        if ev:
+            ev["fuente_url"] = p.get("permalink")
+            ev["handle_organizador"] = handle
+            ev["nombre_organizador"] = handle
+            events.append(ev)
 
-    try:
-        import asyncio
-        return await asyncio.to_thread(_call_claude)
-    except Exception as e:
-        logger.error(f"Claude extraction error: {e}")
-        return []
+    return events
 
 
 async def _insert_event(event: dict) -> bool:

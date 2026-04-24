@@ -18,11 +18,9 @@ from bs4 import BeautifulSoup
 from app.config import settings
 from app.database import supabase
 from app.services.data_quality import is_likely_cultural_event
-from app.services.groq_client import groq_chat, parse_json_response, MODEL_SMART
 from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 from app.services.event_ocr import extract_hour_from_image_url, extract_text_from_image_url
-from app.services.ollama_client import ollama_chat
 from app.services.rss_scraper import get_or_discover_feed, parse_rss_events
 
 CO_TZ = ZoneInfo("America/Bogota")
@@ -253,155 +251,6 @@ def _normalize_ig_handle(raw: Optional[str]) -> Optional[str]:
     value = "".join(ch for ch in value if unicodedata.category(ch) != "Mn")
     value = re.sub(r"[^A-Za-z0-9._]", "", value)
     return value or None
-
-# ── Prompt para extraer eventos de una página ────────────────────────────
-EVENT_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).
-Analiza el contenido de esta página/perfil y extrae TODOS los EVENTOS culturales mencionados.
-
-Fecha actual: {fecha_actual}
-Año actual: {anio_actual}
-
-Lugar asociado: {nombre_lugar} (ID: {lugar_id})
-Categoría principal del lugar: {categoria}
-Municipio: {municipio}
-Fuente: {fuente_tipo} — {fuente_url}
-
-Contenido:
----
-{contenido}
----
-
-Extrae en JSON con esta estructura exacta:
-{{
-  "eventos": [
-    {{
-      "titulo": "nombre del evento",
-      "categoria_principal": "teatro | hip_hop | jazz | musica_en_vivo | electronica | galeria | arte_contemporaneo | libreria | editorial | poesia | filosofia | cine | danza | circo | fotografia | casa_cultura | centro_cultural | festival | batalla_freestyle | muralismo | radio_comunitaria | publicacion | otro",
-      "categorias": ["lista"],
-      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
-      "fecha_fin": "YYYY-MM-DDTHH:MM:SS o null",
-      "descripcion": "descripción del evento (máx 500 chars)",
-      "precio": "valor o 'Entrada libre'",
-      "es_gratuito": true/false,
-      "es_recurrente": true/false,
-      "imagen_url": "URL de imagen del evento si la hay, o null"
-    }}
-  ]
-}}
-
-Reglas:
-- Cuando una fecha NO especifica año, usa {anio_actual}.
-- Incluye eventos que ocurran DESPUÉS de {fecha_actual}.
-- Extrae todos los eventos culturales que encuentres (conciertos, teatro, cine, talleres, charlas, exposiciones, festivales, danza, etc.).
-- Si no hay eventos claros, responde: {{"eventos": []}}
-- Para fechas ambiguas, infiere la más probable usando {anio_actual}.
-- NO inventes la hora: si el contenido no trae hora explícita, usa 00:00:00.
-- Si el contenido incluye [OG_IMAGE: url], usa esa URL como imagen_url del evento principal.
-- Si el contenido incluye [IMAGE_URL: url] o [PERMALINK: url], usa la IMAGE_URL como imagen_url del evento asociado.
-- Responde SOLO con el JSON, sin texto adicional.
-"""
-
-# ── Prompt para scraping de Instagram (perfil público) ───────────────────
-IG_PROFILE_PROMPT = """Eres un experto en cultura urbana de Medellín analizando un perfil de Instagram.
-El perfil es de: {nombre_lugar} ({instagram_handle})
-Categoría: {categoria} | Municipio: {municipio}
-Fecha actual: {fecha_actual} | Año actual: {anio_actual}
-
-Analiza las publicaciones recientes y extrae EVENTOS culturales FUTUROS (después de {fecha_actual}).
-Cuando una fecha NO especifica año, usa {anio_actual}.
-Busca: fechas, horarios, nombres de eventos, precios, ubicaciones mencionados en los posts.
-
-Contenido del perfil/posts:
----
-{contenido}
----
-
-Responde en JSON exacto:
-{{
-  "eventos": [
-    {{
-      "titulo": "nombre del evento",
-      "categoria_principal": "categoría",
-      "categorias": ["lista"],
-      "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
-      "fecha_fin": "YYYY-MM-DDTHH:MM:SS o null",
-      "descripcion": "descripción corta",
-      "precio": "valor o 'Entrada libre'",
-      "es_gratuito": true/false,
-      "es_recurrente": true/false,
-      "imagen_url": "URL de imagen si la hay"
-    }}
-  ]
-}}
-
-- Eventos FUTUROS únicamente.
-- NO inventes la hora: si el contenido no trae hora explícita, usa 00:00:00.
-- Si no encuentras eventos claros, responde: {{"eventos": []}}
-- Responde SOLO JSON.
-"""
-
-
-def _extract_events_with_groq(prompt: str) -> list[dict]:
-    """Extract events from real scraped content using Groq JSON output."""
-    if not settings.groq_api_key:
-        return []
-    try:
-        clean_prompt = _sanitize_text(prompt) or ""
-        if not clean_prompt:
-            return []
-
-        raw = groq_chat(clean_prompt, model=MODEL_SMART, max_tokens=4096, temperature=0, json_mode=True)
-        if not raw:
-            raw = groq_chat(clean_prompt, model=MODEL_SMART, max_tokens=4096, temperature=0)
-        if not raw:
-            return []
-
-        data = parse_json_response(raw)
-        if data is None:
-            fixed = re.sub(r",\s*([}\]])", r"\1", raw)
-            data = parse_json_response(fixed)
-        if data is None:
-            return []
-
-        events = data.get("eventos", []) if isinstance(data, dict) else []
-        return events if isinstance(events, list) else []
-    except Exception as e:
-        print(f"  ⚠ Groq extraction error: {e}")
-        return []
-
-
-def _extract_events_with_ollama(prompt: str) -> list[dict]:
-    """Extract events from scraped content using local Ollama JSON output."""
-    try:
-        clean_prompt = _sanitize_text(prompt) or ""
-        if not clean_prompt:
-            return []
-
-        raw = ollama_chat(
-            system_prompt="Extrae eventos culturales y responde solo JSON válido.",
-            messages=[{"role": "user", "content": clean_prompt}],
-            max_tokens=2048,
-            temperature=0.0,
-        )
-        if not raw:
-            return []
-
-        data = parse_json_response(raw)
-        if data is None:
-            fixed = re.sub(r",\s*([}\]])", r"\1", raw)
-            data = parse_json_response(fixed)
-        if data is None:
-            return []
-
-        events = data.get("eventos", []) if isinstance(data, dict) else []
-        return events if isinstance(events, list) else []
-    except Exception as e:
-        print(f"  ⚠ Ollama extraction error: {e}")
-        return []
-
-
-def _extract_events_with_ai(prompt: str) -> list[dict]:
-    return _extract_events_with_ollama(prompt)
 
 
 def _slugify(text: str) -> str:
@@ -657,28 +506,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     all_events.extend(events_code)
                     print(f"    ✅ Código: {len(events_code)} evento(s) extraídos")
                 else:
-                    print(f"    ⚠ Sin eventos de código para {sitio} — intentando IA local (Ollama)")
-                    text = _html_to_text(html)
-                    short_text = text[:4000]
-                    if short_text and len(short_text) > 100:
-                        prompt = EVENT_EXTRACTION_PROMPT.format(
-                            fecha_actual=now_iso,
-                            anio_actual=anio,
-                            nombre_lugar=nombre,
-                            lugar_id=lugar_id,
-                            categoria=categoria,
-                            municipio=municipio,
-                            fuente_tipo="sitio_web",
-                            fuente_url=sitio,
-                            contenido=short_text,
-                        )
-                        events_ai = _extract_events_with_ai(prompt)
-                        for ev in events_ai:
-                            ev["_fuente"] = "sitio_web_ai"
-                            ev["_fuente_url"] = sitio
-                        if events_ai:
-                            print(f"    🧠 IA: {len(events_ai)} evento(s)")
-                            all_events.extend(events_ai)
+                    print(f"    ⚠ Sin eventos deterministas de código para {sitio}")
 
     # ── 2. Scrape Instagram (código puro — CERO tokens AI) ────────────────
     ig_handle = _normalize_ig_handle(lugar.get("instagram_handle"))
@@ -720,39 +548,8 @@ async def _scrape_lugar(lugar: dict) -> dict:
             all_events.extend(events_ig)
             print(f"    📊 Código extrajo {len(events_ig)} evento(s) de IG")
 
-            # If regex/date extractor found nothing, use LLM on real captions as fallback.
             if not events_ig:
-                from app.services.instagram_pw_scraper import profile_to_scraper_text
-                ig_text = profile_to_scraper_text(profile, clean_handle)[:5000]
-                # OCR fallback: leer texto del flyer cuando el caption no trae fecha/hora.
-                ocr_blocks: list[str] = []
-                for idx, img in enumerate((profile.get("image_urls") or [])[:5]):
-                    if not img:
-                        continue
-                    ocr_text = extract_text_from_image_url(img)
-                    if ocr_text and len(ocr_text.strip()) >= 20:
-                        ocr_blocks.append(f"[OCR_FLYER_{idx+1}]\n{ocr_text[:1200]}")
-
-                if ocr_blocks:
-                    ig_text = f"{ig_text}\n\nOCR de flyers:\n" + "\n\n".join(ocr_blocks)
-
-                if ig_text and len(ig_text) > 100:
-                    prompt = IG_PROFILE_PROMPT.format(
-                        fecha_actual=now_iso,
-                        anio_actual=anio,
-                        nombre_lugar=nombre,
-                        instagram_handle=clean_handle,
-                        categoria=categoria,
-                        municipio=municipio,
-                        contenido=ig_text,
-                    )
-                    ig_groq = _extract_events_with_ai(prompt)
-                    for ev in ig_groq:
-                        ev["_fuente"] = "instagram_groq"
-                        ev["_fuente_url"] = ig_url
-                    if ig_groq:
-                        print(f"    🧠 Groq IG: {len(ig_groq)} evento(s)")
-                        all_events.extend(ig_groq)
+                print(f"    ⚠ Sin eventos deterministas en IG para {ig_handle}")
         else:
             print(f"    ⚠ Sin contenido de IG para {ig_handle}")
 
