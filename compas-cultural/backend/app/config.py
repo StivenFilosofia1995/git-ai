@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     meta_app_id: str = ""
     meta_app_secret: str = ""
 
+    # Data retention and privacy cleanup
+    privacy_retention_days: int = 30
+    privacy_ocr_raw_text_retention_days: int = 7
+
     @property
     def effective_cors_origins(self) -> List[str]:
         """CORS origins including FRONTEND_URL and production domains.

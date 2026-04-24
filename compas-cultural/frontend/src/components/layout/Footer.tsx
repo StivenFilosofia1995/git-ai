@@ -27,6 +27,12 @@ export default function Footer() {
             >
               Nosotros
             </Link>
+            <Link
+              to="/proteccion-datos"
+              className="text-[11px] font-mono font-bold uppercase tracking-wider text-black hover:underline underline-offset-4 transition-all"
+            >
+              Ley de datos
+            </Link>
           </div>
           <div className="flex flex-col items-start md:items-end gap-2">
             <Link
@@ -43,6 +49,9 @@ export default function Footer() {
             </Link>
             <p className="text-[10px] font-mono text-black/60 uppercase tracking-wider">
               Ayudanos a sostener y mejorar la plataforma
+            </p>
+            <p className="text-[10px] font-mono text-black/70 max-w-xs">
+              Cumplimiento legal: uso cultural, no cuentas personales y limpieza automática de datos por retención.
             </p>
           </div>
         </div>

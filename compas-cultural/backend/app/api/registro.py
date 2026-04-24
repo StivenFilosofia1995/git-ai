@@ -12,13 +12,21 @@ from app.schemas.registro import (
 router = APIRouter()
 
 
-@router.post("/", response_model=RegistroURLResponse, status_code=201)
+@router.post(
+    "/",
+    response_model=RegistroURLResponse,
+    status_code=201,
+    responses={400: {"description": "Debe aceptar política de protección de datos"}},
+)
 @rate_limit("5/hour")
 def registrar_por_url(
     body: RegistroURLRequest,
     background_tasks: BackgroundTasks,
     request: Request,
 ):
+    if not body.acepta_politica_datos:
+        raise HTTPException(status_code=400, detail="Debes aceptar la política de protección de datos")
+
     tipo_url = detectar_tipo_url(body.url)
 
     row = {

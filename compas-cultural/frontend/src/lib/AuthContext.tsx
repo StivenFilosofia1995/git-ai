@@ -10,7 +10,11 @@ interface AuthState {
   perfilCompleto: boolean
   perfilLoading: boolean
   marcarPerfilCompleto: () => void
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>
+  signUp: (
+    email: string,
+    password: string,
+    metadata?: Record<string, string | boolean>
+  ) => Promise<{ error: string | null }>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signInWithGoogle: () => Promise<{ error: string | null }>
   signOut: () => Promise<void>
@@ -97,8 +101,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [checkPerfil])
 
-  const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
+  const signUp = async (
+    email: string,
+    password: string,
+    metadata?: Record<string, string | boolean>
+  ) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: metadata ? { data: metadata } : undefined,
+    })
     return { error: error?.message ?? null }
   }
 

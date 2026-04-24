@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Helmet } from 'react-helmet-async'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { crearPerfil, getZonas, CATEGORIAS_CULTURALES, type Zona } from '../lib/api'
 
@@ -29,6 +29,8 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [confirmSent, setConfirmSent] = useState(false)
+  const [aceptaPolitica, setAceptaPolitica] = useState(false)
+  const [aceptaTratamiento, setAceptaTratamiento] = useState(false)
 
   useEffect(() => {
     getZonas().then(setZonas).catch(() => {})
@@ -65,13 +67,22 @@ export default function Login() {
           setLoading(false)
           return
         }
+        if (!aceptaPolitica || !aceptaTratamiento) {
+          setError('Debes aceptar la política de datos y el consentimiento para registrarte')
+          setLoading(false)
+          return
+        }
         setStep('profile')
         setLoading(false)
         return
       }
 
       // step === 'profile' → crear cuenta + perfil
-      const { error: err } = await signUp(email, password)
+      const { error: err } = await signUp(email, password, {
+        acepta_politica_datos: true,
+        acepta_tratamiento_datos: true,
+        consentimiento_at: new Date().toISOString(),
+      })
       if (err) {
         setError(err)
         setLoading(false)
@@ -260,6 +271,33 @@ export default function Login() {
                   placeholder="Contraseña"
                 />
               </div>
+
+              {mode === 'register' && (
+                <div className="border-2 border-black p-3 space-y-2">
+                  <label className="flex items-start gap-2 text-xs font-mono">
+                    <input
+                      type="checkbox"
+                      checked={aceptaPolitica}
+                      onChange={(e) => setAceptaPolitica(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Acepto la <Link to="/proteccion-datos" className="underline font-bold">Ley de protección de datos</Link> y la política de privacidad cultural.
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 text-xs font-mono">
+                    <input
+                      type="checkbox"
+                      checked={aceptaTratamiento}
+                      onChange={(e) => setAceptaTratamiento(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Autorizo el tratamiento de mis datos para fines de operación de la plataforma cultural.
+                    </span>
+                  </label>
+                </div>
+              )}
             </>
           )}
 

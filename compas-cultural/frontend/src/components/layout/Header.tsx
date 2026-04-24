@@ -35,6 +35,14 @@ export default function Header() {
               Preguntale a ETÉREA
             </Link>
 
+            <Link
+              to="/proteccion-datos"
+              className="hidden md:flex items-center px-2 py-1 border border-black text-[9px] font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all duration-200"
+              title="Ley de protección de datos"
+            >
+              Ley de protección de datos
+            </Link>
+
             {/* Botón donación Vaki */}
             <Link
               to="/aportes"

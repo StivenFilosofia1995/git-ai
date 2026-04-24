@@ -11,8 +11,8 @@ from app.database import supabase
 
 
 _TIME_RE = re.compile(
-    r"\b(\d{1,2})[:\.h](\d{2})\s*(a\.?m\.?|p\.?m\.?|am|pm)?\b"
-    r"|\b(\d{1,2})\s*(a\.?m\.?|p\.?m\.?|am|pm)\b",
+    r"\b(\d{1,2})\s*[:\.h]\s*(\d{2})\s*((?:a|p)\.?\s*m\.?|am|pm|a|p)?\b"
+    r"|\b(\d{1,2})\s*((?:a|p)\.?\s*m\.?|am|pm|a|p)\b",
     re.I,
 )
 
@@ -28,7 +28,7 @@ _TEXT_CACHE: dict[str, Optional[str]] = {}
 
 
 def _normalize_hour(hour: int, minute: int, meridian: str, context_text: str) -> Optional[tuple[int, int]]:
-    mer = (meridian or "").lower().replace(".", "")
+    mer = re.sub(r"\s+|\.", "", (meridian or "").lower())
     h = hour
     if mer in ("pm", "p") and h < 12:
         h += 12

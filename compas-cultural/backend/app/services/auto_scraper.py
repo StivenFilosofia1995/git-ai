@@ -32,6 +32,37 @@ EVENT_KEYWORDS = [
     "musica", "música", "lanzamiento", "performance", "show", "en vivo",
 ]
 
+_EVENING_CONTEXT_RE = re.compile(
+    r"\b(noche|tarde|show|concierto|funcion|presentacion|festival|en vivo)\b",
+    re.I,
+)
+_TIME_WITH_MINUTES_RE = re.compile(
+    r"\b(\d{1,2})\s*[:\.h]\s*(\d{2})\s*([ap](?:\.?\s*m\.?)?)?\b",
+    re.I,
+)
+_TIME_AMPM_ONLY_RE = re.compile(
+    r"\b(\d{1,2})\s*([ap](?:\.?\s*m\.?)?)\b",
+    re.I,
+)
+
+
+def _normalize_meridian(raw: str) -> str:
+    return re.sub(r"[^apm]", "", (raw or "").lower())
+
+
+def _to_24h(hour: int, minute: int, meridian: str, has_evening_context: bool) -> Optional[tuple[int, int]]:
+    h = hour
+    mer = _normalize_meridian(meridian)
+    if mer.startswith("p") and h < 12:
+        h += 12
+    elif mer.startswith("a") and h == 12:
+        h = 0
+    elif not mer and 1 <= h <= 11 and has_evening_context:
+        h += 12
+    if not (0 <= h <= 23 and 0 <= minute <= 59):
+        return None
+    return h, minute
+
 
 def _extract_time(text: str) -> Optional[tuple[int, int]]:
     """Extract event time from free text.
@@ -41,20 +72,20 @@ def _extract_time(text: str) -> Optional[tuple[int, int]]:
     """
     if not text:
         return None
-    m = re.search(r"(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?m?\.?)?", text, re.I)
-    if not m:
-        return None
 
-    hour = int(m.group(1))
-    minute = int(m.group(2))
-    mer = (m.group(3) or "").lower().replace(".", "")
-    if mer in ("pm", "p") and hour < 12:
-        hour += 12
-    elif mer in ("am", "a") and hour == 12:
-        hour = 0
-    if not (0 <= hour <= 23 and 0 <= minute <= 59):
-        return None
-    return hour, minute
+    has_evening_context = bool(_EVENING_CONTEXT_RE.search(text))
+
+    for m in _TIME_WITH_MINUTES_RE.finditer(text):
+        parsed = _to_24h(int(m.group(1)), int(m.group(2)), m.group(3) or "", has_evening_context)
+        if parsed:
+            return parsed
+
+    for m in _TIME_AMPM_ONLY_RE.finditer(text):
+        parsed = _to_24h(int(m.group(1)), 0, m.group(2) or "", has_evening_context)
+        if parsed:
+            return parsed
+
+    return None
 
 
 def _detect_category(text: str) -> str:

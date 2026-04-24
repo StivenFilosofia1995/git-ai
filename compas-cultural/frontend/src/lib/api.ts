@@ -400,8 +400,8 @@ export interface RegistroEstadoResponse extends RegistroURLResponse {
   updated_at: string
 }
 
-export async function registrarPorURL(url: string): Promise<RegistroURLResponse> {
-  return apiPost<RegistroURLResponse>('/registro/', { url })
+export async function registrarPorURL(url: string, acepta_politica_datos: boolean): Promise<RegistroURLResponse> {
+  return apiPost<RegistroURLResponse>('/registro/', { url, acepta_politica_datos })
 }
 
 export async function consultarEstadoRegistro(solicitudId: number): Promise<RegistroEstadoResponse> {

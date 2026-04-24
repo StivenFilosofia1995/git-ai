@@ -18,6 +18,7 @@ export default function Registrar() {
   const [solicitud, setSolicitud] = useState<RegistroURLResponse | null>(null)
   const [estado, setEstado] = useState<RegistroEstadoResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [aceptaDatos, setAceptaDatos] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const limpiarPolling = useCallback(() => {
@@ -39,7 +40,7 @@ export default function Registrar() {
     setFase('procesando')
 
     try {
-      const resp = await registrarPorURL(url.trim())
+      const resp = await registrarPorURL(url.trim(), aceptaDatos)
       setSolicitud(resp)
       iniciarPolling(resp.id)
     } catch {
@@ -88,6 +89,12 @@ export default function Registrar() {
           Nuestro sistema extraerá la información automáticamente y tu espacio quedará conectado
           al scraping activo — actualizaremos tus eventos en tiempo real.
         </p>
+        <div className="border-2 border-black p-4 mb-8">
+          <p className="font-mono text-xs uppercase tracking-wider">
+            Política de datos: este sistema está orientado a cultura. No se deben registrar cuentas personales.
+            <Link to="/proteccion-datos" className="ml-2 underline font-bold">Ley de protección de datos</Link>
+          </p>
+        </div>
 
         {/* Prompt para crear cuenta */}
         {!user && (
@@ -133,9 +140,22 @@ export default function Registrar() {
 
               {error && <p className="text-red-600 text-sm">{error}</p>}
 
+              <label className="flex items-start gap-2 border-2 border-black p-3 text-xs font-mono">
+                <input
+                  type="checkbox"
+                  checked={aceptaDatos}
+                  onChange={(e) => setAceptaDatos(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Confirmo que la URL corresponde a un espacio/colectivo cultural público y acepto la
+                  <Link to="/proteccion-datos" className="underline font-bold ml-1">política de protección de datos</Link>.
+                </span>
+              </label>
+
               <button
                 type="submit"
-                disabled={!url.trim() || !user}
+                disabled={!url.trim() || !user || !aceptaDatos}
                 className="w-full bg-black text-white py-3 font-mono text-sm uppercase tracking-wider hover:bg-white hover:text-black border-2 border-black disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-300"
               >
                 {user ? 'Registrar espacio' : 'Inicia sesión para registrar'}

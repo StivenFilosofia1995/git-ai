@@ -67,6 +67,22 @@ async def _run_agenda_alternativa():
         print(f"❌ Agenda alternativa error: {e}")
 
 
+def _run_privacy_cleanup():
+    """Job wrapper for automatic privacy/data retention cleanup."""
+    from app.services.privacy_cleanup import run_privacy_cleanup
+    try:
+        stats = run_privacy_cleanup()
+        print(
+            "🧹 Privacy cleanup: "
+            f"solicitudes={stats.get('solicitudes_eliminadas', 0)} | "
+            f"logs={stats.get('scraping_logs_eliminados', 0)} | "
+            f"ocr_rows={stats.get('ocr_rows_eliminados', 0)} | "
+            f"ocr_textos={stats.get('ocr_textos_borrados', 0)}"
+        )
+    except Exception as e:
+        print(f"❌ Privacy cleanup error: {e}")
+
+
 def start_scheduler():
     """Start the periodic scraper. Called from FastAPI lifespan."""
 
@@ -112,6 +128,15 @@ def start_scheduler():
         trigger=CronTrigger(hour="7,11,16,21", minute=40, timezone=CO_TZ),
         id="agenda_alternativa",
         name="Agenda alternativa — medios independientes (4x día)",
+        replace_existing=True,
+    )
+
+    # ── Limpieza de privacidad: diaria 3:30 AM Colombia ───────────────────
+    scheduler.add_job(
+        _run_privacy_cleanup,
+        trigger=CronTrigger(hour=3, minute=30, timezone=CO_TZ),
+        id="privacy_cleanup",
+        name="Limpieza automática de datos (privacidad)",
         replace_existing=True,
     )
 
@@ -165,6 +190,15 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # ── Privacy cleanup inicial: 5 minutos tras arranque ──────────────────
+    scheduler.add_job(
+        _run_privacy_cleanup,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(minutes=5)),
+        id="privacy_cleanup_startup",
+        name="Limpieza de datos inicial",
+        replace_existing=True,
+    )
+
     scheduler.start()
     print("⏰ Scheduler iniciado (zona Colombia):")
     print("   • Limpieza inicial: en 30s (startup)")
@@ -174,6 +208,7 @@ def start_scheduler():
     print("   • Discovery: 08:10 y 20:10")
     print("   • Imágenes: 10:20 y 22:20")
     print("   • Agenda alternativa: 07:40, 11:40, 16:40, 21:40")
+    print("   • Limpieza de privacidad: diaria a las 3:30am")
     print("   • Limpieza eventos pasados: diaria a las 1:00am")
 
 

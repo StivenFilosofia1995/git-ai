@@ -70,9 +70,9 @@ PRICE_RE = re.compile(r'\$\s*[\d.,]+(?:\s*[kK])?|[\d.,]+\s*pesos', re.I)
 
 # Hora del caption
 TIME_RE = re.compile(
-    r'\b(\d{1,2})[:\.](\d{2})\s*(a\.?m\.?|p\.?m\.?|am|pm|h)?\b'
-    r'|\b(\d{1,2})\s*(a\.?m\.?|p\.?m\.?|am|pm|h)\b'
-    r'|a\s+las\s+(\d{1,2})(?:[:\.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)?',
+    r'\b(\d{1,2})[:\.](\d{2})\s*((?:a|p)\.?\s*m\.?|am|pm|h)?\b'
+    r'|\b(\d{1,2})\s*((?:a|p)\.?\s*m\.?|am|pm|h)\b'
+    r'|a\s+las\s+(\d{1,2})(?:[:\.](\d{2}))?\s*((?:a|p)\.?\s*m\.?|am|pm)?',
     re.I
 )
 
@@ -220,13 +220,13 @@ def _extract_hour(text: str) -> Optional[tuple[int, int]]:
     g = m.groups()
     # "8:30pm" or "8:30"
     if g[0] and g[1]:
-        h, mi, mer = int(g[0]), int(g[1]), (g[2] or "").lower().replace(".", "")
+        h, mi, mer = int(g[0]), int(g[1]), re.sub(r"\s+|\.", "", (g[2] or "").lower())
     # "8pm" or "8h"
     elif g[3] and g[4]:
-        h, mi, mer = int(g[3]), 0, g[4].lower().replace(".", "")
+        h, mi, mer = int(g[3]), 0, re.sub(r"\s+|\.", "", g[4].lower())
     # "a las 8:30pm"
     elif g[5]:
-        h, mi, mer = int(g[5]), int(g[6]) if g[6] else 0, (g[7] or "").lower().replace(".", "")
+        h, mi, mer = int(g[5]), int(g[6]) if g[6] else 0, re.sub(r"\s+|\.", "", (g[7] or "").lower())
     else:
         return None
 

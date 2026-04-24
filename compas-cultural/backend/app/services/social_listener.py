@@ -14,7 +14,24 @@ import traceback
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx
+from bs4 import BeautifulSoup
+
+from app.config import settings
+from app.database import supabase
+from app.services.discovery.config import HASHTAGS_MEDELLIN, MUNICIPIO_SLUG_MAP
+from app.services.discovery.seed_data import get_all_local_profiles
+from app.services.discovery.utils import (
+    clean_text,
+    extract_og_image,
+    fetch_url,
+    polite_delay,
+)
+
 from app.services.ig_event_extractor import _caption_to_event, _now_co
+
+CO_TZ = ZoneInfo("America/Bogota")
+logger = logging.getLogger("social_listener")
 
 def _slugify(text: str) -> str:
     text = text.lower().strip()

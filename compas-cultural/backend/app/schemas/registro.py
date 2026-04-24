@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 class RegistroURLRequest(BaseModel):
     url: str
+    acepta_politica_datos: bool
 
     @field_validator('url')
     @classmethod
@@ -25,6 +26,13 @@ class RegistroURLRequest(BaseModel):
         if not parsed.netloc:
             raise ValueError('URL no válida')
 
+        return v
+
+    @field_validator('acepta_politica_datos')
+    @classmethod
+    def validar_consentimiento(cls, v: bool) -> bool:
+        if v is not True:
+            raise ValueError('Debes aceptar la política de datos para registrar una URL')
         return v
 
 
