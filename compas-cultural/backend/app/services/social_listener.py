@@ -67,6 +67,7 @@ Para cada evento encontrado, extrae esta información en JSON:
 Reglas:
 - Solo incluye eventos FUTUROS (después de {fecha_actual}).
 - Si un post es un flyer/afiche de evento, extrae toda la info visible.
+- Si un evento NO tiene fecha clara, NO lo incluyas. No inventes fechas ni asumas que es hoy.
 - Si no hay eventos válidos, responde: []
 - Responde SOLO con el JSON array, sin texto adicional.
 """
@@ -319,20 +320,20 @@ async def _insert_event(event: dict) -> bool:
 
     from app.services.auto_scraper import _normalize_scraped_datetime
 
-    # Fecha
-    fecha_inicio = now
-    if event.get("fecha_inicio"):
-        try:
-            fecha_inicio = datetime.fromisoformat(event["fecha_inicio"])
-            if fecha_inicio.tzinfo is None:
-                fecha_inicio = fecha_inicio.replace(tzinfo=CO_TZ)
-            else:
-                fecha_inicio = fecha_inicio.astimezone(CO_TZ)
-            fecha_inicio = _normalize_scraped_datetime(fecha_inicio, "social_listener")
-            if fecha_inicio < now - timedelta(days=1):
-                return False  # Evento pasado
-        except (ValueError, TypeError):
-            fecha_inicio = now
+    # Fecha — NEVER default to now; skip events without a real date
+    if not event.get("fecha_inicio"):
+        return False
+    try:
+        fecha_inicio = datetime.fromisoformat(event["fecha_inicio"])
+        if fecha_inicio.tzinfo is None:
+            fecha_inicio = fecha_inicio.replace(tzinfo=CO_TZ)
+        else:
+            fecha_inicio = fecha_inicio.astimezone(CO_TZ)
+        fecha_inicio = _normalize_scraped_datetime(fecha_inicio, "social_listener")
+        if fecha_inicio < now - timedelta(days=1):
+            return False  # Evento pasado
+    except (ValueError, TypeError):
+        return False  # Unparseable date — skip
 
     evento_data = {
         "titulo": titulo,
@@ -353,6 +354,7 @@ async def _insert_event(event: dict) -> bool:
         "fuente": "social_listener",
         "fuente_url": event.get("fuente_url"),
         "verificado": False,
+        "hora_confirmada": False,
     }
 
     try:

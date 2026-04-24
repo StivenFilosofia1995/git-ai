@@ -87,7 +87,8 @@ Reglas IMPORTANTES para Instagram:
   * instagram_handle = @handle
   * municipio = "medellin"
   * Devuelve tipo="espacio" (sin eventos)
-- Para fechas, incluye eventos FUTUROS y presentes (a partir de {fecha_actual}); si la fecha es null, incluirlo igual
+- Para fechas, incluye eventos FUTUROS y presentes (a partir de {fecha_actual}); si la fecha es null, NO incluyas el evento.
+- Si un evento NO tiene fecha clara, NO lo incluyas. No inventes fechas ni asumas que es hoy.
 - Si la página NO tiene contenido cultural (no es IG de un colectivo/espacio/evento), responde: {{"tipo": "ninguno", "razon": "explicación"}}
 - Responde SOLO con el JSON, sin texto adicional.
 """
@@ -417,11 +418,10 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
                         if fecha_fin_ev is None or fecha_fin_ev < hoy_inicio:
                             skip_event = True
                 except (ValueError, TypeError):
-                    fecha = now
+                    skip_event = True  # Unparseable date — skip
             else:
-                # No date — keep the event with a placeholder date (especially for IG events)
-                fecha = proxima_semana
-
+                # No date at all — skip this event
+                skip_event = True
             if skip_event:
                 continue
 
@@ -461,6 +461,7 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
                 "fuente": "scraping_llm",
                 "fuente_url": fuente_url_ev,
                 "verificado": False,
+                "hora_confirmada": False,
             }
             supabase.table("eventos").insert(evento_data).execute()
 
