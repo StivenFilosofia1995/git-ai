@@ -22,7 +22,11 @@ def rate_limit(rule: str):
     Uso:
         @router.post("/")
         @rate_limit("10/minute")
-        async def mi_endpoint(req: Request, ...):
+        async def mi_endpoint(request: Request, ...):
+
+    Nota:
+        slowapi inspecciona la firma y exige un argumento llamado exactamente
+        `request` o `websocket`.
     """
     if limiter is not None:
         return limiter.limit(rule)

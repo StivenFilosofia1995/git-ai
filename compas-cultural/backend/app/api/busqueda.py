@@ -9,7 +9,7 @@ router = APIRouter()
 @router.get("/", response_model=BusquedaResponse)
 @rate_limit("30/minute")
 def buscar(
-    req: Request,
+    request: Request,
     q: str,
     tipo: str = "todo",
     municipio: str = None,
@@ -17,5 +17,5 @@ def buscar(
     limit: int = 20,
     offset: int = 0,
 ):
-    request = BusquedaRequest(q=q, tipo=tipo, municipio=municipio, categoria=categoria, limit=limit, offset=offset)
-    return busqueda_service.buscar(request)
+    query_request = BusquedaRequest(q=q, tipo=tipo, municipio=municipio, categoria=categoria, limit=limit, offset=offset)
+    return busqueda_service.buscar(query_request)
