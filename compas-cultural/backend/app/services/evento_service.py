@@ -33,6 +33,12 @@ def _today_iso() -> str:
     return ahora.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
 
+def _tomorrow_start_co() -> datetime:
+    """Tomorrow midnight in Colombia timezone."""
+    hoy_inicio = _now_co().replace(hour=0, minute=0, second=0, microsecond=0)
+    return hoy_inicio + timedelta(days=1)
+
+
 def _sunday_of_next_week_iso() -> str:
     """Fin de semana próxima (domingo 23:59:59) en zona Colombia.
     
@@ -277,15 +283,15 @@ def get_eventos_semana(
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
-    """Eventos desde hoy hasta el domingo de la PRÓXIMA semana.
+    """Eventos desde mañana hasta el domingo de la PRÓXIMA semana.
     
     Cobertura total: 7–14 días (antes era 7 días rolling, lo que dejaba 
     fuera vie-sáb-dom cuando se consultaba en miércoles-jueves).
     """
-    ahora = _now_co().replace(hour=0, minute=0, second=0, microsecond=0)
+    manana_inicio = _tomorrow_start_co()
     fin = datetime.fromisoformat(_sunday_of_next_week_iso())
     return get_eventos(
-        fecha_desde=ahora,
+        fecha_desde=manana_inicio,
         fecha_hasta=fin,
         municipio=municipio,
         categoria=categoria,
@@ -301,17 +307,16 @@ def get_eventos_proximas_semanas(
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
-    """Ventana extendida: eventos desde hoy hasta N días en el futuro (default 21)."""
+    """Ventana extendida: eventos desde mañana hasta N días en el futuro (default 21)."""
     if dias < 1:
         dias = 1
     if dias > 90:
         dias = 90
 
-    ahora = _now_co()
-    hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
-    fin = hoy_inicio + timedelta(days=dias)
+    manana_inicio = _tomorrow_start_co()
+    fin = manana_inicio + timedelta(days=dias)
     return get_eventos(
-        fecha_desde=hoy_inicio,
+        fecha_desde=manana_inicio,
         fecha_hasta=fin,
         municipio=municipio,
         categoria=categoria,
