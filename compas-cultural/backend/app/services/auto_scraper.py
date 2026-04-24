@@ -1092,6 +1092,144 @@ async def scrape_zona(municipio: str, limit: int = 20) -> dict:
     return total_stats
 
 
+async def repair_suspicious_event_dates(
+    limit_eventos: int = 160,
+    max_lugares: int = 50,
+    municipio: Optional[str] = None,
+) -> dict:
+    """Re-scrape places that have suspicious upcoming events.
+
+    Objective:
+    - Repair legacy events that may have wrong date/hour due to old parsing
+      behavior (for example, events stored as today because caption contained
+      CTA phrases with "hoy").
+
+    Strategy:
+    - Look at upcoming events from scraper-like sources.
+    - Mark as suspicious when hour/date confidence is weak.
+    - Re-scrape unique associated places to refresh event extraction.
+    """
+    print("\n🧰 Reparación de fechas sospechosas iniciada...")
+
+    now_co = _now_co()
+    today_start = now_co.replace(hour=0, minute=0, second=0, microsecond=0)
+    horizon = today_start + timedelta(days=14)
+
+    # Pull a broad upcoming window and filter in Python for maximum compatibility
+    # with heterogeneous source labels in historical data.
+    resp = (
+        supabase.table("eventos")
+        .select("id,espacio_id,titulo,fecha_inicio,hora_confirmada,fuente,municipio")
+        .gte("fecha_inicio", today_start.isoformat())
+        .lte("fecha_inicio", horizon.isoformat())
+        .order("fecha_inicio")
+        .limit(max(limit_eventos * 3, 80))
+        .execute()
+    )
+    eventos = resp.data or []
+
+    candidatos_lugares: list[str] = []
+    seen_lugares: set[str] = set()
+    sospechosos = 0
+
+    for ev in eventos:
+        espacio_id = ev.get("espacio_id")
+        if not espacio_id:
+            continue
+
+        if municipio and str(ev.get("municipio") or "").strip().lower() != municipio.strip().lower():
+            continue
+
+        fuente = str(ev.get("fuente") or "").lower()
+        if not ("auto_scraper" in fuente or "agenda" in fuente or "scraping" in fuente):
+            continue
+
+        fecha = _parse_iso_to_co(ev.get("fecha_inicio"))
+        if not fecha:
+            continue
+
+        hora_confirmada = ev.get("hora_confirmada") is True
+        is_midnight = fecha.hour == 0 and fecha.minute == 0
+        is_legacy_1900 = fecha.hour == 19 and fecha.minute == 0 and not hora_confirmada
+        is_today_unconfirmed = fecha.date() == today_start.date() and not hora_confirmada
+
+        is_suspicious = is_midnight or is_legacy_1900 or is_today_unconfirmed
+        if not is_suspicious:
+            continue
+
+        sospechosos += 1
+        if espacio_id not in seen_lugares:
+            seen_lugares.add(espacio_id)
+            candidatos_lugares.append(espacio_id)
+        if len(candidatos_lugares) >= max_lugares:
+            break
+
+    reparados = 0
+    errores = 0
+    nuevos = 0
+    duplicados = 0
+    corregidos_hora = 0
+    detalles: list[dict] = []
+
+    for i, lugar_id in enumerate(candidatos_lugares):
+        try:
+            stats = await scrape_single_lugar(lugar_id)
+            reparados += 1
+            nuevos += int(stats.get("nuevos") or 0)
+            duplicados += int(stats.get("duplicados") or 0)
+            corregidos_hora += int(stats.get("corregidos_hora") or 0)
+            detalles.append(
+                {
+                    "lugar_id": lugar_id,
+                    "lugar": stats.get("lugar"),
+                    "nuevos": stats.get("nuevos", 0),
+                    "duplicados": stats.get("duplicados", 0),
+                    "corregidos_hora": stats.get("corregidos_hora", 0),
+                    "errores": stats.get("errores", 0),
+                }
+            )
+        except Exception as e:
+            errores += 1
+            detalles.append({"lugar_id": lugar_id, "error": str(e)[:250]})
+
+        # Gentle pacing for providers
+        if i < len(candidatos_lugares) - 1:
+            await asyncio.sleep(1)
+
+    result = {
+        "eventos_revisados": len(eventos),
+        "eventos_sospechosos": sospechosos,
+        "lugares_candidatos": len(candidatos_lugares),
+        "lugares_reprocesados": reparados,
+        "nuevos": nuevos,
+        "duplicados": duplicados,
+        "corregidos_hora": corregidos_hora,
+        "errores": errores,
+        "municipio": municipio,
+        "detalles": detalles,
+    }
+
+    _log_scraping(
+        fuente=f"repair_suspicious_dates{f'_{municipio}' if municipio else ''}",
+        registros_nuevos=nuevos,
+        errores=errores,
+        detalle={
+            "eventos_revisados": len(eventos),
+            "eventos_sospechosos": sospechosos,
+            "lugares_reprocesados": reparados,
+            "duplicados": duplicados,
+            "corregidos_hora": corregidos_hora,
+        },
+    )
+
+    print(
+        "  ✅ Repair scraper completado | "
+        f"sospechosos: {sospechosos} | lugares: {reparados} | "
+        f"nuevos: {nuevos} | hora_corregida: {corregidos_hora} | errores: {errores}"
+    )
+    return result
+
+
 async def enrich_event_images(limit: int = 300) -> dict:
     """
     Scan eventos without imagen_url and try to fetch og:image from their

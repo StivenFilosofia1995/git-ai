@@ -15,6 +15,7 @@ def _get_auto_scraper_services():
             run_auto_scraper,
             scrape_single_lugar,
             scrape_zona,
+            repair_suspicious_event_dates,
             enrich_event_images,
             scrape_agenda_sources,
             scrape_compas_urbano,
@@ -23,6 +24,7 @@ def _get_auto_scraper_services():
             "run_auto_scraper": run_auto_scraper,
             "scrape_single_lugar": scrape_single_lugar,
             "scrape_zona": scrape_zona,
+            "repair_suspicious_event_dates": repair_suspicious_event_dates,
             "enrich_event_images": enrich_event_images,
             "scrape_agenda_sources": scrape_agenda_sources,
             "scrape_compas_urbano": scrape_compas_urbano,
@@ -130,6 +132,35 @@ async def trigger_zona_scraper_publico(
     return {
         "status": "completed",
         "message": f"Búsqueda completada: {result.get('eventos_nuevos', 0)} eventos nuevos en {municipio}.",
+        "result": result,
+    }
+
+
+@router.post("/repair-fechas", dependencies=[Depends(_verify_scraper_key)])
+async def trigger_repair_fechas_scraper(
+    limit_eventos: int = Query(default=160, ge=20, le=500, description="Eventos próximos a inspeccionar"),
+    max_lugares: int = Query(default=50, ge=1, le=120, description="Máximo de lugares a re-scrapear"),
+    municipio: str | None = Query(default=None, description="Filtrar reparación por municipio"),
+):
+    """Re-scrapea lugares con eventos sospechosos de fecha/hora para corregir agenda.
+
+    Útil después de fixes de parsing para recalcular eventos legacy.
+    """
+    svc = _get_auto_scraper_services()
+    result = await svc["repair_suspicious_event_dates"](
+        limit_eventos=limit_eventos,
+        max_lugares=max_lugares,
+        municipio=municipio,
+    )
+
+    return {
+        "status": "completed",
+        "message": (
+            "Repair scraper completado: "
+            f"{result.get('lugares_reprocesados', 0)} lugar(es) re-scrapeados, "
+            f"{result.get('nuevos', 0)} evento(s) nuevos, "
+            f"{result.get('corregidos_hora', 0)} hora(s) corregida(s)."
+        ),
         "result": result,
     }
 
