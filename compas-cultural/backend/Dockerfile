@@ -2,6 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ENV EASYOCR_MODULE_PATH=/opt/easyocr-models
+
 # System build deps only (gcc for C extensions).
 # Playwright --with-deps will install its own Chromium system libraries.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -15,7 +17,9 @@ COPY requirements.txt .
 # browser binary always matches the installed playwright package version.
 # --with-deps installs Chromium's system libraries automatically.
 RUN pip install --no-cache-dir -r requirements.txt \
-    && playwright install --with-deps chromium
+    && playwright install --with-deps chromium \
+    && mkdir -p ${EASYOCR_MODULE_PATH} \
+    && python -c "import easyocr; easyocr.Reader(['es','en'], gpu=False, verbose=False)"
 
 COPY . .
 
