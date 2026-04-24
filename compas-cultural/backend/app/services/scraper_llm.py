@@ -11,7 +11,10 @@ from zoneinfo import ZoneInfo
 import httpx
 from bs4 import BeautifulSoup
 
+from app.config import settings
 from app.database import supabase
+from app.services.gemini_client import gemini_chat
+from app.services.groq_client import groq_chat, MODEL_FAST
 from app.services.ollama_client import ollama_chat
 
 CO_TZ = ZoneInfo("America/Bogota")
@@ -208,7 +211,7 @@ def _extract_ig_handle(url: str) -> str:
 
 
 def _extract_with_llm(url: str, page_text: str) -> dict:
-    """Send page text to local Ollama for cultural data extraction."""
+    """Extract cultural data with Ollama-first strategy and provider fallbacks."""
     now_co = _now_co()
     prompt = EXTRACTION_PROMPT.format(
         url=url,
@@ -216,23 +219,55 @@ def _extract_with_llm(url: str, page_text: str) -> dict:
         fecha_actual=now_co.isoformat(),
     )
 
-    # Prioridad 1: Ollama local (sin costo, sin API key externa)
+    def _parse_json(raw: str) -> dict:
+        clean = (raw or "").strip()
+        if clean.startswith("```"):
+            clean = re.sub(r"^```(?:json)?\s*", "", clean)
+            clean = re.sub(r"\s*```$", "", clean)
+        return json.loads(clean)
+
+    # 1) Ollama local
     raw = ollama_chat(
         system_prompt="Extrae datos culturales y responde solo JSON valido.",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=2048,
         temperature=0.0,
     )
+    if raw:
+        try:
+            return _parse_json(raw)
+        except Exception as e:
+            print(f"[scraper_llm] Ollama JSON inválido: {e}")
 
-    if not raw:
-        raise RuntimeError("Ollama no disponible para extraer datos")
+    # 2) Groq fallback
+    raw_groq = groq_chat(
+        prompt=prompt,
+        model=MODEL_FAST,
+        max_tokens=1800,
+        temperature=0,
+        json_mode=True,
+    )
+    if raw_groq:
+        try:
+            return _parse_json(raw_groq)
+        except Exception as e:
+            print(f"[scraper_llm] Groq JSON inválido: {e}")
 
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
+    # 3) Gemini fallback
+    if settings.gemini_api_key:
+        raw_gemini = gemini_chat(
+            system_prompt="Extrae datos culturales y responde solo JSON valido.",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1800,
+            temperature=0,
+        )
+        if raw_gemini:
+            try:
+                return _parse_json(raw_gemini)
+            except Exception as e:
+                print(f"[scraper_llm] Gemini JSON inválido: {e}")
 
-    return json.loads(raw)
+    raise RuntimeError("No fue posible extraer datos con Ollama/Groq/Gemini")
 
 
 async def procesar_solicitud_scraping(solicitud_id: int) -> None:
