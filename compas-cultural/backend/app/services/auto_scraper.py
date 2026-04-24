@@ -211,19 +211,24 @@ def _enrich_event_description(
     *,
     hora_confirmada: bool,
 ) -> str:
-    """Ensure stored descriptions include explicit schedule context."""
+    """Ensure stored descriptions include explicit schedule context.
+
+    Only adds "Hora del evento: HH:MM." when hora_confirmada=True (real scraped hour).
+    When hora is unconfirmed we skip the time prefix entirely — the frontend already
+    shows "Hora por confirmar" in the badge and we don't want a fake estimated time
+    leaking into the description text.
+    """
     base = (descripcion or "").strip()
     if not base:
         base = "Evento cultural en el Valle de Aburrá."
     if hora_confirmada:
         hora_txt = fecha.astimezone(CO_TZ).strftime("%H:%M")
         pref = f"Hora del evento: {hora_txt}."
-    else:
-        hora_txt = fecha.astimezone(CO_TZ).strftime("%H:%M")
-        pref = f"Hora del evento (estimada): {hora_txt}."
-    if "hora del evento" in base.lower():
-        return base
-    return f"{pref} {base}".strip()
+        if "hora del evento" in base.lower():
+            return base
+        return f"{pref} {base}".strip()
+    # hora_confirmada=False: no añadir hora estimada para no mostrar datos inventados
+    return base
 
 
 def _normalize_site_url(raw: Optional[str]) -> Optional[str]:

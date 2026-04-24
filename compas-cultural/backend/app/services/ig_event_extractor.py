@@ -110,21 +110,38 @@ def _next_weekday(now: datetime, target_weekday: int) -> datetime:
 
 
 def _resolve_relative_date(text: str, now: datetime) -> Optional[datetime]:
-    """Parse relative date references like 'este sábado', 'mañana', 'el viernes'."""
-    m = RELATIVE_RE.search(text)
-    if not m:
+    """Parse relative date references like 'este sábado', 'mañana', 'el viernes'.
+
+    Preference: explicit day names (este sábado, el viernes) > mañana/pasado > hoy.
+    This avoids resolving CTA phrases like "inscríbete hoy" as today's event date
+    when the caption also contains a future day reference.
+    """
+    matches = list(RELATIVE_RE.finditer(text))
+    if not matches:
         return None
-    token = m.group(0).lower().strip()
-    if "hoy" in token:
-        return now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if "mañana" in token or "manana" in token:
-        return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    if "pasado" in token:
-        return (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
-    # Find the day name in the token
-    for name, idx in DIAS.items():
-        if name in token:
-            return _next_weekday(now, idx)
+
+    # First pass: prefer explicit future day names (avoids "hoy" CTAs)
+    for m in matches:
+        token = m.group(0).lower().strip()
+        if "hoy" not in token and "mañana" not in token and "manana" not in token and "pasado" not in token:
+            for name, idx in DIAS.items():
+                if name in token:
+                    return _next_weekday(now, idx)
+
+    # Second pass: mañana / pasado mañana
+    for m in matches:
+        token = m.group(0).lower().strip()
+        if "pasado" in token:
+            return (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
+        if "mañana" in token or "manana" in token:
+            return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Third pass: "hoy" — only when no other temporal anchor was found
+    for m in matches:
+        token = m.group(0).lower().strip()
+        if "hoy" in token:
+            return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
     return None
 
 
@@ -253,8 +270,20 @@ def _extract_price(caption: str) -> tuple[str, bool]:
 
 
 def _find_date(caption: str, now: datetime) -> Optional[datetime]:
-    """Try all date resolution strategies on a caption."""
-    # 1. parse_date (full Spanish date patterns)
+    """Try all date resolution strategies on a caption.
+
+    Priority order (most → least specific):
+    1. Full Spanish date patterns (26 de abril de 2026, sábado 26 de abril…)
+    2. Day + number patterns (Sáb 25, Vie 25 | 8PM, viernes 7 de mayo…)
+    3. Short date patterns (25/04, 25-04-2026…)
+    4. Relative date refs (este sábado, el viernes, mañana, hoy…) ← last resort
+    5. parse_date for next year (dates that already passed this year)
+
+    Relative date is intentionally LAST among real strategies so that explicit
+    future dates in the caption (e.g. "Sáb 26") always win over CTA phrases
+    like "compra hoy tus entradas para el sábado 26".
+    """
+    # 1. Full Spanish date patterns
     fecha = parse_date(caption, now.year)
     if fecha:
         if fecha.date() < now.date():
@@ -263,22 +292,22 @@ def _find_date(caption: str, now: datetime) -> Optional[datetime]:
                 return bumped
         return fecha
 
-    # 2. Relative date
-    fecha = _resolve_relative_date(caption, now)
-    if fecha and fecha.date() >= now.date():
-        return fecha
-
-    # 3. Day + number (Sáb 25)
+    # 2. Day + number (Sáb 25, viernes 7 de mayo — explicit future date)
     fecha = _resolve_daynum_date(caption, now)
     if fecha and fecha.date() >= now.date():
         return fecha
 
-    # 4. Short date 25/04
+    # 3. Short date (25/04 — explicit future date)
     fecha = _resolve_short_date(caption, now)
     if fecha and fecha.date() >= now.date():
         return fecha
 
-    # 5. Try next year for explicit dates already passed
+    # 4. Relative date refs (hoy, mañana, este sábado) — only when no explicit date found
+    fecha = _resolve_relative_date(caption, now)
+    if fecha and fecha.date() >= now.date():
+        return fecha
+
+    # 5. Try next year for full Spanish dates that already passed
     fecha = parse_date(caption, now.year + 1)
     if fecha and fecha.date() >= now.date():
         return fecha
