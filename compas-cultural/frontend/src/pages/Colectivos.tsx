@@ -108,9 +108,12 @@ export default function Colectivos() {
                 onSearch={async () => {
                   const res = await discoverEventosAI({
                     categoria: filtro || undefined,
-                    texto: 'colectivos culturales valle de aburra',
-                    max_queries: 2,
-                    max_results_per_query: 4,
+                    texto: filtro
+                      ? `eventos culturales ${filtro.replaceAll('_', ' ')} en medellin y valle de aburra`
+                      : 'colectivos culturales valle de aburra eventos medellin',
+                    max_queries: 4,
+                    max_results_per_query: 8,
+                    days_ahead: 21,
                     auto_insert: true,
                   })
                   return {

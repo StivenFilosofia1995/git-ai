@@ -161,8 +161,9 @@ export default function EspacioDetalle() {
                     municipio: espacio.municipio,
                     categoria: espacio.categoria_principal,
                     texto: espacio.nombre,
-                    max_queries: 2,
-                    max_results_per_query: 4,
+                    max_queries: 4,
+                    max_results_per_query: 8,
+                    days_ahead: 21,
                     auto_insert: true,
                   })
                   return {
