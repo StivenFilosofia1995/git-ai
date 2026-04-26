@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List
 
 from app.database import supabase
@@ -51,13 +51,17 @@ def _buscar_espacios(request: BusquedaRequest) -> List[ResultadoBusqueda]:
 
 def _buscar_eventos(request: BusquedaRequest) -> List[ResultadoBusqueda]:
     q = request.q
+    # Usar hora Colombia (UTC-5) para no filtrar eventos válidos
+    bogota_now = datetime.now(timezone(timedelta(hours=-5)))
+    fecha_filtro = bogota_now.strftime("%Y-%m-%dT%H:%M:%S")
     query = (
         supabase.table("eventos")
         .select("*")
-        .gte("fecha_inicio", datetime.utcnow().isoformat())
+        .gte("fecha_inicio", fecha_filtro)
         .or_(
-            f"titulo.ilike.%{q}%,descripcion.ilike.%{q}%,nombre_lugar.ilike.%{q}%"
+            f"titulo.ilike.%{q}%,descripcion.ilike.%{q}%,nombre_lugar.ilike.%{q}%,categoria_principal.ilike.%{q}%,barrio.ilike.%{q}%,municipio.ilike.%{q}%"
         )
+        .order("fecha_inicio")
         .limit(10)
     )
     if request.municipio:

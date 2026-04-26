@@ -324,9 +324,11 @@ export async function getEventos(params?: {
 
 export async function buscar(q: string): Promise<BusquedaResponse> {
   const term = `%${q}%`
+  // Filtrar eventos futuros usando hora Colombia (UTC-5)
+  const bogotaNow = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().slice(0, 19)
   const [espaciosRes, eventosRes] = await Promise.all([
-    supabase.from('lugares').select('*').or(`nombre.ilike.${term},descripcion_corta.ilike.${term},barrio.ilike.${term},municipio.ilike.${term}`).limit(50),
-    supabase.from('eventos').select('*').or(`titulo.ilike.${term},descripcion.ilike.${term},nombre_lugar.ilike.${term},municipio.ilike.${term}`).limit(50),
+    supabase.from('lugares').select('*').neq('nivel_actividad', 'cerrado').or(`nombre.ilike.${term},descripcion_corta.ilike.${term},barrio.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term}`).limit(50),
+    supabase.from('eventos').select('*').gte('fecha_inicio', bogotaNow).or(`titulo.ilike.${term},descripcion.ilike.${term},nombre_lugar.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term},barrio.ilike.${term}`).order('fecha_inicio').limit(50),
   ])
   const resultados: ResultadoBusqueda[] = [
     ...((espaciosRes.data ?? []) as Espacio[]).map(item => ({ tipo: 'espacio' as const, item })),

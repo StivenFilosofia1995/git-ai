@@ -34,8 +34,10 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
   const { diaCorto: dia, hora } = getEventDateParts(evento)
   const cat = evento.categoria_principal
   const placeholderColor = CAT_COLORS[cat] ?? '#0a0a0a'
-  const fechaLabel = hora ? `${dia} · ${hora}` : dia
-  const horaPrompt = hora ?? 'Hora por confirmar'
+  // Si no hay hora confirmada, no mostrar hora en el label de fecha
+  const horaConfirmada = evento.hora_confirmada === true && hora
+  const fechaLabel = horaConfirmada ? `${dia} · ${hora}` : dia
+  const horaPrompt = horaConfirmada ? hora : 'Horario en el enlace'
 
   const sourceUrl = evento.fuente_url || null
   const isIg = evento.fuente?.includes('instagram')
@@ -88,6 +90,20 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
           </span>
           <span className="text-[10px] font-mono font-bold">{fechaLabel}</span>
         </div>
+        {!horaConfirmada && sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-70 hover:opacity-100 underline mb-2"
+          >
+            🕐 Horario en el enlace
+          </a>
+        )}
+        {!horaConfirmada && !sourceUrl && (
+          <span className="text-[9px] font-mono opacity-50 mb-2 block">🕐 Horario por confirmar</span>
+        )}
 
         <Link to={`/evento/${evento.slug}`}>
           <h3 className="font-heading font-black text-sm leading-snug mb-2 uppercase tracking-wide">

@@ -16,7 +16,8 @@ interface EventDetailProps {
 
 export default function EventDetail({ evento }: Readonly<EventDetailProps>) {
   const { diaLargo: fechaFormateada, hora } = getEventDateParts(evento)
-  const horaLabel = hora ?? 'Hora por confirmar'
+  const horaConfirmada = evento.hora_confirmada === true && hora
+  const horaLabel = horaConfirmada ? hora : null
 
   return (
     <div className="border-2 border-black p-6">
@@ -27,7 +28,10 @@ export default function EventDetail({ evento }: Readonly<EventDetailProps>) {
         <div>
           <span className="font-mono font-bold">FECHA</span>
           <p className="capitalize">{fechaFormateada}</p>
-          <p>{horaLabel}</p>
+          {horaLabel
+            ? <p>{horaLabel}</p>
+            : <p className="text-xs opacity-60">Horario en el enlace del evento</p>
+          }
         </div>
         <div>
           <span className="font-mono font-bold">LUGAR</span>

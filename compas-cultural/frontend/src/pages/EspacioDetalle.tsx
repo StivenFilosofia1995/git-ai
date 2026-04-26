@@ -7,6 +7,24 @@ import ReviewSection from '../components/ui/ReviewSection'
 import { formatEventDate, getEventDateParts } from '../lib/datetime'
 import BuscarConAI from '../components/ui/BuscarConAI'
 
+function renderHorarioEvento(horaConfirmada: string | false | null | undefined, fuenteUrl?: string | null) {
+  if (horaConfirmada) return `🕐 ${horaConfirmada}`
+  if (fuenteUrl) {
+    return (
+      <a
+        href={fuenteUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline opacity-70"
+        onClick={e => e.stopPropagation()}
+      >
+        Horario en el enlace
+      </a>
+    )
+  }
+  return 'Horario por confirmar'
+}
+
 export default function EspacioDetalle() {
   const { slug } = useParams()
   const { user } = useAuth()
@@ -51,6 +69,8 @@ export default function EspacioDetalle() {
   if (loading) return <div className="p-8 font-mono">Cargando...</div>
   if (error) return <div className="p-8 font-mono border-2 border-black">{error}</div>
   if (!espacio) return <div className="p-8 font-mono">Espacio no encontrado</div>
+
+  const mapsSearch = `${espacio.nombre}, ${espacio.municipio}, Colombia`
 
   return (
     <>
@@ -118,7 +138,7 @@ export default function EspacioDetalle() {
                   href={
                     espacio.lat && espacio.lng
                       ? `https://www.google.com/maps?q=${espacio.lat},${espacio.lng}`
-                      : `https://www.google.com/maps/search/${encodeURIComponent(`${espacio.nombre}, ${espacio.municipio}, Colombia`)}`
+                      : `https://www.google.com/maps/search/${encodeURIComponent(mapsSearch)}`
                   }
                   target="_blank"
                   rel="noopener noreferrer"
@@ -167,37 +187,54 @@ export default function EspacioDetalle() {
             {eventos.length === 0 ? (
               <p className="font-mono text-sm">No hay eventos próximos programados en este espacio.</p>
             ) : (
-              <div className="space-y-0 border-2 border-black">
-                {eventos.map(ev => {
-                  const { diaCorto, hora } = getEventDateParts(ev)
-                  const enCurso = (ev as Evento & { _en_curso?: boolean })._en_curso
-                  return (
-                    <Link
-                      key={ev.id}
-                      to={`/evento/${ev.slug}`}
-                      className="block border-b-2 border-black last:border-b-0 p-4 hover:bg-black hover:text-white transition-all duration-300"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          {enCurso && (
-                            <span className="text-[9px] font-mono font-bold bg-red-600 text-white px-1.5 py-0.5 mr-2 uppercase">EN CURSO</span>
-                          )}
-                          <p className="font-heading font-bold uppercase tracking-wider text-sm">{ev.titulo}</p>
-                          <p className="text-xs font-mono mt-1">
-                            {diaCorto}
-                            {hora ? ` · ${hora}` : ''}
-                            {ev.fecha_fin && (
-                              <> → {formatEventDate(ev.fecha_fin, { day: 'numeric', month: 'short' })}</>
-                            )}
-                          </p>
-                        </div>
-                        {ev.es_gratuito && (
-                          <span className="text-[10px] font-mono font-bold border-2 border-current px-2 py-0.5 uppercase">Gratis</span>
-                        )}
-                      </div>
-                    </Link>
-                  )
-                })}
+              <div className="space-y-6">
+                {Object.entries(
+                  eventos.reduce<Record<string, Evento[]>>((acc, ev) => {
+                    const { diaLargo } = getEventDateParts(ev)
+                    const key = diaLargo ?? 'Sin fecha'
+                    if (!acc[key]) acc[key] = []
+                    acc[key].push(ev)
+                    return acc
+                  }, {})
+                ).map(([dia, evsDia]) => (
+                  <div key={dia}>
+                    <div className="text-[10px] font-mono font-bold uppercase tracking-widest border-b-2 border-black pb-1 mb-2 capitalize">
+                      {dia}
+                    </div>
+                    <div className="border-2 border-black">
+                      {evsDia.map(ev => {
+                        const { hora } = getEventDateParts(ev)
+                        const horaConfirmada = ev.hora_confirmada === true && hora
+                        const enCurso = (ev as Evento & { _en_curso?: boolean })._en_curso
+                        return (
+                          <Link
+                            key={ev.id}
+                            to={`/evento/${ev.slug}`}
+                            className="block border-b-2 border-black last:border-b-0 p-4 hover:bg-black hover:text-white transition-all duration-300"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                {enCurso && (
+                                  <span className="text-[9px] font-mono font-bold bg-red-600 text-white px-1.5 py-0.5 mr-2 uppercase">EN CURSO</span>
+                                )}
+                                <p className="font-heading font-bold uppercase tracking-wider text-sm">{ev.titulo}</p>
+                                <p className="text-xs font-mono mt-1">
+                                  {renderHorarioEvento(horaConfirmada, ev.fuente_url)}
+                                  {ev.fecha_fin && (
+                                    <> → {formatEventDate(ev.fecha_fin, { day: 'numeric', month: 'short' })}</>
+                                  )}
+                                </p>
+                              </div>
+                              {ev.es_gratuito && (
+                                <span className="text-[10px] font-mono font-bold border-2 border-current px-2 py-0.5 uppercase shrink-0">Gratis</span>
+                              )}
+                            </div>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -216,7 +253,7 @@ export default function EspacioDetalle() {
                   >
                     <p className="font-heading font-bold text-sm uppercase tracking-wider">{esp.nombre}</p>
                     <p className="text-xs font-mono mt-1">
-                      {esp.categoria_principal?.replace(/_/g, ' ')} · {esp.barrio ?? esp.municipio}
+                      {esp.categoria_principal?.replaceAll('_', ' ')} · {esp.barrio ?? esp.municipio}
                     </p>
                   </Link>
                 ))}
