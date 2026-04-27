@@ -122,7 +122,7 @@ async def trigger_lugar_scraper_publico(lugar_id: str):
 @router.post("/zona/{municipio}/publico")
 async def trigger_zona_scraper_publico(
     municipio: str,
-    limit: int = Query(default=10, le=30, description="Máx lugares a scrapear en la zona"),
+    limit: int = Query(default=40, ge=5, le=120, description="Máx lugares a scrapear en la zona"),
 ):
     """Scrape todos los espacios de un municipio/zona (acceso público, síncrono).
     Busca eventos en las redes y sitios web de los espacios de esa zona.

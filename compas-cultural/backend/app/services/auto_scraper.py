@@ -10,6 +10,7 @@ import asyncio
 import unicodedata
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -284,6 +285,63 @@ def _normalize_ig_handle(raw: Optional[str]) -> Optional[str]:
     return value or None
 
 
+def _parse_iso_dt(raw: Optional[str]) -> Optional[datetime]:
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=CO_TZ)
+        return dt.astimezone(CO_TZ)
+    except Exception:
+        return None
+
+
+def _sort_lugares_by_staleness(lugares: list[dict]) -> list[dict]:
+    """Sort places by oldest scrape time to avoid repeatedly focusing on the same few."""
+    if not lugares:
+        return lugares
+
+    latest_by_source: dict[str, datetime] = {}
+    try:
+        logs_resp = (
+            supabase.table("scraping_log")
+            .select("fuente,created_at")
+            .order("created_at", desc=True)
+            .limit(5000)
+            .execute()
+        )
+        for row in logs_resp.data or []:
+            fuente = str(row.get("fuente") or "").strip()
+            if not fuente or fuente in latest_by_source:
+                continue
+            dt = _parse_iso_dt(row.get("created_at"))
+            if dt:
+                latest_by_source[fuente] = dt
+    except Exception as e:
+        print(f"  ⚠ No se pudo leer scraping_log para rotación: {e}")
+
+    very_old = datetime(1970, 1, 1, tzinfo=CO_TZ)
+
+    def _last_for_lugar(lugar: dict) -> datetime:
+        sources: list[str] = []
+        site = _normalize_site_url(lugar.get("sitio_web"))
+        handle = _normalize_ig_handle(lugar.get("instagram_handle"))
+        if site:
+            sources.append(site)
+        if handle:
+            sources.append(handle)
+
+        last: Optional[datetime] = None
+        for src in sources:
+            dt = latest_by_source.get(src)
+            if dt and (last is None or dt > last):
+                last = dt
+        return last or very_old
+
+    return sorted(lugares, key=_last_for_lugar)
+
+
 def _slugify(text: str) -> str:
     text = text.lower().strip()
     for a, b in [("áàäâ", "a"), ("éèëê", "e"), ("íìïî", "i"), ("óòöô", "o"), ("úùüû", "u"), ("ñ", "n")]:
@@ -340,10 +398,36 @@ def _extract_og_image(html: str) -> Optional[str]:
         soup = BeautifulSoup(html, "lxml")
     except Exception:
         soup = BeautifulSoup(html, "html.parser")
-    og_tag = soup.find("meta", property="og:image")
-    if og_tag and og_tag.get("content"):
-        return str(og_tag.get("content"))
+    for attr, val in [
+        ("property", "og:image"),
+        ("name", "twitter:image"),
+        ("property", "twitter:image"),
+    ]:
+        tag = soup.find("meta", attrs={attr: val})
+        if tag and tag.get("content"):
+            return str(tag.get("content"))
+
+    # Fallback: first meaningful image in page content.
+    for img in soup.select("img[src]"):
+        src = str(img.get("src") or "").strip()
+        if not src or src.startswith("data:"):
+            continue
+        lower = src.lower()
+        if any(skip in lower for skip in ["logo", "icon", "avatar", "favicon", "sprite"]):
+            continue
+        return src
+
     return None
+
+
+def _build_screenshot_url(source_url: Optional[str]) -> Optional[str]:
+    """Generate a webpage screenshot URL as last-resort visual fallback."""
+    if not source_url:
+        return None
+    raw = str(source_url).strip()
+    if not raw.startswith(("http://", "https://")):
+        return None
+    return f"https://image.thum.io/get/width/1200/noanimate/{quote(raw, safe=':/?&=%')}"
 
 
 _OG_IMAGE_CACHE: dict[str, Optional[str]] = {}
@@ -360,12 +444,18 @@ async def _resolve_event_image(image_url: Optional[str], source_url: Optional[st
 
     html = await _fetch_website_raw(source_url)
     if not html:
-        _OG_IMAGE_CACHE[source_url] = None
-        return None
+        shot = _build_screenshot_url(source_url)
+        _OG_IMAGE_CACHE[source_url] = shot
+        return shot
 
     og = _extract_og_image(html)
-    _OG_IMAGE_CACHE[source_url] = og
-    return og
+    if og:
+        _OG_IMAGE_CACHE[source_url] = og
+        return og
+
+    shot = _build_screenshot_url(source_url)
+    _OG_IMAGE_CACHE[source_url] = shot
+    return shot
 
 
 async def _fetch_website(url: str) -> Optional[str]:
@@ -783,6 +873,9 @@ async def run_auto_scraper(
         if l.get("instagram_handle") or l.get("sitio_web")
     ]
 
+    # Rotate fairly: oldest/never scraped places first.
+    lugares = _sort_lugares_by_staleness(lugares)
+
     if limit:
         lugares = lugares[:limit]
 
@@ -876,7 +969,7 @@ async def scrape_single_lugar(lugar_id: str) -> dict:
     }
 
 
-async def scrape_zona(municipio: str, limit: int = 20) -> dict:
+async def scrape_zona(municipio: str, limit: int = 60) -> dict:
     """
     Scrape all spaces in a municipio/zona.
     Used for zone-based AI search.
@@ -887,7 +980,11 @@ async def scrape_zona(municipio: str, limit: int = 20) -> dict:
         "id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio"
     ).eq("municipio", municipio).limit(limit).execute()
 
-    lugares = resp.data or []
+    lugares = [
+        l for l in (resp.data or [])
+        if l.get("instagram_handle") or l.get("sitio_web")
+    ]
+    lugares = _sort_lugares_by_staleness(lugares)
     if not lugares:
         return {"error": "No hay lugares en esta zona", "municipio": municipio}
 

@@ -46,6 +46,10 @@ export default function ChatMessage({ mensaje, eventos, espacios }: ChatMessageP
           <div className="space-y-1 p-2 pb-0">
             {eventos.map((ev) => {
               const { diaCorto: dia, hora } = getEventDateParts(ev)
+              const horaConfiable = ev.hora_confirmada === true && hora
+              const horario = horaConfiable
+                ? `${dia} · ${hora}`
+                : `${dia} · ${ev.fuente_url ? 'Horario en el enlace' : 'Horario por confirmar'}`
               return (
                 <Link
                   key={ev.id}
@@ -69,7 +73,7 @@ export default function ChatMessage({ mensaje, eventos, espacios }: ChatMessageP
                       )}
                     </div>
                     <p className="text-[11px] font-black uppercase leading-snug truncate">{ev.titulo}</p>
-                    <p className="text-[9px] opacity-60">{hora ? `${dia} · ${hora}` : dia}</p>
+                    <p className="text-[9px] opacity-60">{horario}</p>
                   </div>
                 </Link>
               )

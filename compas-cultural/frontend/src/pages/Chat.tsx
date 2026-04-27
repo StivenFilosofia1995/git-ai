@@ -164,6 +164,10 @@ export default function Chat() {
                       <div className="space-y-2 p-3 pb-0">
                         {mensaje.eventos.map((ev) => {
                           const { diaCorto: dia, hora } = getEventDateParts(ev)
+                          const horaConfiable = ev.hora_confirmada === true && hora
+                          const horario = horaConfiable
+                            ? `${dia} · ${hora}`
+                            : `${dia} · ${ev.fuente_url ? 'Horario en el enlace' : 'Horario por confirmar'}`
                           return (
                             <Link
                               key={ev.id}
@@ -190,7 +194,7 @@ export default function Chat() {
                                   {ev.titulo}
                                 </h4>
                                 <div className="flex items-center gap-1.5 mt-1 text-[11px] font-mono opacity-70">
-                                  <span>{hora ? `${dia} · ${hora}` : dia}</span>
+                                  <span>{horario}</span>
                                   {ev.nombre_lugar && <span>· {ev.nombre_lugar}</span>}
                                 </div>
                                 {ev.precio && (

@@ -236,6 +236,16 @@ export default function EventoDetalle() {
                   ℹ Más información
                 </a>
               )}
+              {evento.imagen_url && (
+                <a
+                  href={evento.imagen_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 hover:bg-black hover:text-white transition-all"
+                >
+                  🖼 Abrir imagen/captura
+                </a>
+              )}
             </div>
           </div>
 
