@@ -306,8 +306,8 @@ def _sort_lugares_by_staleness(lugares: list[dict]) -> list[dict]:
     try:
         logs_resp = (
             supabase.table("scraping_log")
-            .select("fuente,created_at")
-            .order("created_at", desc=True)
+            .select("fuente,ejecutado_en")
+            .order("ejecutado_en", desc=True)
             .limit(5000)
             .execute()
         )
@@ -315,7 +315,7 @@ def _sort_lugares_by_staleness(lugares: list[dict]) -> list[dict]:
             fuente = str(row.get("fuente") or "").strip()
             if not fuente or fuente in latest_by_source:
                 continue
-            dt = _parse_iso_dt(row.get("created_at"))
+            dt = _parse_iso_dt(row.get("ejecutado_en"))
             if dt:
                 latest_by_source[fuente] = dt
     except Exception as e:
