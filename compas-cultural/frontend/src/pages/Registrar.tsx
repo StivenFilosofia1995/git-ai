@@ -5,6 +5,7 @@ import { useAuth } from '../lib/AuthContext'
 import {
   registrarPorURL,
   consultarEstadoRegistro,
+  getEspacio,
   type RegistroURLResponse,
   type RegistroEstadoResponse,
 } from '../lib/api'
@@ -17,6 +18,7 @@ export default function Registrar() {
   const [fase, setFase] = useState<Fase>('formulario')
   const [solicitud, setSolicitud] = useState<RegistroURLResponse | null>(null)
   const [estado, setEstado] = useState<RegistroEstadoResponse | null>(null)
+  const [perfilRef, setPerfilRef] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [aceptaDatos, setAceptaDatos] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -73,8 +75,55 @@ export default function Registrar() {
     setFase('formulario')
     setSolicitud(null)
     setEstado(null)
+    setPerfilRef(null)
     setError(null)
   }
+
+  useEffect(() => {
+    if (!estado || estado.estado !== 'completado') return
+
+    const datos = (estado.datos_extraidos ?? {}) as Record<string, unknown>
+    const nestedEspacio = (datos.espacio as Record<string, unknown> | undefined) ?? undefined
+
+    const readNonEmpty = (...vals: unknown[]): string | null => {
+      for (const v of vals) {
+        if (typeof v === 'string') {
+          const s = v.trim()
+          if (s && s !== 'null' && s !== 'undefined') return s
+        }
+      }
+      return null
+    }
+
+    const optimisticRef = readNonEmpty(
+      datos.slug,
+      nestedEspacio?.slug,
+      estado.espacio_id,
+      datos.id,
+      nestedEspacio?.id,
+    )
+
+    if (optimisticRef) setPerfilRef(optimisticRef)
+
+    if (!estado.espacio_id) return
+
+    let cancelled = false
+    const resolveCanonical = async () => {
+      try {
+        const espacio = await getEspacio(estado.espacio_id as string)
+        if (cancelled) return
+        setPerfilRef((espacio.slug && espacio.slug.trim()) || espacio.id)
+      } catch {
+        // Keep optimisticRef fallback already set.
+      }
+    }
+
+    void resolveCanonical()
+
+    return () => {
+      cancelled = true
+    }
+  }, [estado])
 
   return (
     <>
@@ -214,9 +263,9 @@ export default function Registrar() {
               >
                 Registrar otro
               </button>
-              {estado.espacio_id && estado.estado === 'completado' && (
+              {estado.espacio_id && estado.estado === 'completado' && perfilRef && (
                 <Link
-                  to={`/espacio/${(estado.datos_extraidos?.slug as string) ?? estado.espacio_id}`}
+                  to={`/espacio/${encodeURIComponent(perfilRef)}`}
                   className="flex-1 bg-black text-white py-3 font-mono text-sm uppercase tracking-wider hover:bg-white hover:text-black border-2 border-black transition-all duration-300 text-center"
                 >
                   Ver perfil

@@ -45,7 +45,24 @@ export default function EspacioDetalle() {
       setLoading(true)
       setError(null)
       try {
-        const data = await getEspacio(slug)
+        let data: Espacio | null = null
+        let lastErr: unknown = null
+
+        // Retry to survive short DB propagation delays right after registration.
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          try {
+            data = await getEspacio(slug)
+            break
+          } catch (err) {
+            lastErr = err
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 800))
+            }
+          }
+        }
+
+        if (!data) throw lastErr ?? new Error('Espacio no encontrado')
+
         setEspacio(data)
         if (user) {
           registrarInteraccion({ tipo: 'view_espacio', item_id: data.id, categoria: data.categoria_principal }, user.id)

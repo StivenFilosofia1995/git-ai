@@ -146,18 +146,26 @@ export async function getEspacios(params?: {
 }
 
 export async function getEspacio(slugOrId: string): Promise<Espacio> {
+  const value = (slugOrId || '').trim()
+  if (!value) throw new Error('Espacio no encontrado')
+
   const bySlug = await supabase
     .from('lugares')
     .select('*')
-    .eq('slug', slugOrId)
+    .eq('slug', value)
     .maybeSingle()
 
   if (bySlug.data) return bySlug.data as Espacio
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  if (!UUID_RE.test(value)) {
+    throw new Error(bySlug.error?.message || 'Espacio no encontrado')
+  }
+
   const byId = await supabase
     .from('lugares')
     .select('*')
-    .eq('id', slugOrId)
+    .eq('id', value)
     .maybeSingle()
 
   if (byId.data) return byId.data as Espacio
