@@ -437,7 +437,7 @@ def _resolve_colectivo_by_slug(slug: Optional[str]) -> Optional[dict]:
     try:
         resp = (
             supabase.table("lugares")
-            .select("id,slug,nombre,categoria_principal,municipio,barrio")
+            .select("id,slug,nombre,categoria_principal,municipio,barrio,sitio_web,instagram_handle")
             .eq("slug", slug)
             .single()
             .execute()
@@ -461,7 +461,7 @@ def _find_candidate_lugares(
     """
     try:
         query = supabase.table("lugares").select(
-            "id,nombre,slug,municipio,barrio,categoria_principal,sitio_web"
+            "id,nombre,slug,municipio,barrio,categoria_principal,sitio_web,instagram_handle"
         )
         if municipio:
             query = query.eq("municipio", municipio)
@@ -481,7 +481,7 @@ def _find_candidate_lugares(
 
         # Si el texto fue demasiado restrictivo, reintentar solo por municipio/categoría.
         relaxed = supabase.table("lugares").select(
-            "id,nombre,slug,municipio,barrio,categoria_principal,sitio_web"
+            "id,nombre,slug,municipio,barrio,categoria_principal,sitio_web,instagram_handle"
         )
         if municipio:
             relaxed = relaxed.eq("municipio", municipio)
@@ -509,17 +509,41 @@ async def _scrape_candidate_lugares_websites(
 
     async def _fetch_lugar(lugar: dict) -> list[dict]:
         sitio_web = (lugar.get("sitio_web") or "").strip()
-        if not sitio_web:
-            return []
-        html = await _fetch_html_from_url(sitio_web)
-        if not html:
-            return []
         cat = categoria or lugar.get("categoria_principal") or "otro"
         muni = municipio or lugar.get("municipio") or "medellin"
         nombre = lugar.get("nombre") or "Lugar cultural"
-        events = extract_events_code(html, sitio_web, nombre, cat, muni)
-        print(f"  [lugares_db] {nombre}: {len(events)} evento(s)")
-        return events
+        merged: list[dict] = []
+
+        if sitio_web:
+            html = await _fetch_html_from_url(sitio_web)
+            if html:
+                web_events = extract_events_code(html, sitio_web, nombre, cat, muni)
+                for ev in web_events:
+                    ev["_source"] = sitio_web
+                merged.extend(web_events)
+
+        ig_raw = (lugar.get("instagram_handle") or "").strip()
+        ig_handle = ig_raw.lstrip("@").split("/")[0].strip()
+        if ig_handle:
+            try:
+                from app.services.auto_scraper import _fetch_ig_profile_via_meta_api
+                from app.services.instagram_pw_scraper import fetch_ig_profile
+                from app.services.ig_event_extractor import extract_events_from_ig_profile
+
+                profile = await _fetch_ig_profile_via_meta_api(ig_handle)
+                if not profile:
+                    profile = await fetch_ig_profile(ig_handle)
+                if profile:
+                    ig_events = extract_events_from_ig_profile(profile, nombre, cat, muni)
+                    profile_url = f"https://www.instagram.com/{ig_handle}/"
+                    for ev in ig_events:
+                        ev["_source"] = ev.get("_permalink") or profile_url
+                    merged.extend(ig_events)
+            except Exception:
+                pass
+
+        print(f"  [lugares_db] {nombre}: {len(merged)} evento(s)")
+        return merged
 
     tasks = [_fetch_lugar(l) for l in lugares]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -556,6 +580,7 @@ def _build_candidate_event_data(
     default_categoria: Optional[str],
     default_municipio: Optional[str],
     colectivo: Optional[dict],
+    days_from: Optional[int] = None,
     days_ahead: Optional[int] = None,
     strict_categoria: bool = False,
     required_es_gratuito: Optional[bool] = None,
@@ -579,6 +604,10 @@ def _build_candidate_event_data(
     now_co = datetime.now(ZoneInfo("America/Bogota"))
     if fecha < now_co - timedelta(days=1):
         return None
+    if days_from is not None:
+        min_date = (now_co + timedelta(days=max(0, days_from))).date()
+        if fecha.date() < min_date:
+            return None
     if days_ahead is not None:
         max_date = (now_co + timedelta(days=days_ahead)).date()
         if fecha.date() > max_date:
@@ -651,6 +680,7 @@ async def discover_events_for_filters(
     texto: Optional[str] = None,
     max_queries: int = 4,
     max_results_per_query: int = 6,
+    days_from: int = 0,
     days_ahead: Optional[int] = None,
     strict_categoria: bool = False,
     auto_insert: bool = True,
@@ -685,6 +715,8 @@ async def discover_events_for_filters(
         "tipo_evento": categoria or "cultural",
         "zona": municipio or (colectivo or {}).get("municipio") or "valle de aburra",
         "fecha_actual": datetime.now(CO_TZ).strftime("%Y-%m-%d"),
+        "days_from": str(days_from),
+        "days_ahead": str(days_ahead) if days_ahead is not None else "",
         "texto_usuario": texto or "",
         "tipo_precio": _precio_label(es_gratuito),
     }
@@ -704,6 +736,7 @@ async def discover_events_for_filters(
                 default_categoria=categoria,
                 default_municipio=municipio,
                 colectivo=colectivo,
+                days_from=days_from,
                 days_ahead=days_ahead,
                 strict_categoria=strict_categoria,
                 required_es_gratuito=es_gratuito,
@@ -729,6 +762,10 @@ async def discover_events_for_filters(
         texto=texto,
         limit=20,
     )
+    if colectivo:
+        cid = colectivo.get("id")
+        if cid and not any((l.get("id") == cid) for l in candidate_lugares):
+            candidate_lugares.insert(0, colectivo)
     lugares_events = await _scrape_candidate_lugares_websites(
         lugares=candidate_lugares,
         categoria=categoria,
@@ -742,6 +779,7 @@ async def discover_events_for_filters(
                 default_categoria=categoria,
                 default_municipio=municipio,
                 colectivo=colectivo,
+                days_from=days_from,
                 days_ahead=days_ahead,
                 strict_categoria=strict_categoria,
                 required_es_gratuito=es_gratuito,
@@ -804,6 +842,7 @@ async def discover_events_for_filters(
                         default_categoria=categoria,
                         default_municipio=municipio,
                         colectivo=colectivo,
+                        days_from=days_from,
                         days_ahead=days_ahead,
                         strict_categoria=strict_categoria,
                         required_es_gratuito=es_gratuito,

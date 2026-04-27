@@ -70,6 +70,13 @@ const TIME_DAYS_AHEAD: Record<TimeFilter, number> = {
   todos: 3650,
 }
 
+const TIME_DAYS_FROM: Record<TimeFilter, number> = {
+  hoy: 0,
+  semana: 1,
+  proximas: 8,
+  todos: 0,
+}
+
 const CAT_OPTIONS = [
   { value: '', label: 'Todas' },
   { value: 'teatro', label: 'Teatro' },
@@ -142,7 +149,8 @@ export default function Agenda() {
     const municipio = municipioFilter || undefined
     const zona = zonas.find(z => z.slug === zonaFilter)
     const tiempo = inferTimeLabel(timeFilter)
-    const daysAhead = TIME_DAYS_AHEAD[timeFilter]
+    const daysAhead = Math.min(120, TIME_DAYS_AHEAD[timeFilter])
+    const daysFrom = TIME_DAYS_FROM[timeFilter]
     const texto = [textFilter, zona?.nombre, tiempo].filter(Boolean).join(' ').trim() || undefined
     const res = await discoverEventosAI({
       municipio,
@@ -150,6 +158,7 @@ export default function Agenda() {
       texto,
       max_queries: 2,
       max_results_per_query: Math.min(6, Math.max(3, Math.floor(limit / 3))),
+      days_from: daysFrom,
       days_ahead: daysAhead,
       strict_categoria: Boolean(catFilter),
       auto_insert: true,
