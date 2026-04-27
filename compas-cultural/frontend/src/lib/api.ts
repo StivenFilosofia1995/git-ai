@@ -96,6 +96,16 @@ export interface ChatResponse {
   }>
 }
 
+/** Race a Supabase (or any) promise against a timeout so blocked networks fail fast */
+function withTimeout<T>(promise: PromiseLike<T>, ms = 2500): Promise<T> {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('supabase_timeout')), ms)
+    ),
+  ])
+}
+
 async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`)
 
@@ -143,7 +153,7 @@ export async function getEspacios(params?: {
     if (params?.categoria) query = query.eq('categoria_principal', params.categoria)
     if (params?.tipo) query = query.eq('tipo', params.tipo)
 
-    const { data, error } = await query
+    const { data, error } = await withTimeout(query)
     if (error) throw error
     return (data ?? []) as Espacio[]
   } catch {
@@ -163,11 +173,9 @@ export async function getEspacio(slugOrId: string): Promise<Espacio> {
   const value = (slugOrId || '').trim()
   if (!value) throw new Error('Espacio no encontrado')
   try {
-    const bySlug = await supabase
-      .from('lugares')
-      .select('*')
-      .eq('slug', value)
-      .maybeSingle()
+    const bySlug = await withTimeout(
+      supabase.from('lugares').select('*').eq('slug', value).maybeSingle()
+    )
 
     if (bySlug.data) return bySlug.data as Espacio
 
@@ -176,11 +184,9 @@ export async function getEspacio(slugOrId: string): Promise<Espacio> {
       throw new Error(bySlug.error?.message || 'Espacio no encontrado')
     }
 
-    const byId = await supabase
-      .from('lugares')
-      .select('*')
-      .eq('id', value)
-      .maybeSingle()
+    const byId = await withTimeout(
+      supabase.from('lugares').select('*').eq('id', value).maybeSingle()
+    )
 
     if (byId.data) return byId.data as Espacio
 
@@ -269,23 +275,27 @@ export async function getEventosTodos(params?: {
 }
 
 export async function getEvento(slug: string): Promise<Evento> {
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .eq('slug', slug)
-    .single()
-  if (error) throw new Error(error.message)
-  return data as Evento
+  try {
+    const { data, error } = await withTimeout(
+      supabase.from('eventos').select('*').eq('slug', slug).single()
+    )
+    if (error) throw error
+    return data as Evento
+  } catch {
+    return apiGet<Evento>(`/eventos/${encodeURIComponent(slug)}`)
+  }
 }
 
 export async function getEventosByEspacio(espacioId: string): Promise<Evento[]> {
-  const { data, error } = await supabase
-    .from('eventos')
-    .select('*')
-    .eq('espacio_id', espacioId)
-    .order('fecha_inicio', { ascending: false })
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Evento[]
+  try {
+    const { data, error } = await withTimeout(
+      supabase.from('eventos').select('*').eq('espacio_id', espacioId).order('fecha_inicio', { ascending: false })
+    )
+    if (error) throw error
+    return (data ?? []) as Evento[]
+  } catch {
+    return apiGet<Evento[]>(`/eventos/?espacio_id=${encodeURIComponent(espacioId)}&limit=100`)
+  }
 }
 
 export async function scrapeLugar(lugarId: string): Promise<{ status: string; message: string }> {
@@ -402,10 +412,10 @@ export async function buscar(q: string): Promise<BusquedaResponse> {
   try {
     const term = `%${q}%`
     const bogotaNow = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().slice(0, 19)
-    const [espaciosRes, eventosRes] = await Promise.all([
+    const [espaciosRes, eventosRes] = await withTimeout(Promise.all([
       supabase.from('lugares').select('*').neq('nivel_actividad', 'cerrado').or(`nombre.ilike.${term},descripcion_corta.ilike.${term},barrio.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term}`).limit(50),
       supabase.from('eventos').select('*').gte('fecha_inicio', bogotaNow).neq('estado_moderacion', 'rechazado').or(`titulo.ilike.${term},descripcion.ilike.${term},nombre_lugar.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term},barrio.ilike.${term}`).order('fecha_inicio').limit(50),
-    ])
+    ]))
 
     const resultados: ResultadoBusqueda[] = [
       ...((espaciosRes.data ?? []) as Espacio[]).map(item => ({ tipo: 'espacio' as const, item })),
@@ -419,10 +429,9 @@ export async function buscar(q: string): Promise<BusquedaResponse> {
 
 export async function getZonas(): Promise<Zona[]> {
   try {
-    const { data, error } = await supabase
-      .from('zonas_culturales')
-      .select('*')
-      .order('nombre')
+    const { data, error } = await withTimeout(
+      supabase.from('zonas_culturales').select('*').order('nombre')
+    )
     if (error) throw error
     return (data ?? []) as Zona[]
   } catch {
@@ -439,12 +448,12 @@ export interface StatsResponse {
 
 export async function getStats(): Promise<StatsResponse> {
   try {
-    const [esp, ev, z, col] = await Promise.all([
+    const [esp, ev, z, col] = await withTimeout(Promise.all([
       supabase.from('lugares').select('id', { count: 'exact', head: true }).neq('nivel_actividad', 'cerrado'),
       supabase.from('eventos').select('id', { count: 'exact', head: true }).neq('estado_moderacion', 'rechazado'),
       supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
       supabase.from('lugares').select('id', { count: 'exact', head: true }).eq('tipo', 'colectivo'),
-    ])
+    ]))
     return {
       espacios: esp.count ?? 0,
       eventos: ev.count ?? 0,
@@ -458,11 +467,9 @@ export async function getStats(): Promise<StatsResponse> {
 
 export async function getZona(slug: string): Promise<Zona> {
   try {
-    const { data, error } = await supabase
-      .from('zonas_culturales')
-      .select('*')
-      .eq('slug', slug)
-      .single()
+    const { data, error } = await withTimeout(
+      supabase.from('zonas_culturales').select('*').eq('slug', slug).single()
+    )
     if (error) throw error
     return data as Zona
   } catch {
@@ -747,11 +754,9 @@ export interface ZonaCulturaHoy {
 
 export async function getZonaCulturaHoy(slug: string): Promise<ZonaCulturaHoy> {
   try {
-    const { data: zona, error: zonaErr } = await supabase
-      .from('zonas_culturales')
-      .select('*')
-      .eq('slug', slug)
-      .single()
+    const { data: zona, error: zonaErr } = await withTimeout(
+      supabase.from('zonas_culturales').select('*').eq('slug', slug).single()
+    )
     if (zonaErr || !zona) throw new Error('Zona no encontrada')
 
     const today = new Date().toISOString().slice(0, 10)
@@ -778,7 +783,7 @@ export async function getZonaCulturaHoy(slug: string): Promise<ZonaCulturaHoy> {
       espaciosQuery = espaciosQuery.ilike('municipio', `%${municipio}%`)
     }
 
-    const [eventosRes, espaciosRes] = await Promise.all([eventosQuery, espaciosQuery])
+    const [eventosRes, espaciosRes] = await withTimeout(Promise.all([eventosQuery, espaciosQuery]))
     let eventos = (eventosRes.data ?? []) as Evento[]
 
     if (eventos.length === 0) {
