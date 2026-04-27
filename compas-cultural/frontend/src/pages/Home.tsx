@@ -93,9 +93,9 @@ export default function Home() {
               {/* Real-time data counters */}
               <div className="flex gap-8 mt-10">
                 {[
-                  { n: stats.espacios || zonas.length, label: 'ESPACIOS' },
-                  { n: stats.eventos, label: 'EVENTOS' },
-                  { n: stats.zonas || zonas.length, label: 'ZONAS' },
+                  { n: stats.espacios > 0 ? stats.espacios.toLocaleString('es-CO') : zonas.length, label: 'ESPACIOS' },
+                  { n: stats.eventos > 0 ? stats.eventos.toLocaleString('es-CO') : '—', label: 'EVENTOS' },
+                  { n: stats.zonas > 0 ? stats.zonas.toLocaleString('es-CO') : zonas.length, label: 'ZONAS' },
                 ].map(d => (
                   <div key={d.label}>
                     <div className="text-3xl font-heading font-black">{d.n}</div>
