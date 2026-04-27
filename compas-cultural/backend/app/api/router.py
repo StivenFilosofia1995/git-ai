@@ -15,6 +15,7 @@ _route_modules = [
     ("app.api.perfil", "/perfil", "perfil"),
     ("app.api.resenas", "/resenas", "resenas"),
     ("app.api.health", "/health", "health"),
+    ("app.api.media", "/media", "media"),
     ("app.api.scraper", "", "scraper"),
 ]
 

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { type Evento, type Espacio } from '../../lib/api'
 import { getEventDateParts } from '../../lib/datetime'
+import SmartEventImage from '../ui/SmartEventImage'
 
 function stripMarkdown(text: string): string {
   return text
@@ -58,7 +59,14 @@ export default function ChatMessage({ mensaje, eventos, espacios }: ChatMessageP
                 >
                   {ev.imagen_url && (
                     <div className="w-12 h-12 flex-shrink-0 overflow-hidden border-r border-black">
-                      <img src={ev.imagen_url} alt={ev.titulo} className="w-full h-full object-cover" loading="lazy" />
+                      <SmartEventImage
+                        primaryUrl={ev.imagen_url}
+                        sourceUrl={ev.fuente_url}
+                        alt={ev.titulo}
+                        kind="thumb"
+                        className="w-full h-full object-cover"
+                        fallbackClassName="w-full h-full bg-black/10"
+                      />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">

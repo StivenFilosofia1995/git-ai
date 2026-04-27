@@ -4,6 +4,7 @@ import { enviarMensajeChat, getEvento, getEspacio, getZonas, registrarBusqueda, 
 import { useAuth } from '../../lib/AuthContext'
 import { getEventDateParts } from '../../lib/datetime'
 import EtereaThinking from './EtereaThinking'
+import SmartEventImage from '../ui/SmartEventImage'
 
 function stripMarkdown(text: string): string {
   return text
@@ -275,7 +276,14 @@ export default function HomeChatSection() {
                             >
                               {ev.imagen_url && (
                                 <div className="w-16 h-16 flex-shrink-0 overflow-hidden border-r border-black">
-                                  <img src={ev.imagen_url} alt={ev.titulo} className="w-full h-full object-cover" loading="lazy" />
+                                  <SmartEventImage
+                                    primaryUrl={ev.imagen_url}
+                                    sourceUrl={ev.fuente_url}
+                                    alt={ev.titulo}
+                                    kind="thumb"
+                                    className="w-full h-full object-cover"
+                                    fallbackClassName="w-full h-full bg-black/10"
+                                  />
                                 </div>
                               )}
                               <div className="py-1.5 pr-2 flex-1 min-w-0">

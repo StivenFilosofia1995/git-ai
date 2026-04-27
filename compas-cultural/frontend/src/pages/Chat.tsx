@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { enviarMensajeChat, getEvento, getEspacio, type ChatMessage, type Evento, type Espacio } from '../lib/api'
 import { getEventDateParts } from '../lib/datetime'
 import EtereaThinking from '../components/chat/EtereaThinking'
+import SmartEventImage from '../components/ui/SmartEventImage'
 
 function stripMarkdown(text: string): string {
   return text
@@ -176,7 +177,14 @@ export default function Chat() {
                             >
                               {ev.imagen_url && (
                                 <div className="w-24 h-24 flex-shrink-0 overflow-hidden border-r-2 border-black">
-                                  <img src={ev.imagen_url} alt={ev.titulo} className="w-full h-full object-cover" loading="lazy" />
+                                  <SmartEventImage
+                                    primaryUrl={ev.imagen_url}
+                                    sourceUrl={ev.fuente_url}
+                                    alt={ev.titulo}
+                                    kind="thumb"
+                                    className="w-full h-full object-cover"
+                                    fallbackClassName="w-full h-full bg-black/10"
+                                  />
                                 </div>
                               )}
                               <div className="py-2 pr-3 flex-1 min-w-0">

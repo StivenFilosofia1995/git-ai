@@ -6,6 +6,7 @@ import { getEvento, registrarInteraccion, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import ReviewSection from '../components/ui/ReviewSection'
 import { getEventDateParts } from '../lib/datetime'
+import SmartEventImage from '../components/ui/SmartEventImage'
 
 export default function EventoDetalle() {
   const { slug } = useParams()
@@ -152,10 +153,13 @@ export default function EventoDetalle() {
           {/* Image */}
           {evento.imagen_url && (
             <div className="overflow-hidden border-2 border-black">
-              <img
-                src={evento.imagen_url}
+              <SmartEventImage
+                primaryUrl={evento.imagen_url}
+                sourceUrl={evento.fuente_url}
                 alt={evento.titulo}
+                kind="detail"
                 className="w-full h-64 md:h-80 object-cover"
+                fallbackClassName="w-full h-64 md:h-80 bg-black/10"
               />
             </div>
           )}

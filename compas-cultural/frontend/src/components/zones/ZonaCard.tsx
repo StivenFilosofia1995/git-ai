@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getZonaCulturaHoy, type Zona, type Evento } from '../../lib/api'
+import SmartEventImage from '../ui/SmartEventImage'
 
 interface ZonaCardProps {
   zona: Zona
@@ -29,10 +30,13 @@ export default function ZonaCard({ zona, index }: Readonly<ZonaCardProps>) {
       {/* Imagen de fondo si hay eventos con imagen */}
       {imagenPrincipal && (
         <div className="h-28 overflow-hidden relative">
-          <img
-            src={imagenPrincipal}
+          <SmartEventImage
+            primaryUrl={imagenPrincipal}
+            sourceUrl={eventos.find(e => e.imagen_url)?.fuente_url}
             alt={zona.nombre}
+            kind="card"
             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-40"
+            fallbackClassName="w-full h-full bg-black/10"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-white group-hover:from-black to-transparent" />
         </div>
@@ -59,7 +63,14 @@ export default function ZonaCard({ zona, index }: Readonly<ZonaCardProps>) {
             {eventos.map(ev => (
               <div key={ev.id} className="flex items-center gap-2">
                 {ev.imagen_url && (
-                  <img src={ev.imagen_url} alt="" className="w-6 h-6 object-cover border border-current/20 shrink-0" />
+                  <SmartEventImage
+                    primaryUrl={ev.imagen_url}
+                    sourceUrl={ev.fuente_url}
+                    alt=""
+                    kind="thumb"
+                    className="w-6 h-6 object-cover border border-current/20 shrink-0"
+                    fallbackClassName="w-6 h-6 bg-black/10 border border-current/20 shrink-0"
+                  />
                 )}
                 <span className="text-[10px] font-mono line-clamp-1 opacity-80 group-hover:opacity-100">
                   {ev.titulo}

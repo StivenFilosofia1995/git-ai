@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getEventosHoy, getEventosFeed, type Evento } from '../../lib/api'
 import { getEventDateParts } from '../../lib/datetime'
+import SmartEventImage from '../ui/SmartEventImage'
 
 export default function EventosHoySection() {
   const [eventos, setEventos] = useState<Evento[]>([])
@@ -88,11 +89,13 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
     >
       {evento.imagen_url ? (
         <>
-          <img
-            src={evento.imagen_url}
+          <SmartEventImage
+            primaryUrl={evento.imagen_url}
+            sourceUrl={evento.fuente_url}
             alt={evento.titulo}
+            kind="card"
             className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 group-hover:opacity-60 transition-all duration-700"
-            loading="lazy"
+            fallbackClassName="absolute inset-0 bg-black/50"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
           <div className="relative p-5 text-white">

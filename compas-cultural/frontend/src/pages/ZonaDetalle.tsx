@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { commitEventosDescubiertos, discoverEventosAI, getZona, getZonaCulturaHoy, type Zona, type Evento, type Espacio } from '../lib/api'
 import BuscarConAI from '../components/ui/BuscarConAI'
+import SmartEventImage from '../components/ui/SmartEventImage'
 import { getEventDateParts } from '../lib/datetime'
 
 export default function ZonaDetalle() {
@@ -59,7 +60,6 @@ export default function ZonaDetalle() {
 
         {zona && (
           <>
-            {/* Header */}
             <div className="mb-12">
               <div className="flex items-center gap-3 mb-4">
                 <span className="w-3 h-3 bg-black" />
@@ -104,7 +104,6 @@ export default function ZonaDetalle() {
               </div>
             </div>
 
-            {/* Eventos hoy / próximos en esta zona */}
             {eventos.length > 0 && (
               <section className="mb-16">
                 <div className="flex items-center gap-2 mb-6">
@@ -128,36 +127,39 @@ export default function ZonaDetalle() {
                         const horario = horaConfiable ? `${diaCorto} · ${hora}` : `${diaCorto} · ${horaFallback}`
                         return (
                           <>
-                      {ev.imagen_url && (
-                        <div className="h-40 overflow-hidden">
-                          <img
-                            src={ev.imagen_url}
-                            alt={ev.titulo}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                        </div>
-                      )}
-                      <div className="p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-[9px] font-mono font-bold uppercase tracking-wider border border-current px-1.5 py-0.5">
-                            {ev.categoria_principal.replaceAll('_', ' ')}
-                          </span>
-                          {ev.es_gratuito && (
-                            <span className="text-[9px] font-mono font-bold uppercase tracking-wider opacity-60">Gratis</span>
-                          )}
-                        </div>
-                        <h3 className="font-heading font-black text-sm uppercase tracking-wider mb-1 line-clamp-2">
-                          {ev.titulo}
-                        </h3>
-                        <p className="text-[11px] font-mono opacity-60 group-hover:opacity-100">
-                          {horario}
-                        </p>
-                        {ev.nombre_lugar && (
-                          <p className="text-[10px] font-mono mt-1 opacity-50 group-hover:opacity-80">
-                            {ev.nombre_lugar}
-                          </p>
-                        )}
-                      </div>
+                            {ev.imagen_url && (
+                              <div className="h-40 overflow-hidden">
+                                <SmartEventImage
+                                  primaryUrl={ev.imagen_url}
+                                  sourceUrl={ev.fuente_url}
+                                  alt={ev.titulo}
+                                  kind="card"
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                  fallbackClassName="w-full h-full bg-black/10"
+                                />
+                              </div>
+                            )}
+                            <div className="p-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="text-[9px] font-mono font-bold uppercase tracking-wider border border-current px-1.5 py-0.5">
+                                  {ev.categoria_principal.replaceAll('_', ' ')}
+                                </span>
+                                {ev.es_gratuito && (
+                                  <span className="text-[9px] font-mono font-bold uppercase tracking-wider opacity-60">Gratis</span>
+                                )}
+                              </div>
+                              <h3 className="font-heading font-black text-sm uppercase tracking-wider mb-1 line-clamp-2">
+                                {ev.titulo}
+                              </h3>
+                              <p className="text-[11px] font-mono opacity-60 group-hover:opacity-100">
+                                {horario}
+                              </p>
+                              {ev.nombre_lugar && (
+                                <p className="text-[10px] font-mono mt-1 opacity-50 group-hover:opacity-80">
+                                  {ev.nombre_lugar}
+                                </p>
+                              )}
+                            </div>
                           </>
                         )
                       })()}
@@ -167,7 +169,6 @@ export default function ZonaDetalle() {
               </section>
             )}
 
-            {/* Espacios activos en la zona */}
             {espacios.length > 0 && (
               <section>
                 <div className="flex items-center gap-2 mb-6">

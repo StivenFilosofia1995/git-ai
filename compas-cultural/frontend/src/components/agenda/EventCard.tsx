@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { type Evento } from '../../lib/api'
 import { getEventDateParts } from '../../lib/datetime'
+import SmartEventImage from '../ui/SmartEventImage'
 
 interface EventCardProps {
   evento: Evento
@@ -56,11 +57,30 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
       <Link to={`/evento/${evento.slug}`}>
         {evento.imagen_url ? (
           <div className={`${compact ? 'aspect-[2/1]' : 'aspect-[16/9]'} overflow-hidden border-b-2 border-black`}>
-            <img
-              src={evento.imagen_url}
+            <SmartEventImage
+              primaryUrl={evento.imagen_url}
+              sourceUrl={evento.fuente_url}
               alt={evento.titulo}
+              kind="card"
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 group-hover:opacity-80"
-              loading="lazy"
+              fallback={(
+                <div
+                  className="w-full h-full flex items-center justify-center relative overflow-hidden"
+                  style={{ backgroundColor: placeholderColor }}
+                >
+                  <div className="absolute inset-0 opacity-10">
+                    <div className="absolute inset-0" style={{
+                      backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px)'
+                    }} />
+                  </div>
+                  <div className="text-center text-white relative z-10">
+                    <span className="text-3xl block mb-1">◈</span>
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-widest">
+                      {cat.replaceAll('_', ' ')}
+                    </span>
+                  </div>
+                </div>
+              )}
             />
           </div>
         ) : (

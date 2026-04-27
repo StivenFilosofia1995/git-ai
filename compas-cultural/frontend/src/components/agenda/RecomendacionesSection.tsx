@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
 import { obtenerRecomendaciones, getEventosFeed, type Evento } from '../../lib/api'
 import { formatEventDate } from '../../lib/datetime'
+import SmartEventImage from '../ui/SmartEventImage'
 
 export default function RecomendacionesSection() {
   const { user } = useAuth()
@@ -68,10 +69,13 @@ export default function RecomendacionesSection() {
             >
               {ev.imagen_url && (
                 <div className="h-36 overflow-hidden">
-                  <img
-                    src={ev.imagen_url}
+                  <SmartEventImage
+                    primaryUrl={ev.imagen_url}
+                    sourceUrl={ev.fuente_url}
                     alt={ev.titulo}
+                    kind="card"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    fallbackClassName="w-full h-full bg-black/10"
                   />
                 </div>
               )}
