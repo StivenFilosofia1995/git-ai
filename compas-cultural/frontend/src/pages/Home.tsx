@@ -77,7 +77,7 @@ export default function Home() {
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
-                  to="/explorar#cerca-de-ti"
+                  to="/cerca-de-ti"
                   className="px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-black text-white hover:bg-neutral-800 transition-all"
                 >
                   📍 Cerca de ti

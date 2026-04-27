@@ -27,7 +27,7 @@ def get_stats():
     from app.database import supabase
     from app.services import zona_service
     espacios = supabase.table("lugares").select("id", count="exact").neq("nivel_actividad", "cerrado").execute()
-    eventos = supabase.table("eventos").select("id", count="exact").neq("estado_moderacion", "rechazado").execute()
+    eventos = supabase.table("eventos").select("id", count="exact").or_("estado_moderacion.neq.rechazado,estado_moderacion.is.null").execute()
     colectivos = supabase.table("lugares").select("id", count="exact").eq("tipo", "colectivo").execute()
     try:
         zonas = zona_service.get_zonas()

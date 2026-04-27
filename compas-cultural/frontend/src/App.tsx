@@ -21,6 +21,7 @@ import Aportes from './pages/Aportes'
 import Nosotros from './pages/Nosotros'
 import ProteccionDatos from './pages/ProteccionDatos'
 import RequireAuth from './components/auth/RequireAuth'
+import CercaDeTiPage from './pages/CercaDeTiPage'
 
 /** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
 function ProfileGuard({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -62,6 +63,7 @@ function App() {
           <Route path="home" element={<Home />} />
           <Route path="mapa" element={<Mapa />} />
           <Route path="explorar" element={<Explorar />} />
+          <Route path="cerca-de-ti" element={<CercaDeTiPage />} />
           <Route path="espacio/:slug" element={<EspacioDetalle />} />
           <Route path="evento/:slug" element={<EventoDetalle />} />
           <Route path="agenda" element={<Agenda />} />

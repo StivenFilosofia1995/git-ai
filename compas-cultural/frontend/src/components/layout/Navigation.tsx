@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 
 const NAV_ITEMS = [
-  { to: '/explorar#cerca-de-ti', label: 'Cerca de ti' },
+  { to: '/cerca-de-ti', label: 'Cerca de ti' },
   { to: '/agenda', label: 'Agenda' },
   { to: '/colectivos', label: 'Colectivos' },
   { to: '/nosotros', label: 'Nosotros' },
