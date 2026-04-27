@@ -134,9 +134,10 @@ export function hasReliableEventTime(value: EventDateInput): boolean {
     // y terminar mostrando 12:00 a. m. para eventos sin hora real.
     if (isMidnightMarker(context.fecha_inicio)) return false
 
-    // Defensa adicional para horas extrañas de madrugada en fuentes de scraping.
-    // Evita mostrar 01:00-05:59 cuando suelen ser artefactos de parsing/zona horaria.
-    if (isScraperSource && hour >= 1 && hour <= 5) return false
+    // Defensa adicional para horas de madrugada (1-5am).
+    // Ningún evento cultural en Medellín ocurre a esta hora: casi siempre es un
+    // artefacto de timezone o parsing. Se filtra independientemente de la fuente.
+    if (hour >= 1 && hour <= 5) return false
 
     return true
   }
@@ -159,8 +160,8 @@ export function hasReliableEventTime(value: EventDateInput): boolean {
     return false
   }
 
-  // 2c. También ocultamos madrugadas sospechosas en fuentes de scraping.
-  if (isScraperSource && hour >= 1 && hour <= 5) {
+  // 2c. Madrugadas (1-5am) se ocultan siempre — son artefactos de timezone/parsing.
+  if (hour >= 1 && hour <= 5) {
     return false
   }
 
