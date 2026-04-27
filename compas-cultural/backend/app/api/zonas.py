@@ -11,24 +11,6 @@ def get_zonas():
     return zona_service.get_zonas()
 
 
-@router.get("/{slug}")
-def get_zona(slug: str):
-    try:
-        return zona_service.get_zona_by_slug(slug)
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="Zona no encontrada") from exc
-
-
-@router.get("/{slug}/cultura-hoy")
-def get_cultura_zona_hoy(slug: str):
-    """Obtiene eventos y espacios activos hoy en una zona."""
-    try:
-        zona = zona_service.get_zona_by_slug(slug)
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="Zona no encontrada") from exc
-    return obtener_eventos_zona_hoy(zona["id"])
-
-
 @router.get("/calientes/mapa")
 def get_zonas_calientes(
     k: Annotated[int, Query(ge=2, le=20)] = 7,
@@ -76,3 +58,21 @@ def get_zonas_calientes(
             "eventos": eventos_cluster[:5],  # Muestra hasta 5 por cluster
         })
     return result
+
+
+@router.get("/{slug}")
+def get_zona(slug: str):
+    try:
+        return zona_service.get_zona_by_slug(slug)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Zona no encontrada") from exc
+
+
+@router.get("/{slug}/cultura-hoy")
+def get_cultura_zona_hoy(slug: str):
+    """Obtiene eventos y espacios activos hoy en una zona."""
+    try:
+        zona = zona_service.get_zona_by_slug(slug)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Zona no encontrada") from exc
+    return obtener_eventos_zona_hoy(zona["id"])

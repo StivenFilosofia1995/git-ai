@@ -347,9 +347,8 @@ def obtener_recomendaciones(user_id: str, limit: int = 10) -> List[dict]:
     return result
 
 
-def obtener_eventos_zona_hoy(zona_id: int) -> List[dict]:
-    """Obtiene eventos de hoy en una zona específica, con imágenes."""
-    # Obtener la zona
+def obtener_eventos_zona_hoy(zona_id: int) -> dict:
+    """Obtiene eventos próximos en una zona específica, con espacios."""
     resp_zona = (
         supabase.table("zonas_culturales")
         .select("*")
@@ -359,54 +358,56 @@ def obtener_eventos_zona_hoy(zona_id: int) -> List[dict]:
     )
     zona = resp_zona.data
     if not zona:
-        return []
+        return {"eventos": [], "espacios": [], "zona": None}
 
     municipio = zona.get("municipio", "medellin")
-    nombre_zona = zona.get("nombre", "").lower()
 
     from zoneinfo import ZoneInfo
     ahora_co = datetime.now(ZoneInfo("America/Bogota"))
     hoy = ahora_co.date().isoformat()
-    manana = (ahora_co.date() + timedelta(days=1)).isoformat()
+    catorce_dias = (ahora_co.date() + timedelta(days=14)).isoformat()
 
-    # Buscar eventos de hoy en ese municipio
+    # Buscar eventos usando ilike para ignorar mayúsculas/acentos
     resp = (
         supabase.table("eventos")
         .select("*")
-        .eq("municipio", municipio)
+        .ilike("municipio", f"%{municipio}%")
         .gte("fecha_inicio", hoy)
-        .lt("fecha_inicio", manana)
+        .lte("fecha_inicio", catorce_dias)
+        .neq("estado_moderacion", "rechazado")
         .order("fecha_inicio")
-        .limit(10)
+        .limit(50)
         .execute()
     )
 
-    # Si no hay eventos hoy, buscar próximos 3 días
-    if not resp.data:
-        tres_dias = (ahora_co.date() + timedelta(days=3)).isoformat()
-        resp = (
+    eventos = resp.data or []
+
+    # Si no hay eventos con municipio, buscar sin filtro de municipio (fallback)
+    if not eventos:
+        resp_sin_filtro = (
             supabase.table("eventos")
             .select("*")
-            .eq("municipio", municipio)
             .gte("fecha_inicio", hoy)
-            .lt("fecha_inicio", tres_dias)
+            .lte("fecha_inicio", catorce_dias)
+            .neq("estado_moderacion", "rechazado")
             .order("fecha_inicio")
-            .limit(6)
+            .limit(20)
             .execute()
         )
+        eventos = resp_sin_filtro.data or []
 
-    # También buscar espacios activos en esa zona/barrio
+    # Espacios activos en ese municipio
     resp_espacios = (
         supabase.table("lugares")
-        .select("id,nombre,slug,categoria_principal,barrio,descripcion_corta,instagram_handle")
-        .eq("municipio", municipio)
+        .select("id,nombre,slug,categoria_principal,barrio,descripcion_corta,instagram_handle,nivel_actividad")
+        .ilike("municipio", f"%{municipio}%")
         .neq("nivel_actividad", "cerrado")
-        .limit(6)
+        .limit(20)
         .execute()
     )
 
     return {
-        "eventos": resp.data,
-        "espacios": resp_espacios.data,
+        "eventos": eventos,
+        "espacios": resp_espacios.data or [],
         "zona": zona,
     }

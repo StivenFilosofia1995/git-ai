@@ -86,7 +86,7 @@ def get_espacios(
     query = supabase.table("lugares").select("*").neq("nivel_actividad", "cerrado")
 
     if municipio:
-        query = query.eq("municipio", municipio)
+        query = query.ilike("municipio", f"%{municipio}%")
     if barrio:
         query = query.ilike("barrio", f"%{barrio}%")
     if categoria:
@@ -115,14 +115,30 @@ def get_espacios(
 
 
 def get_espacio_by_slug(slug: str) -> dict:
+    import re
+    # Try by slug first
     response = (
         supabase.table("lugares")
         .select("*")
         .eq("slug", slug)
-        .single()
+        .maybeSingle()
         .execute()
     )
-    return _add_coord_single(response.data)
+    if response.data:
+        return _add_coord_single(response.data)
+    # Fallback: try by UUID id
+    UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', re.IGNORECASE)
+    if UUID_RE.match(slug):
+        resp_id = (
+            supabase.table("lugares")
+            .select("*")
+            .eq("id", slug)
+            .maybeSingle()
+            .execute()
+        )
+        if resp_id.data:
+            return _add_coord_single(resp_id.data)
+    raise ValueError(f"Espacio not found: {slug}")
 
 
 def get_espacios_cerca(

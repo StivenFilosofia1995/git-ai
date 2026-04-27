@@ -129,48 +129,20 @@ export async function getEspacios(params?: {
   categoria?: string
   tipo?: string
 }): Promise<Espacio[]> {
-  let query = supabase
-    .from('lugares')
-    .select('*')
-    .neq('nivel_actividad', 'cerrado')
-    .order('nombre')
-    .range(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 500) - 1)
-
-  if (params?.municipio) query = query.ilike('municipio', `%${params.municipio}%`)
-  if (params?.categoria) query = query.eq('categoria_principal', params.categoria)
-  if (params?.tipo) query = query.eq('tipo', params.tipo)
-
-  const { data, error } = await query
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Espacio[]
+  const search = new URLSearchParams()
+  if (params?.limit) search.set('limit', String(params.limit))
+  if (params?.offset) search.set('offset', String(params.offset))
+  if (params?.municipio) search.set('municipio', params.municipio)
+  if (params?.categoria) search.set('categoria', params.categoria)
+  if (params?.tipo) search.set('tipo', params.tipo)
+  const qs = search.toString()
+  return apiGet<Espacio[]>(`/espacios/${qs ? `?${qs}` : ''}`)
 }
 
 export async function getEspacio(slugOrId: string): Promise<Espacio> {
   const value = (slugOrId || '').trim()
   if (!value) throw new Error('Espacio no encontrado')
-
-  const bySlug = await supabase
-    .from('lugares')
-    .select('*')
-    .eq('slug', value)
-    .maybeSingle()
-
-  if (bySlug.data) return bySlug.data as Espacio
-
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-  if (!UUID_RE.test(value)) {
-    throw new Error(bySlug.error?.message || 'Espacio no encontrado')
-  }
-
-  const byId = await supabase
-    .from('lugares')
-    .select('*')
-    .eq('id', value)
-    .maybeSingle()
-
-  if (byId.data) return byId.data as Espacio
-
-  throw new Error(bySlug.error?.message || byId.error?.message || 'Espacio no encontrado')
+  return apiGet<Espacio>(`/espacios/${encodeURIComponent(value)}`)
 }
 
 type EventosTemporalFilters = {
@@ -428,13 +400,7 @@ export async function getStats(): Promise<StatsResponse> {
 }
 
 export async function getZona(slug: string): Promise<Zona> {
-  const { data, error } = await supabase
-    .from('zonas_culturales')
-    .select('*')
-    .eq('slug', slug)
-    .single()
-  if (error) throw new Error(error.message)
-  return data as Zona
+  return apiGet<Zona>(`/zonas/${encodeURIComponent(slug)}`)
 }
 
 export async function enviarMensajeChat(mensaje: string, historial: ChatMessage[]): Promise<ChatResponse> {
@@ -713,23 +679,7 @@ export interface ZonaCulturaHoy {
 }
 
 export async function getZonaCulturaHoy(slug: string): Promise<ZonaCulturaHoy> {
-  const { data: zona, error: zonaErr } = await supabase
-    .from('zonas_culturales')
-    .select('*')
-    .eq('slug', slug)
-    .single()
-  if (zonaErr || !zona) throw new Error('Zona no encontrada')
-
-  const today = new Date().toISOString().slice(0, 10)
-  const [eventosRes, espaciosRes] = await Promise.all([
-    supabase.from('eventos').select('*').eq('municipio', zona.municipio).gte('fecha_inicio', today).order('fecha_inicio').limit(50),
-    supabase.from('lugares').select('*').eq('municipio', zona.municipio).neq('nivel_actividad', 'cerrado').limit(100),
-  ])
-  return {
-    zona: zona as Zona,
-    eventos: (eventosRes.data ?? []) as Evento[],
-    espacios: (espaciosRes.data ?? []) as Espacio[],
-  }
+  return apiGet<ZonaCulturaHoy>(`/zonas/${encodeURIComponent(slug)}/cultura-hoy`)
 }
 
 export const CATEGORIAS_CULTURALES = [
