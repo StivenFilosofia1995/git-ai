@@ -515,6 +515,378 @@ BEGIN
 END;
 $$;
 
+
+CREATE OR REPLACE FUNCTION clean_md_cell(v text)
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT NULLIF(trim(regexp_replace(replace(replace(coalesce(v, ''), '**', ''), '"', ''), '\\s+', ' ', 'g')), '');
+$$;
+
+
+CREATE OR REPLACE FUNCTION md_value_or_null(v text)
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT CASE
+    WHEN clean_md_cell(v) IS NULL THEN NULL
+    WHEN norm_text(clean_md_cell(v)) IN ('por verificar', 'pv', 'sin sala', 'sin sede', 'por definir') THEN NULL
+    ELSE clean_md_cell(v)
+  END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION infer_municipio_md(
+  p_nombre text,
+  p_comuna text,
+  p_zona text,
+  p_observaciones text
+)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  blob text := norm_text(coalesce(p_nombre, '') || ' ' || coalesce(p_comuna, '') || ' ' || coalesce(p_zona, '') || ' ' || coalesce(p_observaciones, ''));
+BEGIN
+  IF blob LIKE '% itagui %' OR blob LIKE 'itagui %' OR blob LIKE '% itagui' THEN
+    RETURN 'itagui';
+  ELSIF blob LIKE '% bello %' OR blob LIKE 'bello %' OR blob LIKE '% bello' THEN
+    RETURN 'bello';
+  ELSIF blob LIKE '% envigado %' OR blob LIKE 'envigado %' OR blob LIKE '% envigado' THEN
+    RETURN 'envigado';
+  ELSIF blob LIKE '% sabaneta %' OR blob LIKE 'sabaneta %' OR blob LIKE '% sabaneta' THEN
+    RETURN 'sabaneta';
+  ELSIF blob LIKE '% copacabana %' OR blob LIKE 'copacabana %' OR blob LIKE '% copacabana' THEN
+    RETURN 'copacabana';
+  ELSIF blob LIKE '% girardota %' OR blob LIKE 'girardota %' OR blob LIKE '% girardota' THEN
+    RETURN 'girardota';
+  ELSIF blob LIKE '% barbosa %' OR blob LIKE 'barbosa %' OR blob LIKE '% barbosa' THEN
+    RETURN 'barbosa';
+  ELSIF blob LIKE '% la estrella %' OR blob LIKE '% la_estrella %' THEN
+    RETURN 'la_estrella';
+  ELSIF blob LIKE '% caldas %' OR blob LIKE 'caldas %' OR blob LIKE '% caldas' THEN
+    RETURN 'caldas';
+  END IF;
+  RETURN 'medellin';
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION infer_estado_operativo_md(
+  p_estado_hint text,
+  p_horario text,
+  p_observaciones text
+)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  blob text := norm_text(coalesce(p_estado_hint, '') || ' ' || coalesce(p_horario, '') || ' ' || coalesce(p_observaciones, ''));
+BEGIN
+  IF blob LIKE '%fuera de servicio%' THEN
+    RETURN 'fuera_servicio';
+  ELSIF blob LIKE '%cerrado%' THEN
+    RETURN 'cerrado';
+  ELSIF blob LIKE '%restauracion%' THEN
+    RETURN 'restauracion';
+  ELSIF blob LIKE '%reapertura%' OR blob LIKE '%en reapertura%' THEN
+    RETURN 'reapertura';
+  ELSIF blob LIKE '%en obra%' OR blob LIKE '%en construccion%' OR blob LIKE '%inicio obras%' OR blob LIKE '%inició obras%' THEN
+    RETURN 'en_obra';
+  ELSIF blob LIKE '%proyectado%' OR blob LIKE '%proximo a iniciar%' OR blob LIKE '%próximo a iniciar%' THEN
+    RETURN 'proyectado';
+  END IF;
+  RETURN 'vigente';
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION parse_categorias_md(v text)
+RETURNS text[]
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  tok text;
+  cleaned text;
+  out_arr text[] := ARRAY[]::text[];
+BEGIN
+  IF md_value_or_null(v) IS NULL THEN
+    RETURN out_arr;
+  END IF;
+
+  FOR tok IN
+    SELECT trim(x)
+    FROM regexp_split_to_table(coalesce(v, ''), ',') AS x
+  LOOP
+    cleaned := trim(regexp_replace(replace(replace(tok, '**', ''), '"', ''), '\\(.*?\\)', '', 'g'));
+    IF cleaned IS NULL OR cleaned = '' THEN
+      CONTINUE;
+    END IF;
+    out_arr := out_arr || cleaned;
+  END LOOP;
+
+  RETURN out_arr;
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION importar_equipamientos_2026_desde_markdown(md text)
+RETURNS jsonb
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  ln text;
+  cols text[];
+  current_group text := NULL;
+  row_n int := 0;
+  inserted_count int := 0;
+  g1 int := 0;
+  g2 int := 0;
+  g2_analogos int := 0;
+  g3 int := 0;
+
+  v_nombre text;
+  v_subtipo text;
+  v_operador text;
+  v_direccion text;
+  v_barrio text;
+  v_comuna text;
+  v_zona_txt text;
+  v_web text;
+  v_facebook text;
+  v_instagram text;
+  v_telefono text;
+  v_correo text;
+  v_horario text;
+  v_aforo text;
+  v_categorias text[];
+  v_observaciones text;
+  v_estado text;
+  v_municipio text;
+  v_slug text;
+BEGIN
+  IF md IS NULL OR trim(md) = '' THEN
+    RAISE EXCEPTION 'markdown vacio';
+  END IF;
+
+  FOR ln IN
+    SELECT regexp_replace(x, E'\\r', '', 'g')
+    FROM regexp_split_to_table(md, E'\\n') AS x
+  LOOP
+    IF ln ILIKE '## GRUPO 1%' THEN
+      current_group := 'bibliotecas_sbpm';
+      CONTINUE;
+    ELSIF ln ILIKE '## GRUPO 2%' THEN
+      current_group := 'uvas_y_analogos';
+      CONTINUE;
+    ELSIF ln ILIKE '## GRUPO 3%' THEN
+      current_group := 'teatros_y_escenicos';
+      CONTINUE;
+    ELSIF ln ILIKE '### UVAS NO ejecutadas%' THEN
+      current_group := 'skip';
+      CONTINUE;
+    ELSIF ln ILIKE '### Espacios CERRADOS / NO existentes%' THEN
+      current_group := 'skip';
+      CONTINUE;
+    ELSIF ln ILIKE '### Espacios análogos vigentes 2026%' THEN
+      current_group := 'uvas_analogos';
+      CONTINUE;
+    END IF;
+
+    IF left(trim(ln), 1) <> '|' THEN
+      CONTINUE;
+    END IF;
+
+    IF ln ~ '^\\|[- ]+\\|' OR ln ILIKE '%| # |%' OR ln ILIKE '%| Nombre oficial |%' OR ln ILIKE '%| Nombre | Tipo | Operador |%' THEN
+      CONTINUE;
+    END IF;
+
+    cols := regexp_split_to_array(regexp_replace(trim(ln), '^\\||\\|$', '', 'g'), '\\s*\\|\\s*');
+    IF cols IS NULL OR array_length(cols, 1) IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    IF current_group = 'uvas_analogos' THEN
+      IF array_length(cols, 1) < 5 THEN
+        CONTINUE;
+      END IF;
+
+      row_n := row_n + 1;
+      v_nombre := md_value_or_null(cols[1]);
+      v_subtipo := md_value_or_null(cols[2]);
+      v_operador := md_value_or_null(cols[3]);
+      v_direccion := md_value_or_null(cols[4]);
+      v_estado := infer_estado_operativo_md(md_value_or_null(cols[5]), NULL, md_value_or_null(cols[5]));
+      v_municipio := infer_municipio_md(v_nombre, NULL, NULL, v_direccion);
+      v_slug := regexp_replace(norm_text(v_nombre), '[^a-z0-9]+', '-', 'g');
+
+      INSERT INTO equipamientos_culturales_2026 (
+        external_id, nombre_oficial, slug, grupo, subtipo, operador,
+        municipio, comuna, barrio, direccion,
+        estado_operativo, observaciones, fuente_principal, metadata
+      ) VALUES (
+        'ANLG-' || lpad(row_n::text, 3, '0'),
+        v_nombre,
+        v_slug,
+        'uvas_y_analogos',
+        v_subtipo,
+        v_operador,
+        v_municipio,
+        NULL,
+        NULL,
+        v_direccion,
+        v_estado,
+        md_value_or_null(cols[5]),
+        NULL,
+        jsonb_build_object('source_format', 'markdown', 'table', 'espacios_analogos')
+      )
+      ON CONFLICT (slug) DO UPDATE
+      SET
+        grupo = EXCLUDED.grupo,
+        subtipo = EXCLUDED.subtipo,
+        operador = EXCLUDED.operador,
+        municipio = EXCLUDED.municipio,
+        direccion = EXCLUDED.direccion,
+        estado_operativo = EXCLUDED.estado_operativo,
+        observaciones = EXCLUDED.observaciones,
+        metadata = EXCLUDED.metadata,
+        updated_at = now();
+
+      inserted_count := inserted_count + 1;
+      g2_analogos := g2_analogos + 1;
+      CONTINUE;
+    END IF;
+
+    IF array_length(cols, 1) < 16 OR current_group IS NULL OR current_group = 'skip' THEN
+      CONTINUE;
+    END IF;
+
+    row_n := row_n + 1;
+
+    v_nombre := md_value_or_null(cols[2]);
+    v_subtipo := md_value_or_null(cols[3]);
+    v_direccion := md_value_or_null(cols[4]);
+    v_barrio := md_value_or_null(cols[5]);
+    v_comuna := md_value_or_null(cols[6]);
+    v_zona_txt := md_value_or_null(cols[7]);
+    v_web := md_value_or_null(cols[8]);
+    v_facebook := md_value_or_null(cols[9]);
+    v_instagram := md_value_or_null(cols[10]);
+    v_telefono := md_value_or_null(cols[11]);
+    v_correo := md_value_or_null(cols[12]);
+    v_horario := md_value_or_null(cols[13]);
+    v_aforo := md_value_or_null(cols[14]);
+    v_categorias := parse_categorias_md(cols[15]);
+    v_observaciones := md_value_or_null(cols[16]);
+    v_municipio := infer_municipio_md(v_nombre, v_comuna, v_zona_txt, v_observaciones);
+    v_estado := infer_estado_operativo_md(NULL, v_horario, v_observaciones);
+    v_slug := regexp_replace(norm_text(v_nombre), '[^a-z0-9]+', '-', 'g');
+
+    IF v_slug IS NULL OR v_slug = '' OR v_nombre IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    IF current_group = 'bibliotecas_sbpm' THEN
+      v_operador := 'SBPM/BPP';
+      g1 := g1 + 1;
+    ELSIF current_group = 'uvas_y_analogos' THEN
+      v_operador := md_value_or_null(regexp_replace(v_subtipo, '^.*\\((.*?)\\).*$','\\1'));
+      g2 := g2 + 1;
+    ELSE
+      v_operador := NULL;
+      g3 := g3 + 1;
+    END IF;
+
+    INSERT INTO equipamientos_culturales_2026 (
+      external_id,
+      nombre_oficial,
+      slug,
+      grupo,
+      subtipo,
+      operador,
+      municipio,
+      comuna,
+      barrio,
+      direccion,
+      web,
+      facebook,
+      instagram,
+      telefono,
+      correo,
+      horario,
+      aforo_texto,
+      categorias,
+      estado_operativo,
+      observaciones,
+      fuente_principal,
+      metadata
+    ) VALUES (
+      upper(substr(current_group, 1, 3)) || '-' || lpad(row_n::text, 4, '0'),
+      v_nombre,
+      v_slug,
+      current_group,
+      v_subtipo,
+      v_operador,
+      v_municipio,
+      v_comuna,
+      v_barrio,
+      v_direccion,
+      CASE WHEN v_web IS NULL THEN NULL WHEN v_web ~ '^https?://' THEN v_web ELSE 'https://' || v_web END,
+      v_facebook,
+      v_instagram,
+      v_telefono,
+      v_correo,
+      v_horario,
+      v_aforo,
+      v_categorias,
+      v_estado,
+      v_observaciones,
+      CASE WHEN v_web IS NULL THEN NULL WHEN v_web ~ '^https?://' THEN v_web ELSE 'https://' || v_web END,
+      jsonb_build_object('source_format', 'markdown', 'table_cols', array_length(cols, 1))
+    )
+    ON CONFLICT (slug) DO UPDATE
+    SET
+      external_id = EXCLUDED.external_id,
+      nombre_oficial = EXCLUDED.nombre_oficial,
+      grupo = EXCLUDED.grupo,
+      subtipo = EXCLUDED.subtipo,
+      operador = EXCLUDED.operador,
+      municipio = EXCLUDED.municipio,
+      comuna = EXCLUDED.comuna,
+      barrio = EXCLUDED.barrio,
+      direccion = EXCLUDED.direccion,
+      web = EXCLUDED.web,
+      facebook = EXCLUDED.facebook,
+      instagram = EXCLUDED.instagram,
+      telefono = EXCLUDED.telefono,
+      correo = EXCLUDED.correo,
+      horario = EXCLUDED.horario,
+      aforo_texto = EXCLUDED.aforo_texto,
+      categorias = EXCLUDED.categorias,
+      estado_operativo = EXCLUDED.estado_operativo,
+      observaciones = EXCLUDED.observaciones,
+      fuente_principal = EXCLUDED.fuente_principal,
+      metadata = EXCLUDED.metadata,
+      updated_at = now();
+
+    inserted_count := inserted_count + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'total_filas_upsert', inserted_count,
+    'grupo_1_bibliotecas', g1,
+    'grupo_2_uvas', g2,
+    'grupo_2_analogos', g2_analogos,
+    'grupo_3_teatros', g3
+  );
+END;
+$$;
+
 -- ------------------------------------------------------------
 -- Vista para scoring/observabilidad por zona
 -- ------------------------------------------------------------
