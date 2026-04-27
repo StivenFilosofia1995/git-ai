@@ -399,13 +399,11 @@ export async function getEventos(params?: {
   const limit = params?.limit ?? 500
   const offset = params?.offset ?? 0
   try {
-    // Supabase primary — only future events, exclude rechazado (but include NULL estado_moderacion)
-    const bogotaNow = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().slice(0, 19)
+    // Supabase primary — exclude rechazado (NULL included automatically in supabase-js neq)
     let query = supabase
       .from('eventos')
       .select('*')
-      .or('estado_moderacion.neq.rechazado,estado_moderacion.is.null')
-      .gte('fecha_inicio', bogotaNow)
+      .neq('estado_moderacion', 'rechazado')
       .order('fecha_inicio')
       .range(offset, offset + limit - 1)
     if (params?.categoria) query = query.eq('categoria_principal', params.categoria)
@@ -471,7 +469,7 @@ export async function getStats(): Promise<StatsResponse> {
     // Count queries can be slow on large tables — allow 5s timeout instead of default 2.5s
     const [esp, ev, z, col] = await withTimeout(Promise.all([
       supabase.from('lugares').select('id', { count: 'exact', head: true }).neq('nivel_actividad', 'cerrado'),
-      supabase.from('eventos').select('id', { count: 'exact', head: true }).or('estado_moderacion.neq.rechazado,estado_moderacion.is.null'),
+      supabase.from('eventos').select('id', { count: 'exact', head: true }),
       supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
       supabase.from('lugares').select('id', { count: 'exact', head: true }).eq('tipo', 'colectivo'),
     ]), 5000)

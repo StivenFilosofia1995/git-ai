@@ -27,8 +27,8 @@ def get_stats():
     from app.database import supabase
     from app.services import zona_service
     espacios = supabase.table("lugares").select("id", count="exact").neq("nivel_actividad", "cerrado").execute()
-    eventos = supabase.table("eventos").select("id", count="exact").neq("estado_moderacion", "rechazado").execute()
-    # Note: neq in supabase-py already returns rows where value != 'rechazado' AND where value IS NULL
+    eventos = supabase.table("eventos").select("id", count="exact").execute()
+    # Count all events — no filter needed for display counter
     colectivos = supabase.table("lugares").select("id", count="exact").eq("tipo", "colectivo").execute()
     try:
         zonas = zona_service.get_zonas()
