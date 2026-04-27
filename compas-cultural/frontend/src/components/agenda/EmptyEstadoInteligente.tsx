@@ -5,6 +5,7 @@ import {
   discoverEventosAI,
   commitEventosDescubiertos,
   getEventosTodos,
+  buscar as buscarEnBD,
   type Evento,
   type DescubiertoEvento,
 } from '../../lib/api'
@@ -123,7 +124,13 @@ export default function EmptyEstadoInteligente({
     setCandidatos([])
 
     const [dbResults, webRes] = await Promise.allSettled([
-      cargarSimilares(),
+      // Usar búsqueda por texto real — no filtrar por zonaLabel/barrio
+      buscarEnBD(texto).then(res =>
+        res.resultados
+          .filter(r => r.tipo === 'evento')
+          .map(r => r.item as Evento)
+          .slice(0, 8)
+      ),
       discoverEventosAI({
         municipio: municipioFilter || undefined,
         categoria: catFilter || undefined,

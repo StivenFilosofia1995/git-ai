@@ -21,28 +21,28 @@ def get_espacios(
     )
 
 
-    @router.get("/stats")
-    def get_stats():
-        """Conteos rápidos para la página home."""
-        from app.database import supabase
-        from app.services import zona_service
-        espacios = supabase.table("lugares").select("id", count="exact").neq("nivel_actividad", "cerrado").execute()
-        eventos = supabase.table("eventos").select("id", count="exact").execute()
-        colectivos = supabase.table("lugares").select("id", count="exact").eq("tipo", "colectivo").execute()
-        try:
-            zonas = zona_service.get_zonas()
-            n_zonas = len(zonas)
-        except Exception:
-            n_zonas = 0
-        return {
-            "espacios": espacios.count or 0,
-            "eventos": eventos.count or 0,
-            "colectivos": colectivos.count or 0,
-            "zonas": n_zonas,
-        }
+@router.get("/stats")
+def get_stats():
+    """Conteos rápidos para la página home."""
+    from app.database import supabase
+    from app.services import zona_service
+    espacios = supabase.table("lugares").select("id", count="exact").neq("nivel_actividad", "cerrado").execute()
+    eventos = supabase.table("eventos").select("id", count="exact").neq("estado_moderacion", "rechazado").execute()
+    colectivos = supabase.table("lugares").select("id", count="exact").eq("tipo", "colectivo").execute()
+    try:
+        zonas = zona_service.get_zonas()
+        n_zonas = len(zonas)
+    except Exception:
+        n_zonas = 0
+    return {
+        "espacios": espacios.count or 0,
+        "eventos": eventos.count or 0,
+        "colectivos": colectivos.count or 0,
+        "zonas": n_zonas,
+    }
 
 
-    @router.get("/{slug}")
+@router.get("/cerca")
 def get_espacios_cerca(
     lat: Annotated[float, Query(description="Latitud")],
     lng: Annotated[float, Query(description="Longitud")],

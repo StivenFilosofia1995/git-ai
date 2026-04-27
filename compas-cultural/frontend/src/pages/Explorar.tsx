@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import SearchResults from '../components/search/SearchResults'
 import EventCard from '../components/agenda/EventCard'
+import CercaDeTi from '../components/agenda/CercaDeTi'
 import { buscar, discoverEventosAI, commitEventosDescubiertos, getEspacios, getEventos, getEventosHoy, getZonas, getStats, enviarMensajeChat, type Espacio, type Evento, type Zona, type ResultadoBusqueda, type ChatMessage, type StatsResponse, type DescubiertoEvento } from '../lib/api'
 
 const CAT_TABS = [
@@ -369,15 +370,21 @@ export default function Explorar() {
             </div>
             <div className="flex gap-6 text-center flex-wrap">
               <div>
-                <div className="text-3xl font-heading font-black">{stats.eventos || eventos.length}</div>
+                <div className="text-3xl font-heading font-black">
+                  {loading ? '…' : stats.eventos > 0 ? stats.eventos.toLocaleString('es-CO') : eventos.length > 0 ? `${eventos.length}+` : '—'}
+                </div>
                 <div className="text-[9px] font-mono font-bold tracking-[0.2em]">EVENTOS</div>
               </div>
               <div>
-                <div className="text-3xl font-heading font-black">{stats.espacios || espacios.length}</div>
+                <div className="text-3xl font-heading font-black">
+                  {loading ? '…' : stats.espacios > 0 ? stats.espacios.toLocaleString('es-CO') : espacios.length > 0 ? `${espacios.length}+` : '—'}
+                </div>
                 <div className="text-[9px] font-mono font-bold tracking-[0.2em]">ESPACIOS</div>
               </div>
               <div>
-                <div className="text-3xl font-heading font-black">{stats.zonas || zonas.length}</div>
+                <div className="text-3xl font-heading font-black">
+                  {loading ? '…' : stats.zonas > 0 ? stats.zonas.toLocaleString('es-CO') : zonas.length > 0 ? `${zonas.length}` : '—'}
+                </div>
                 <div className="text-[9px] font-mono font-bold tracking-[0.2em]">ZONAS</div>
               </div>
               <div>
@@ -477,6 +484,9 @@ export default function Explorar() {
 
         {!loading && !error && (
           <>
+            {/* CERCA DE TI */}
+            {viewMode === 'todo' && <CercaDeTi />}
+
             {/* EVENTOS HOY highlight */}
             {(viewMode === 'todo' || viewMode === 'agenda') && filteredHoy.length > 0 && (
               <section className="mb-10">
