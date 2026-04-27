@@ -285,6 +285,24 @@ function ScrapingAnimation() {
 
 function ResultadoExitoso({ estado }: Readonly<{ estado: RegistroEstadoResponse }>) {
   const datos = estado.datos_extraidos as Record<string, string | number | null> | null
+  const datosObj = (estado.datos_extraidos as Record<string, unknown> | null) ?? null
+  const espacio = (datosObj?.espacio as Record<string, unknown> | undefined) ?? undefined
+
+  const readText = (...values: unknown[]) => {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim()) return value.trim()
+      if (typeof value === 'number') return String(value)
+    }
+    return null
+  }
+
+  const nombre = readText(datosObj?.nombre, espacio?.nombre)
+  const categoria = readText(datosObj?.categoria_sugerida, datosObj?.categoria_principal, espacio?.categoria_principal)
+  const instagramRaw = readText(datosObj?.instagram_handle, espacio?.instagram_handle)
+  const instagram = instagramRaw ? `@${instagramRaw.replace(/^@+/, '')}` : null
+  const web = readText(datosObj?.sitio_web, espacio?.sitio_web)
+  const descripcion = readText(datosObj?.descripcion_corta, espacio?.descripcion_corta)
+  const fuente = readText(datosObj?.fuente)
 
   return (
     <div className="space-y-6">
@@ -296,14 +314,14 @@ function ResultadoExitoso({ estado }: Readonly<{ estado: RegistroEstadoResponse 
 
         <p className="text-sm font-mono mb-6">{estado.mensaje}</p>
 
-        {datos && (
+        {(datos || datosObj) && (
           <div className="space-y-3 border-2 border-black p-4">
-            <DatoExtraido label="Nombre" valor={datos.nombre} />
-            <DatoExtraido label="Categoría" valor={datos.categoria_sugerida} />
-            <DatoExtraido label="Instagram" valor={datos.instagram_handle ? `@${datos.instagram_handle}` : null} />
-            <DatoExtraido label="Web" valor={datos.sitio_web} />
-            <DatoExtraido label="Descripción" valor={datos.descripcion_corta} />
-            <DatoExtraido label="Fuente" valor={datos.fuente} />
+            <DatoExtraido label="Nombre" valor={nombre} />
+            <DatoExtraido label="Categoría" valor={categoria} />
+            <DatoExtraido label="Instagram" valor={instagram} />
+            <DatoExtraido label="Web" valor={web} />
+            <DatoExtraido label="Descripción" valor={descripcion} />
+            <DatoExtraido label="Fuente" valor={fuente} />
           </div>
         )}
       </div>

@@ -70,10 +70,6 @@ def _is_safe_public_url(value: Optional[str]) -> bool:
     return not _is_private_host(parsed.hostname or "")
 
 
-def _build_screenshot_url(source_url: str) -> str:
-    return f"https://image.thum.io/get/width/1200/noanimate/{source_url}"
-
-
 _OG_IMAGE_RE = re.compile(
     r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https?://[^"\'>\s]+)["\']',
     re.IGNORECASE,
@@ -196,7 +192,6 @@ async def get_event_image(
     Priority chain:
       1. Direct image URL (src)
       2. og:image / twitter:image extracted from source_url HTML
-      3. Screenshot fallback (thum.io)
     """
     if kind not in _ALLOWED_KINDS:
         raise HTTPException(status_code=400, detail="kind invalido")
@@ -212,10 +207,6 @@ async def get_event_image(
         og_url = await _extract_og_image(source_url or "")
         if og_url:
             candidates.append(og_url)
-
-    # 3. Screenshot fallback
-    if _is_safe_public_url(source_url):
-        candidates.append(_build_screenshot_url(source_url or ""))
 
     if not candidates:
         raise HTTPException(status_code=404, detail="No hay fuente de imagen valida")

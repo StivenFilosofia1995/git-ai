@@ -546,12 +546,7 @@ def _enrich_event_description(descripcion: Optional[str], fecha: datetime) -> st
     base = (descripcion or "").strip()
     if not base:
         base = "Evento cultural detectado durante la búsqueda web."
-    hora_confirmada = not (fecha.hour == 0 and fecha.minute == 0)
-    if "hora del evento" in base.lower():
-        return base
-    hora_label = fecha.astimezone(CO_TZ).strftime("%H:%M")
-    prefix = f"Hora del evento: {hora_label}." if hora_confirmada else f"Hora del evento (estimada): {hora_label}."
-    return f"{prefix} {base}".strip()
+    return base
 
 
 def _build_candidate_event_data(
@@ -607,7 +602,7 @@ def _build_candidate_event_data(
         "espacio_id": (colectivo or {}).get("id"),
         "fecha_inicio": fecha.isoformat(),
         "fecha_fin": fecha_fin.isoformat() if fecha_fin else None,
-        "hora_confirmada": not (fecha.hour == 0 and fecha.minute == 0),
+        "hora_confirmada": False,
         "categorias": categorias,
         "categoria_principal": categoria,
         "municipio": municipio,

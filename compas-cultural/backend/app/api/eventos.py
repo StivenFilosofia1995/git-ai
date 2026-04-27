@@ -94,7 +94,7 @@ async def publicar_evento(body: dict, request: Request):
         "hora_fin": evento.hora_fin,        # HH:MM format
         "aforo": evento.aforo,              # Event capacity
         "sesion_numero": evento.sesion_numero,  # Session number
-        "tiene_hora_confirmada": bool(evento.hora_inicio),
+        "tiene_hora_confirmada": False,
         "categorias": [evento.categoria_principal],
         "categoria_principal": evento.categoria_principal,
         "municipio": evento.municipio,

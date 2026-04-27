@@ -38,13 +38,6 @@ function buildProxyUrl(primaryUrl?: string | null, sourceUrl?: string | null, ki
   return query ? `${base}?${query}` : null
 }
 
-function buildScreenshotUrl(sourceUrl?: string | null): string | null {
-  if (!sourceUrl) return null
-  const normalized = normalizeUrl(sourceUrl)
-  if (!normalized) return null
-  return `https://image.thum.io/get/width/1200/noanimate/${normalized}`
-}
-
 export default function SmartEventImage({
   alt,
   primaryUrl,
@@ -58,9 +51,8 @@ export default function SmartEventImage({
   const candidates = useMemo(() => {
     const proxyUrl = buildProxyUrl(primaryUrl, sourceUrl, kind)
     const normalizedPrimary = primaryUrl ? normalizeUrl(primaryUrl) : ''
-    const screenshot = buildScreenshotUrl(sourceUrl)
 
-    return [proxyUrl, normalizedPrimary, screenshot].filter((value): value is string => Boolean(value))
+    return [proxyUrl, normalizedPrimary].filter((value): value is string => Boolean(value))
   }, [primaryUrl, sourceUrl, kind])
 
   const [index, setIndex] = useState(0)

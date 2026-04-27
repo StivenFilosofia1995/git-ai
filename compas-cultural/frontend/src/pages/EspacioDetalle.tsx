@@ -22,7 +22,7 @@ function renderHorarioEvento(horaConfirmada: string | false | null | undefined, 
       </a>
     )
   }
-  return 'Horario por confirmar'
+  return 'Horario en el enlace'
 }
 
 export default function EspacioDetalle() {

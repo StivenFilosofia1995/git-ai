@@ -145,14 +145,24 @@ export async function getEspacios(params?: {
   return (data ?? []) as Espacio[]
 }
 
-export async function getEspacio(slug: string): Promise<Espacio> {
-  const { data, error } = await supabase
+export async function getEspacio(slugOrId: string): Promise<Espacio> {
+  const bySlug = await supabase
     .from('lugares')
     .select('*')
-    .eq('slug', slug)
-    .single()
-  if (error) throw new Error(error.message)
-  return data as Espacio
+    .eq('slug', slugOrId)
+    .maybeSingle()
+
+  if (bySlug.data) return bySlug.data as Espacio
+
+  const byId = await supabase
+    .from('lugares')
+    .select('*')
+    .eq('id', slugOrId)
+    .maybeSingle()
+
+  if (byId.data) return byId.data as Espacio
+
+  throw new Error(bySlug.error?.message || byId.error?.message || 'Espacio no encontrado')
 }
 
 type EventosTemporalFilters = {

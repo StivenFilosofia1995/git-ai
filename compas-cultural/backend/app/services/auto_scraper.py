@@ -10,7 +10,6 @@ import asyncio
 import unicodedata
 from datetime import datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -174,20 +173,13 @@ def _finalize_event_datetime(
     fallback_hour: tuple[int, int] = (19, 0),
     texts: tuple[Optional[str], ...] = (),
 ) -> tuple[datetime, bool]:
-    """Resolve best available event time, forcing non-00:00 for UX consistency.
+    """Normalize to date-only events with unconfirmed hour policy.
 
-    Returns (fecha_final, hora_confirmada).
+    Product policy: scraped events must not expose hour as reliable. We force
+    00:00 local and return hora_confirmada=False.
     """
-    fecha = _apply_ocr_hour_if_missing(fecha, image_url)
-    fecha, confirmed = _apply_text_hour_if_missing(fecha, *texts)
-    if confirmed:
-        return fecha, True
-
-    # Último fallback: evitar publicar "por definir" en experiencia pública.
-    # Mantiene hora_confirmada=False para distinguir estimaciones.
-    h, m = fallback_hour
     try:
-        fecha = fecha.replace(hour=h, minute=m, second=0, microsecond=0)
+        fecha = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
     except Exception:
         pass
     return fecha, False
@@ -420,21 +412,11 @@ def _extract_og_image(html: str) -> Optional[str]:
     return None
 
 
-def _build_screenshot_url(source_url: Optional[str]) -> Optional[str]:
-    """Generate a webpage screenshot URL as last-resort visual fallback."""
-    if not source_url:
-        return None
-    raw = str(source_url).strip()
-    if not raw.startswith(("http://", "https://")):
-        return None
-    return f"https://image.thum.io/get/width/1200/noanimate/{quote(raw, safe=':/?&=%')}"
-
-
 _OG_IMAGE_CACHE: dict[str, Optional[str]] = {}
 
 
 async def _resolve_event_image(image_url: Optional[str], source_url: Optional[str]) -> Optional[str]:
-    """Ensure event has an image URL; fallback to source page og:image."""
+    """Ensure event has an image URL using real URLs only (no screenshots)."""
     if image_url:
         return image_url
     if not source_url:
@@ -444,18 +426,16 @@ async def _resolve_event_image(image_url: Optional[str], source_url: Optional[st
 
     html = await _fetch_website_raw(source_url)
     if not html:
-        shot = _build_screenshot_url(source_url)
-        _OG_IMAGE_CACHE[source_url] = shot
-        return shot
+        _OG_IMAGE_CACHE[source_url] = None
+        return None
 
     og = _extract_og_image(html)
     if og:
         _OG_IMAGE_CACHE[source_url] = og
         return og
 
-    shot = _build_screenshot_url(source_url)
-    _OG_IMAGE_CACHE[source_url] = shot
-    return shot
+    _OG_IMAGE_CACHE[source_url] = None
+    return None
 
 
 async def _fetch_website(url: str) -> Optional[str]:

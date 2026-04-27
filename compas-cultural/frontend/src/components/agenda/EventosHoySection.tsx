@@ -79,7 +79,7 @@ function EventoHoyCard({ evento }: Readonly<{ evento: Evento }>) {
   const cat = evento.categoria_principal
   const enCurso = (evento as Evento & { _en_curso?: boolean })._en_curso
   const horaConfiable = evento.hora_confirmada === true && hora
-  const horaFallback = evento.fuente_url ? 'Horario en el enlace' : 'Horario por confirmar'
+  const horaFallback = 'Horario en el enlace'
   const horaLabel = horaConfiable ? `${dia} · ${hora}` : `${dia} · ${horaFallback}`
 
   return (

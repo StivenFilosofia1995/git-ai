@@ -195,7 +195,7 @@ def _insert_fallback_events(eventos: list[dict], *, espacio_id: str, fuente_url:
             "fuente": "scraping_codigo_fallback",
             "fuente_url": fuente_url,
             "verificado": False,
-            "hora_confirmada": bool(ev_data.get("_hora_detectada", False)),
+            "hora_confirmada": False,
         }
         supabase.table("eventos").insert(evento_data).execute()
         inserted += 1
@@ -217,6 +217,24 @@ def _count_upcoming_events_for_lugar(espacio_id: str) -> int:
         return int(res.count or 0)
     except Exception:
         return 0
+
+
+def _sync_lugar_to_scraping_radar(lugar_id: str) -> None:
+    """Ensure the lugar is tracked by smart scraping radar."""
+    try:
+        now_iso = _now_co().isoformat()
+        supabase.table("scraping_state").upsert(
+            {
+                "lugar_id": lugar_id,
+                "last_scraped_at": now_iso,
+                "events_found": 0,
+                "consecutive_empty": 0,
+            },
+            on_conflict="lugar_id",
+        ).execute()
+    except Exception:
+        # Radar sync should not block registration flow if table is unavailable.
+        pass
 
 async def _extract_deterministically(url: str, is_instagram: bool) -> dict:
     """Extrae eventos usando código duro en lugar de LLMs."""
@@ -333,6 +351,7 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
             raise RuntimeError("No se pudo extraer información base del colectivo/espacio")
 
         espacio_id = _upsert_lugar(espacio, url)
+        _sync_lugar_to_scraping_radar(espacio_id)
 
         scraper_stats = None
         try:
@@ -351,8 +370,28 @@ async def procesar_solicitud_scraping(solicitud_id: int) -> None:
 
         total_eventos_visibles = _count_upcoming_events_for_lugar(espacio_id)
 
+        lugar_resp = (
+            supabase.table("lugares")
+            .select("id,slug,nombre,tipo,categoria_principal,instagram_handle,sitio_web,descripcion_corta")
+            .eq("id", espacio_id)
+            .single()
+            .execute()
+        )
+        lugar = lugar_resp.data or {}
+        ig_value = (lugar.get("instagram_handle") or "").strip()
+
         enriched_data = {
             **data,
+            # Flat keys consumed by frontend registration result.
+            "id": lugar.get("id") or espacio_id,
+            "slug": lugar.get("slug"),
+            "nombre": lugar.get("nombre") or espacio.get("nombre"),
+            "tipo": lugar.get("tipo") or espacio.get("tipo"),
+            "categoria_sugerida": lugar.get("categoria_principal") or espacio.get("categoria_principal"),
+            "instagram_handle": ig_value.lstrip("@") if ig_value else None,
+            "sitio_web": lugar.get("sitio_web") or espacio.get("sitio_web") or url,
+            "descripcion_corta": lugar.get("descripcion_corta") or espacio.get("descripcion_corta"),
+            "fuente": "scraping_codigo",
             "scraper_stats": scraper_stats or {},
             "fallback_eventos_insertados": fallback_inserted,
             "eventos_totales_lugar": total_eventos_visibles,

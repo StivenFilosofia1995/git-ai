@@ -43,7 +43,7 @@ export default function EventoDetalle() {
   const fuenteUrlValue = fuenteUrl ?? ''
   const horaLabel = horaConfiable
     ? horaStr
-    : 'Horario por confirmar'
+    : 'Horario en el enlace'
   const mostrarHorarioEnlace = !horaConfiable && Boolean(fuenteUrl)
   const horaTextoCompartir = mostrarHorarioEnlace ? 'Horario en el enlace' : horaLabel
   const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
@@ -73,7 +73,7 @@ export default function EventoDetalle() {
   } else if (horaConfiable) {
     horaContenido = <p className="text-lg">{horaLabel}</p>
   } else {
-    horaContenido = <p className="text-lg">Horario por confirmar</p>
+    horaContenido = <p className="text-lg">Horario en el enlace</p>
   }
   const whatsappText = encodeURIComponent(
     `📅 *${evento.titulo}*\n🗓 ${fechaShareLine}${ubicacionLine}\n\n${canonicalUrl}`

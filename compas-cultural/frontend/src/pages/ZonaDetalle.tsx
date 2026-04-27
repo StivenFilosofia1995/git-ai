@@ -123,7 +123,7 @@ export default function ZonaDetalle() {
                       {(() => {
                         const { diaCorto, hora } = getEventDateParts(ev)
                         const horaConfiable = ev.hora_confirmada === true && hora
-                        const horaFallback = ev.fuente_url ? 'Horario en el enlace' : 'Horario por confirmar'
+                        const horaFallback = 'Horario en el enlace'
                         const horario = horaConfiable ? `${diaCorto} · ${hora}` : `${diaCorto} · ${horaFallback}`
                         return (
                           <>

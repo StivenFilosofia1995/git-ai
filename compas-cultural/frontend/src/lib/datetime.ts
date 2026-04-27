@@ -84,88 +84,15 @@ export function parseEventDate(value?: string | null): Date | null {
   return isValidDate(fallback) ? fallback : null
 }
 
-function getBogotaClockParts(value: Date) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: CO_TZ,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(value)
-
-  const lookup = Object.fromEntries(parts.map(part => [part.type, part.value]))
-  const rawHour = Number(lookup.hour ?? '0')
-  const normalizedHour = Number.isFinite(rawHour) ? rawHour % 24 : 0
-  return {
-    hour: normalizedHour,
-    minute: Number(lookup.minute ?? '0'),
-    second: Number(lookup.second ?? '0'),
-  }
-}
-
-function isMidnightMarker(value: string | null | undefined): boolean {
-  const parsed = parseEventDate(value)
-  if (!parsed) return false
-  const { hour, minute, second } = getBogotaClockParts(parsed)
-  return hour === 0 && minute === 0 && second === 0
-}
-
 /**
- * Una hora es "confiable" (mostrable) SI Y SOLO SI:
- * 1. El backend marca explícitamente hora_confirmada=true, o
- * 2. El backend NO provee el campo (legacy) Y la hora no es 00:00:00 NI
- *    es un default sospechoso (19:00:00 con fuente de scraper).
+ * Política de producto 2026-04: no mostrar horas en frontend.
+ * Siempre devolvemos false para forzar "Horario en el enlace".
  */
 export function hasReliableEventTime(value: EventDateInput): boolean {
   const context = getInputContext(value)
-  const parsed = parseEventDate(context.fecha_inicio)
-
-  if (!parsed) return false
-
-  const { hour, minute, second } = getBogotaClockParts(parsed)
-
-  const isScraperSource = Boolean(
-    context.fuente && /google_discovery|auto_scraper|agenda|scraping|generic|parser/i.test(context.fuente),
-  )
-
-  // 1. Si el backend marca explícitamente, respetamos (nuevo flujo).
-  if (context.hora_confirmada === true) {
-    // Defensa extra: algunos navegadores pueden formatear medianoche como 24:00
-    // y terminar mostrando 12:00 a. m. para eventos sin hora real.
-    if (isMidnightMarker(context.fecha_inicio)) return false
-
-    // Defensa adicional para horas de madrugada (1-5am).
-    // Ningún evento cultural en Medellín ocurre a esta hora: casi siempre es un
-    // artefacto de timezone o parsing. Se filtra independientemente de la fuente.
-    if (hour >= 1 && hour <= 5) return false
-
-    return true
-  }
-  if (context.hora_confirmada === false) return false
-
-  // 2. Fallback legacy: analizar por heurística (compatibilidad con datos viejos).
-  // 2a. 00:00:00 = "sin hora extraída" (marcador universal).
-  if (hour === 0 && minute === 0 && second === 0) {
-    return false
-  }
-
-  // 2b. 19:00:00 exacto con fuente de scraper = legacy default inventado.
-  // Transicional: hasta que el nuevo scraper re-procese todo, ocultamos estas horas.
-  if (
-    hour === 19 &&
-    minute === 0 &&
-    second === 0 &&
-    isScraperSource
-  ) {
-    return false
-  }
-
-  // 2c. Madrugadas (1-5am) se ocultan siempre — son artefactos de timezone/parsing.
-  if (hour >= 1 && hour <= 5) {
-    return false
-  }
-
-  return true
+  void context
+  // Keep helper centralized so all views respect the same no-hour policy.
+  return false
 }
 
 export function formatEventDate(

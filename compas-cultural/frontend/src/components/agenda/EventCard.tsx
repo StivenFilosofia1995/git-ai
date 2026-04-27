@@ -122,7 +122,7 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
           </a>
         )}
         {!horaConfirmada && !sourceUrl && (
-          <span className="text-[9px] font-mono opacity-50 mb-2 block">🕐 Horario por confirmar</span>
+          <span className="text-[9px] font-mono opacity-50 mb-2 block">🕐 Horario en el enlace</span>
         )}
 
         <Link to={`/evento/${evento.slug}`}>
