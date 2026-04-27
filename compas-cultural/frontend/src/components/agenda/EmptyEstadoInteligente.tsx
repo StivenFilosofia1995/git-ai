@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import EventCard from './EventCard'
 import {
@@ -26,39 +26,100 @@ export default function EmptyEstadoInteligente({
   onEventosFound,
 }: Readonly<Props>) {
   const [query, setQuery] = useState('')
-  const [fase, setFase] = useState<'idle' | 'searching' | 'done'>('idle')
+  const [fase, setFase] = useState<'idle' | 'auto' | 'searching' | 'done'>('idle')
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [similares, setSimilares] = useState<Evento[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
+  const didAutoSearch = useRef(false)
 
   const tieneContexto = Boolean(catFilter || zonaFilter || municipioFilter)
 
+  // ─── Búsqueda amplia en BD (sin restricción de fecha) ─────────────────────
+  const cargarSimilares = async () => {
+    const todos = await getEventosTodos({
+      categoria: catFilter || undefined,
+      barrio: zonaLabel || undefined,
+      municipio: municipioFilter || undefined,
+      maxRows: 30,
+    })
+    const hoyIso = new Date().toISOString()
+    return todos
+      .filter(e => e.fecha_inicio >= hoyIso)
+      .sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio))
+      .slice(0, 8)
+  }
+
+  // ─── Auto-búsqueda al montar ──────────────────────────────────────────────
+  useEffect(() => {
+    if (didAutoSearch.current) return
+    didAutoSearch.current = true
+
+    const autoSearch = async () => {
+      setFase('auto')
+      setMensaje('Buscando en la agenda y en la web…')
+
+      try {
+        // 1. BD amplia primero (inmediato)
+        const dbResults = await cargarSimilares()
+        if (dbResults.length > 0) setSimilares(dbResults)
+
+        // 2. Web discovery con contexto del filtro actual
+        const contextoParts: string[] = []
+        if (zonaLabel) contextoParts.push(zonaLabel)
+        if (catFilter) contextoParts.push(catFilter)
+        if (municipioFilter) contextoParts.push(municipioFilter)
+        if (!contextoParts.length) contextoParts.push('eventos culturales Medellín')
+
+        const res = await discoverEventosAI({
+          municipio: municipioFilter || undefined,
+          categoria: catFilter || undefined,
+          texto: contextoParts.join(' '),
+          max_queries: 3,
+          max_results_per_query: 6,
+          days_from: 0,
+          days_ahead: 90,
+          strict_categoria: Boolean(catFilter),
+          auto_insert: true,
+        })
+
+        const candidatos = res.result?.candidatos ?? []
+        let saveMsg = ''
+        if (candidatos.length > 0) {
+          const saved = await commitEventosDescubiertos(candidatos)
+          saveMsg = saved.message
+        }
+
+        // 3. Recargar BD luego de inserción para capturar lo nuevo
+        const dbRefresh = await cargarSimilares()
+        if (dbRefresh.length > 0) setSimilares(dbRefresh)
+
+        const resumen = [res.message, saveMsg].filter(Boolean).join(' — ')
+        setMensaje(resumen || 'Búsqueda completada.')
+
+        // Señalar al padre que recargue con filtros normales
+        onEventosFound([])
+      } catch {
+        setMensaje('No fue posible buscar en la web. Podés escribir una búsqueda manual.')
+      } finally {
+        setFase('done')
+      }
+    }
+
+    void autoSearch()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ─── Búsqueda manual por texto del usuario ────────────────────────────────
   const buscar = async (texto: string) => {
-    if (fase === 'searching') return
+    if (fase === 'searching' || fase === 'auto') return
     setFase('searching')
     setMensaje(null)
     setSimilares([])
 
     try {
-      // 1. Buscar eventos similares con ventana amplia (sin restricción de día)
-      const eventosAmpliados = await getEventosTodos({
-        categoria: catFilter || undefined,
-        barrio: zonaLabel || undefined,
-        municipio: municipioFilter || undefined,
-        maxRows: 30,
-      })
-      // Filtrar los más próximos
-      const hoyIso = new Date().toISOString()
-      const proximos = eventosAmpliados
-        .filter(e => e.fecha_inicio >= hoyIso)
-        .sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio))
-        .slice(0, 8)
+      const dbResults = await cargarSimilares()
+      if (dbResults.length > 0) setSimilares(dbResults)
 
-      if (proximos.length > 0) {
-        setSimilares(proximos)
-      }
-
-      // 2. AI discovery con el texto del usuario + contexto de filtros
       const contextoParts: string[] = []
       if (texto.trim()) contextoParts.push(texto.trim())
       if (zonaLabel) contextoParts.push(zonaLabel)
@@ -68,8 +129,8 @@ export default function EmptyEstadoInteligente({
         municipio: municipioFilter || undefined,
         categoria: catFilter || undefined,
         texto: contextoParts.join(' ') || undefined,
-        max_queries: 3,
-        max_results_per_query: 6,
+        max_queries: 4,
+        max_results_per_query: 8,
         days_from: 0,
         days_ahead: 90,
         strict_categoria: Boolean(catFilter),
@@ -78,19 +139,19 @@ export default function EmptyEstadoInteligente({
 
       setMensaje(res.message)
 
-      // 3. Si la IA insertó nuevos, guardar y recargar
       const candidatos = res.result?.candidatos ?? []
       if (candidatos.length > 0) {
         const saved = await commitEventosDescubiertos(candidatos)
-        setMensaje(`${res.message}\n${saved.message}`)
-        // Trigger parent to reload
-        onEventosFound([])
-      } else {
-        // Trigger reload anyway in case backend auto_insert worked silently
-        onEventosFound([])
+        setMensaje(`${res.message} — ${saved.message}`)
       }
+
+      // Recarga amplia post-inserción
+      const dbRefresh = await cargarSimilares()
+      if (dbRefresh.length > 0) setSimilares(dbRefresh)
+
+      onEventosFound([])
     } catch {
-      setMensaje('No fue posible buscar en este momento. Intentá de nuevo.')
+      setMensaje('Error buscando. Intentá de nuevo.')
     } finally {
       setFase('done')
     }
@@ -118,6 +179,8 @@ export default function EmptyEstadoInteligente({
     return ['teatro esta semana', 'conciertos gratis', 'arte y cultura Medellín']
   })()
 
+  const buscando = fase === 'auto' || fase === 'searching'
+
   return (
     <div className="border-2 border-dashed border-black p-8 space-y-6">
       {/* Título */}
@@ -132,11 +195,21 @@ export default function EmptyEstadoInteligente({
           Ayúdanos a buscar eventos
         </h3>
         <p className="text-xs font-mono opacity-60 mt-1">
-          Escribe qué te interesa — la IA busca, registra e integra a la agenda
+          {buscando
+            ? 'Consultando la web y la agenda…'
+            : 'Escribe qué te interesa — la IA busca en la web, registra e integra a la agenda'}
         </p>
       </div>
 
-      {/* Buscador inteligente */}
+      {/* Indicador de búsqueda automática */}
+      {fase === 'auto' && (
+        <div className="flex items-center justify-center gap-2">
+          <span className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+          <span className="text-[11px] font-mono opacity-60">Buscando en la web…</span>
+        </div>
+      )}
+
+      {/* Buscador manual */}
       <form onSubmit={handleSubmit} className="max-w-xl mx-auto">
         <div className="flex border-2 border-black">
           <input
@@ -151,15 +224,15 @@ export default function EmptyEstadoInteligente({
                 ? `¿Qué tipo de ${catFilter} te interesa?`
                 : '¿Qué querés hacer? Teatro, conciertos, talleres…'
             }
-            disabled={fase === 'searching'}
+            disabled={buscando}
             className="flex-1 px-4 py-3 text-sm font-mono bg-white focus:outline-none placeholder:text-neutral-400 disabled:opacity-50"
           />
           <button
             type="submit"
-            disabled={fase === 'searching'}
+            disabled={buscando}
             className="px-5 py-3 bg-black text-white text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-neutral-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            {fase === 'searching' ? (
+            {buscando ? (
               <>
                 <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 <span>Buscando…</span>
@@ -173,8 +246,8 @@ export default function EmptyEstadoInteligente({
           </button>
         </div>
 
-        {/* Sugerencias rápidas */}
-        {fase === 'idle' && (
+        {/* Sugerencias rápidas — solo cuando idle o done */}
+        {(fase === 'idle' || fase === 'done') && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {sugerencias.map(s => (
               <button
@@ -197,13 +270,23 @@ export default function EmptyEstadoInteligente({
         </p>
       )}
 
-      {/* Eventos similares encontrados con ventana amplia */}
+      {/* Eventos encontrados (BD amplia o web) */}
       {similares.length > 0 && (
         <div className="mt-2">
           <p className="text-[10px] font-mono font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
             <span className="w-2 h-2 bg-black inline-block" />
-            Eventos{zonaLabel ? ` en ${zonaLabel}` : catFilter ? ` de ${catFilter}` : ' similares'} próximos
-            <span className="opacity-50 font-normal normal-case tracking-normal">— fuera del filtro de fecha actual</span>
+            {similares.some(e => {
+              const hoy = new Date().toISOString().slice(0, 10)
+              return e.fecha_inicio.slice(0, 10) === hoy
+            })
+              ? 'Eventos encontrados'
+              : 'Próximos eventos'}
+            {zonaLabel ? ` en ${zonaLabel}` : catFilter ? ` de ${catFilter}` : ''}
+            {timeFilter !== 'todos' && (
+              <span className="opacity-50 font-normal normal-case tracking-normal">
+                — pueden estar fuera del filtro de fecha
+              </span>
+            )}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {similares.map(ev => (
@@ -212,14 +295,8 @@ export default function EmptyEstadoInteligente({
           </div>
           {timeFilter !== 'todos' && (
             <p className="text-[10px] font-mono opacity-50 mt-3 text-center">
-              Estos eventos están fuera del filtro <strong>{timeFilter === 'hoy' ? 'HOY' : timeFilter === 'semana' ? 'SEMANA' : 'PRÓXIMAS 3 SEMANAS'}</strong> — cambiá a{' '}
-              <button
-                onClick={() => onEventosFound(similares)}
-                className="underline hover:no-underline font-bold"
-              >
-                TODOS
-              </button>{' '}
-              para verlos
+              Para ver todos sin restricción de fecha, seleccioná{' '}
+              <strong>TODOS</strong> en los filtros de arriba
             </p>
           )}
         </div>
