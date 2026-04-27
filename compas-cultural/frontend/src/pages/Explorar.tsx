@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import SearchResults from '../components/search/SearchResults'
 import EventCard from '../components/agenda/EventCard'
-import { buscar, getEspacios, getEventos, getEventosHoy, getZonas, getStats, enviarMensajeChat, type Espacio, type Evento, type Zona, type ResultadoBusqueda, type ChatMessage, type StatsResponse } from '../lib/api'
+import { buscar, discoverEventosAI, commitEventosDescubiertos, getEspacios, getEventos, getEventosHoy, getZonas, getStats, enviarMensajeChat, type Espacio, type Evento, type Zona, type ResultadoBusqueda, type ChatMessage, type StatsResponse, type DescubiertoEvento } from '../lib/api'
 
 const CAT_TABS = [
   { value: '', label: 'Todo' },
@@ -49,15 +49,51 @@ export default function Explorar() {
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResponse, setAiResponse] = useState<string | null>(null)
+  const [webCandidatos, setWebCandidatos] = useState<DescubiertoEvento[]>([])
+  const [webMsg, setWebMsg] = useState<string | null>(null)
+  const [webLoading, setWebLoading] = useState(false)
+  const [committing, setCommitting] = useState(false)
+  const [commitMsg, setCommitMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const cargar = async () => {
       setLoading(true)
       setError(null)
+      setWebCandidatos([])
+      setWebMsg(null)
+      setCommitMsg(null)
       try {
         if (query) {
-          const response = await buscar(query)
-          setResultados(response.resultados)
+          // DB search + web discovery in PARALLEL
+          await Promise.all([
+            buscar(query).then(r => { setResultados(r.resultados) }),
+            // web discovery runs in background, updates state when done
+            (async () => {
+              setWebLoading(true)
+              try {
+                const webRes = await discoverEventosAI({
+                  texto: query,
+                  max_queries: 3,
+                  max_results_per_query: 6,
+                  days_from: 0,
+                  days_ahead: 90,
+                  auto_insert: false,
+                })
+                const found = webRes.result?.candidatos ?? []
+                if (found.length > 0) {
+                  setWebCandidatos(found)
+                  setWebMsg(`La IA encontró ${found.length} evento(s) en la web para "${query}" — confirmá para agregarlos`)
+                } else {
+                  setWebMsg(webRes.message || 'No se encontraron eventos nuevos en la web.')
+                }
+              } catch {
+                setWebMsg(null)
+              } finally {
+                setWebLoading(false)
+              }
+            })(),
+          ])
+
         } else {
           const [esp, ev, hoy, z, st] = await Promise.all([
             getEspacios({ limit: 500 }),
@@ -162,6 +198,22 @@ export default function Explorar() {
     return groups
   }, [filteredEspacios])
 
+  const handleCommitWeb = async () => {
+    if (webCandidatos.length === 0 || committing) return
+    setCommitting(true)
+    setCommitMsg(null)
+    try {
+      const res = await commitEventosDescubiertos(webCandidatos)
+      setCommitMsg(res.message)
+      setWebCandidatos([])
+      setWebMsg(null)
+    } catch {
+      setCommitMsg('Error al guardar los eventos. Intentá de nuevo.')
+    } finally {
+      setCommitting(false)
+    }
+  }
+
   if (query) {
     return (
       <>
@@ -172,6 +224,59 @@ export default function Explorar() {
             Resultados para: <span className="font-bold">{query}</span>
           </p>
           <SearchResults resultados={resultados} loading={loading} />
+
+          {/* Web discovery — aporte ciudadano */}
+          {webLoading && (
+            <div className="flex items-center gap-2 mt-6 text-[11px] font-mono opacity-60">
+              <span className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+              Buscando en la web…
+            </div>
+          )}
+          {webMsg && !webLoading && (
+            <p className="mt-4 text-[11px] font-mono border border-neutral-300 px-4 py-2 flex items-center gap-2">
+              <span className="w-2 h-2 border-2 border-black inline-block flex-shrink-0" />
+              {webMsg}
+            </p>
+          )}
+          {webCandidatos.length > 0 && !webLoading && (
+            <div className="mt-4 border-2 border-black p-4">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div>
+                  <p className="text-[10px] font-mono font-bold uppercase tracking-wider">◆ Eventos encontrados en la web</p>
+                  <p className="text-[10px] font-mono opacity-50 mt-0.5">Revisá y confirmá para agregar a la agenda colectiva</p>
+                </div>
+                <button
+                  onClick={() => void handleCommitWeb()}
+                  disabled={committing}
+                  className="text-[10px] font-mono font-bold uppercase tracking-wider bg-black text-white px-4 py-2 hover:bg-neutral-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {committing ? (
+                    <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Guardando…</>
+                  ) : (
+                    `+ Agregar ${webCandidatos.length} evento(s) a la agenda`
+                  )}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {webCandidatos.slice(0, 9).map((ev, i) => (
+                  <div key={`${ev.slug ?? i}`} className="border border-black p-2 bg-white">
+                    <p className="text-[10px] font-mono font-bold uppercase leading-tight line-clamp-2">{ev.titulo}</p>
+                    <p className="text-[10px] font-mono opacity-60 mt-0.5">
+                      {(() => {
+                        const fecha = ev.fecha_inicio ? new Date(ev.fecha_inicio).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '—'
+                        const lugar = ev.nombre_lugar ?? ev.municipio ?? ''
+                        return lugar ? `${fecha} · ${lugar}` : fecha
+                      })()}
+                    </p>
+                    {ev.es_gratuito && <span className="text-[9px] font-mono border border-black px-1 mt-0.5 inline-block">GRATIS</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {commitMsg && (
+            <p className="mt-3 text-[11px] font-mono border border-black/20 px-4 py-2">✓ {commitMsg}</p>
+          )}
         </div>
       </>
     )
