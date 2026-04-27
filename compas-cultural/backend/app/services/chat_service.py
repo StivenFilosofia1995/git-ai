@@ -245,19 +245,62 @@ def _buscar_evento_foco(message: str, zona_filtro: Optional[str]) -> Optional[di
 
 def _is_municipality(location: str) -> bool:
     """Check if location is a municipality or a neighborhood."""
-    return any(location in municipio_aliases for municipio_aliases in MUNICIPIOS_VALLE.values())
+    loc = _normalize_str(location)
+    for aliases in MUNICIPIOS_VALLE.values():
+        norm_aliases = {_normalize_str(a) for a in aliases}
+        if loc in norm_aliases:
+            return True
+    return False
+
+
+def _get_location_aliases(location: str) -> list[str]:
+    """Return normalized aliases for municipality/neighborhood matching."""
+    loc = _normalize_str(location)
+    aliases: list[str] = []
+
+    for values in MUNICIPIOS_VALLE.values():
+        norm_values = [_normalize_str(v) for v in values]
+        if loc in norm_values:
+            aliases.extend(norm_values)
+            break
+
+    if not aliases:
+        for values in BARRIOS_MEDELLIN_MAP.values():
+            norm_values = [_normalize_str(v) for v in values]
+            if loc in norm_values:
+                aliases.extend(norm_values)
+                break
+
+    if not aliases and loc:
+        aliases.append(loc)
+
+    # Deduplicate while preserving order
+    out: list[str] = []
+    seen = set()
+    for a in aliases:
+        if not a or a in seen:
+            continue
+        seen.add(a)
+        out.append(a)
+    return out
 
 
 def _apply_location_filter_to_query(query, location: Optional[str]):
     """Apply location filter to a Supabase query."""
     if not location:
         return query
-    
+
+    aliases = _get_location_aliases(location)
+    if not aliases:
+        return query
+
     is_municipality = _is_municipality(location)
     if is_municipality:
-        return query.ilike("municipio", location)
+        ors = ",".join([f"municipio.ilike.%{a}%" for a in aliases])
+        return query.or_(ors)
     else:
-        return query.ilike("barrio", location)
+        ors = ",".join([f"barrio.ilike.%{a}%" for a in aliases])
+        return query.or_(ors)
 
 
 def _now_co() -> datetime:
@@ -308,7 +351,15 @@ def _obtener_eventos(zona_filtro: Optional[str]) -> tuple:
     query_en_curso = _apply_location_filter_to_query(query_en_curso, zona_filtro)
     eventos_en_curso = [e for e in (query_en_curso.order("fecha_inicio").limit(20).execute().data or []) if _is_valid_event_for_chat(e)]
     
-    resp_ayer = supabase.table("eventos").select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url").gte("fecha_inicio", ayer_iso).lt("fecha_inicio", hoy_iso).is_("fecha_fin", "null").order("fecha_inicio", desc=True).limit(10).execute()
+    query_ayer = (
+        supabase.table("eventos")
+        .select("id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url")
+        .gte("fecha_inicio", ayer_iso)
+        .lt("fecha_inicio", hoy_iso)
+        .is_("fecha_fin", "null")
+    )
+    query_ayer = _apply_location_filter_to_query(query_ayer, zona_filtro)
+    resp_ayer = query_ayer.order("fecha_inicio", desc=True).limit(10).execute()
     eventos_anteriores = [e for e in (resp_ayer.data or []) if _is_valid_event_for_chat(e)]
     
     semana_iso = (hoy_inicio + timedelta(days=7)).isoformat()
