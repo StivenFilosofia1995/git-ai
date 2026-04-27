@@ -111,6 +111,7 @@ async def publicar_evento(body: dict, request: Request):
         "fuente": "colectivo_directo",
         "fuente_url": evento.contacto_instagram or evento.contacto_email,
         "verificado": False,
+        "estado_moderacion": "pendiente",
     }
 
     try:
@@ -132,7 +133,7 @@ async def publicar_evento(body: dict, request: Request):
         
         return {
             "ok": True,
-            "mensaje": "✅ Evento publicado. Será visible en la agenda inmediatamente.",
+            "mensaje": "✅ Evento recibido. Será revisado y publicado en la agenda en breve.",
             "evento": new_evento,
         }
     except Exception as e:

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
+import MarkerClusterGroup from '@changey/react-leaflet-markercluster'
 import 'leaflet/dist/leaflet.css'
+import '@changey/react-leaflet-markercluster/dist/styles.min.css'
 import { getEspacios, type Espacio } from '../../lib/api'
 
 const CAT_MARKER_COLORS: Record<string, string> = {
@@ -130,6 +132,7 @@ export default function CulturalMap() {
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
         <FitBounds coords={coords} />
+        <MarkerClusterGroup chunkedLoading>
         {filtered.map(espacio => {
           const lat = espacio.lat ?? espacio.coordenadas?.lat ?? 0
           const lng = espacio.lng ?? espacio.coordenadas?.lng ?? 0
@@ -168,6 +171,7 @@ export default function CulturalMap() {
             </CircleMarker>
           )
         })}
+        </MarkerClusterGroup>
       </MapContainer>
 
       {/* FILTERS panel */}

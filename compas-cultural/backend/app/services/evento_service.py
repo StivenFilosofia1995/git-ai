@@ -13,6 +13,16 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+try:
+    from cachetools import TTLCache
+    _HOY_CACHE: TTLCache = TTLCache(maxsize=64, ttl=300)   # 5 min
+    _SEMANA_CACHE: TTLCache = TTLCache(maxsize=32, ttl=600) # 10 min
+    _CACHE_AVAILABLE = True
+except ImportError:
+    _HOY_CACHE = {}  # type: ignore
+    _SEMANA_CACHE = {}  # type: ignore
+    _CACHE_AVAILABLE = False
+
 from app.database import supabase
 from app.services.ml_utils import (
     urgency_score,
@@ -238,6 +248,8 @@ def get_eventos(
       - texto: búsqueda en titulo/descripcion/nombre_lugar
     """
     query = supabase.table("eventos").select("*").gte("fecha_inicio", _today_iso())
+    # Excluir eventos rechazados en consultas públicas (campo puede no existir en BD vieja)
+    query = query.neq("estado_moderacion", "rechazado")
 
     if fecha_desde:
         query = query.gte("fecha_inicio", fecha_desde.isoformat())
@@ -318,7 +330,10 @@ def get_eventos_hoy(
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
-    """Eventos que ocurren HOY (inician hoy o en curso multi-día)."""
+    """Eventos que ocurren HOY (inician hoy o en curso multi-día). Con cache 5 min."""
+    _cache_key = (municipio, barrio, categoria, es_gratuito)
+    if _CACHE_AVAILABLE and _cache_key in _HOY_CACHE:
+        return _HOY_CACHE[_cache_key]
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_fin = hoy_inicio + timedelta(days=1)
@@ -353,13 +368,16 @@ def get_eventos_hoy(
     # Final strict validation in Colombia timezone to avoid wrong-day leaks.
     eventos = [ev for ev in eventos if _is_event_happening_today(ev, hoy_inicio, hoy_fin)]
 
-    return _filter_events(
+    result = _filter_events(
         eventos,
         municipio=municipio,
         barrio=barrio,
         categoria=categoria,
         es_gratuito=es_gratuito,
     )
+    if _CACHE_AVAILABLE:
+        _HOY_CACHE[_cache_key] = result
+    return result
 
 
 def get_eventos_semana(
@@ -368,14 +386,13 @@ def get_eventos_semana(
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
-    """Eventos desde mañana hasta el domingo de la PRÓXIMA semana.
-    
-    Cobertura total: 7–14 días (antes era 7 días rolling, lo que dejaba 
-    fuera vie-sáb-dom cuando se consultaba en miércoles-jueves).
-    """
+    """Eventos desde mañana hasta el domingo de la PRÓXIMA semana. Con cache 10 min."""
+    _cache_key = (municipio, barrio, categoria, es_gratuito)
+    if _CACHE_AVAILABLE and _cache_key in _SEMANA_CACHE:
+        return _SEMANA_CACHE[_cache_key]
     manana_inicio = _tomorrow_start_co()
     fin = datetime.fromisoformat(_sunday_of_next_week_iso())
-    return get_eventos(
+    result = get_eventos(
         fecha_desde=manana_inicio,
         fecha_hasta=fin,
         municipio=municipio,
@@ -385,6 +402,9 @@ def get_eventos_semana(
         limit=500,
         offset=0,
     )
+    if _CACHE_AVAILABLE:
+        _SEMANA_CACHE[_cache_key] = result
+    return result
 
 
 def get_eventos_proximas_semanas(

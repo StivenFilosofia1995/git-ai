@@ -322,3 +322,125 @@ def min_max_normalize(scores: Sequence[float]) -> list[float]:
     if hi == lo:
         return [1.0] * len(scores)
     return [(s - lo) / (hi - lo) for s in scores]
+
+
+# ─────────────────────────────────────────────────────────────
+# K-means geográfico — zonas calientes (pure Python, sin sklearn)
+# ─────────────────────────────────────────────────────────────
+
+def kmeans_geo(
+    points: list[tuple[float, float]],
+    k: int = 6,
+    max_iter: int = 30,
+    seed: int = 42,
+) -> list[dict]:
+    """
+    K-means simple sobre coordenadas (lat, lng).
+    Retorna lista de clusters:
+      { "lat": float, "lng": float, "count": int, "indices": [int, ...] }
+
+    Parámetros:
+      points   — lista de (lat, lng)
+      k        — número de clusters deseados
+      max_iter — iteraciones máximas
+      seed     — semilla para centros iniciales deterministas
+    """
+    if not points or k <= 0:
+        return []
+    k = min(k, len(points))
+
+    # Inicializar centroides (k-means++ simplificado: equidistantes en el orden)
+    step = max(1, len(points) // k)
+    centroids: list[list[float]] = [
+        [points[i * step][0], points[i * step][1]] for i in range(k)
+    ]
+
+    assignments = [0] * len(points)
+
+    for _ in range(max_iter):
+        # Asignación
+        new_assignments = []
+        for lat, lng in points:
+            best, best_d = 0, float("inf")
+            for ci, (clat, clng) in enumerate(centroids):
+                d = haversine_km(lat, lng, clat, clng)
+                if d < best_d:
+                    best_d, best = d, ci
+            new_assignments.append(best)
+
+        if new_assignments == assignments:
+            break
+        assignments = new_assignments
+
+        # Actualizar centroides
+        sums: list[list[float]] = [[0.0, 0.0] for _ in range(k)]
+        counts = [0] * k
+        for idx, (lat, lng) in enumerate(points):
+            ci = assignments[idx]
+            sums[ci][0] += lat
+            sums[ci][1] += lng
+            counts[ci] += 1
+        for ci in range(k):
+            if counts[ci] > 0:
+                centroids[ci] = [sums[ci][0] / counts[ci], sums[ci][1] / counts[ci]]
+
+    # Construir resultado agrupado por cluster
+    clusters: dict[int, dict] = {}
+    for idx, ci in enumerate(assignments):
+        if ci not in clusters:
+            clusters[ci] = {"lat": centroids[ci][0], "lng": centroids[ci][1], "count": 0, "indices": []}
+        clusters[ci]["count"] += 1
+        clusters[ci]["indices"].append(idx)
+
+    return sorted(clusters.values(), key=lambda c: -c["count"])
+
+
+# ─────────────────────────────────────────────────────────────
+# Similitud semántica — Jaccard para deduplicación
+# ─────────────────────────────────────────────────────────────
+
+def jaccard_similarity(text_a: str, text_b: str) -> float:
+    """
+    Similitud de Jaccard entre dos textos (sobre tokens).
+    Rango [0.0, 1.0] — 1.0 = idénticos.
+    Threshold recomendado para duplicados: >= 0.55
+    """
+    if not text_a or not text_b:
+        return 0.0
+    set_a = set(tokenize(text_a))
+    set_b = set(tokenize(text_b))
+    if not set_a and not set_b:
+        return 0.0
+    intersection = len(set_a & set_b)
+    union = len(set_a | set_b)
+    return intersection / union if union > 0 else 0.0
+
+
+def is_likely_duplicate(
+    titulo: str,
+    fecha_iso: str,
+    espacio_id: str | None,
+    existing_events: list[dict],
+    jaccard_threshold: float = 0.55,
+) -> bool:
+    """
+    Comprueba si un evento es probable duplicado dado un listado de eventos existentes.
+    Criterios:
+      - Misma fecha (día) Y espacio_id Y similitud Jaccard del título >= threshold
+      - O misma fecha Y título Jaccard >= 0.80 (sin importar espacio)
+    """
+    try:
+        dia_nuevo = fecha_iso[:10]  # YYYY-MM-DD
+    except Exception:
+        return False
+
+    for ev in existing_events:
+        fecha_ev = (ev.get("fecha_inicio") or "")[:10]
+        if fecha_ev != dia_nuevo:
+            continue
+        sim = jaccard_similarity(titulo, ev.get("titulo") or "")
+        if sim >= 0.80:
+            return True
+        if espacio_id and ev.get("espacio_id") == espacio_id and sim >= jaccard_threshold:
+            return True
+    return False

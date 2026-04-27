@@ -22,6 +22,7 @@ from app.services.html_event_extractor import extract_events_code, parse_date
 from app.services.playwright_fetcher import fetch_with_playwright, needs_playwright
 from app.services.event_ocr import extract_hour_from_image_url, extract_text_from_image_url
 from app.services.rss_scraper import get_or_discover_feed, parse_rss_events
+from app.services.ml_utils import is_likely_duplicate
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -761,6 +762,24 @@ async def _scrape_lugar(lugar: dict) -> dict:
                         continue
                 # Different date — use slug_with_date as slug
             final_slug = slug_with_date
+
+            # Jaccard deduplication: check similar title on same day/space
+            try:
+                existing_dia = (
+                    supabase.table("eventos")
+                    .select("id,titulo,espacio_id")
+                    .gte("fecha_inicio", fecha_date_str)
+                    .lt("fecha_inicio", f"{fecha_date_str}T23:59:59")
+                    .eq("espacio_id", lugar_id)
+                    .limit(30)
+                    .execute()
+                )
+                if is_likely_duplicate(titulo, fecha.isoformat(), lugar_id, existing_dia.data or []):
+                    stats["duplicados"] += 1
+                    print(f"    ♻️  Duplicado semántico: {titulo}")
+                    continue
+            except Exception:
+                pass  # Si falla la comprobación, continúa con el insert
 
             evento_data = {
                 "titulo": titulo,
