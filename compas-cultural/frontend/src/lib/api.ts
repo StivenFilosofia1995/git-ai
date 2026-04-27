@@ -131,20 +131,63 @@ export async function getEspacios(params?: {
   categoria?: string
   tipo?: string
 }): Promise<Espacio[]> {
-  const search = new URLSearchParams()
-  if (params?.limit) search.set('limit', String(params.limit))
-  if (params?.offset) search.set('offset', String(params.offset))
-  if (params?.municipio) search.set('municipio', params.municipio)
-  if (params?.categoria) search.set('categoria', params.categoria)
-  if (params?.tipo) search.set('tipo', params.tipo)
-  const qs = search.toString()
-  return apiGet<Espacio[]>(`/espacios/${qs ? `?${qs}` : ''}`)
+  try {
+    let query = supabase
+      .from('lugares')
+      .select('*')
+      .neq('nivel_actividad', 'cerrado')
+      .order('nombre')
+      .range(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 500) - 1)
+
+    if (params?.municipio) query = query.ilike('municipio', `%${params.municipio}%`)
+    if (params?.categoria) query = query.eq('categoria_principal', params.categoria)
+    if (params?.tipo) query = query.eq('tipo', params.tipo)
+
+    const { data, error } = await query
+    if (error) throw error
+    return (data ?? []) as Espacio[]
+  } catch {
+    const search = new URLSearchParams()
+    if (params?.limit) search.set('limit', String(params.limit))
+    if (params?.offset) search.set('offset', String(params.offset))
+    if (params?.municipio) search.set('municipio', params.municipio)
+    if (params?.categoria) search.set('categoria', params.categoria)
+    if (params?.tipo) search.set('tipo', params.tipo)
+    const qs = search.toString()
+    const path = qs ? `/espacios/?${qs}` : '/espacios/'
+    return apiGet<Espacio[]>(path)
+  }
 }
 
 export async function getEspacio(slugOrId: string): Promise<Espacio> {
   const value = (slugOrId || '').trim()
   if (!value) throw new Error('Espacio no encontrado')
-  return apiGet<Espacio>(`/espacios/${encodeURIComponent(value)}`)
+  try {
+    const bySlug = await supabase
+      .from('lugares')
+      .select('*')
+      .eq('slug', value)
+      .maybeSingle()
+
+    if (bySlug.data) return bySlug.data as Espacio
+
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    if (!UUID_RE.test(value)) {
+      throw new Error(bySlug.error?.message || 'Espacio no encontrado')
+    }
+
+    const byId = await supabase
+      .from('lugares')
+      .select('*')
+      .eq('id', value)
+      .maybeSingle()
+
+    if (byId.data) return byId.data as Espacio
+
+    throw new Error(bySlug.error?.message || byId.error?.message || 'Espacio no encontrado')
+  } catch {
+    return apiGet<Espacio>(`/espacios/${encodeURIComponent(value)}`)
+  }
 }
 
 type EventosTemporalFilters = {
@@ -356,11 +399,35 @@ export async function getEventos(params?: {
 }
 
 export async function buscar(q: string): Promise<BusquedaResponse> {
-  return apiGet<BusquedaResponse>(`/busqueda/?q=${encodeURIComponent(q)}&limit=50`)
+  try {
+    const term = `%${q}%`
+    const bogotaNow = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().slice(0, 19)
+    const [espaciosRes, eventosRes] = await Promise.all([
+      supabase.from('lugares').select('*').neq('nivel_actividad', 'cerrado').or(`nombre.ilike.${term},descripcion_corta.ilike.${term},barrio.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term}`).limit(50),
+      supabase.from('eventos').select('*').gte('fecha_inicio', bogotaNow).neq('estado_moderacion', 'rechazado').or(`titulo.ilike.${term},descripcion.ilike.${term},nombre_lugar.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term},barrio.ilike.${term}`).order('fecha_inicio').limit(50),
+    ])
+
+    const resultados: ResultadoBusqueda[] = [
+      ...((espaciosRes.data ?? []) as Espacio[]).map(item => ({ tipo: 'espacio' as const, item })),
+      ...((eventosRes.data ?? []) as Evento[]).map(item => ({ tipo: 'evento' as const, item })),
+    ]
+    return { resultados, total: resultados.length, query: q }
+  } catch {
+    return apiGet<BusquedaResponse>(`/busqueda/?q=${encodeURIComponent(q)}&limit=50`)
+  }
 }
 
 export async function getZonas(): Promise<Zona[]> {
-  return apiGet<Zona[]>('/zonas/')
+  try {
+    const { data, error } = await supabase
+      .from('zonas_culturales')
+      .select('*')
+      .order('nombre')
+    if (error) throw error
+    return (data ?? []) as Zona[]
+  } catch {
+    return apiGet<Zona[]>('/zonas/')
+  }
 }
 
 export interface StatsResponse {
@@ -371,11 +438,36 @@ export interface StatsResponse {
 }
 
 export async function getStats(): Promise<StatsResponse> {
-  return apiGet<StatsResponse>('/espacios/stats')
+  try {
+    const [esp, ev, z, col] = await Promise.all([
+      supabase.from('lugares').select('id', { count: 'exact', head: true }).neq('nivel_actividad', 'cerrado'),
+      supabase.from('eventos').select('id', { count: 'exact', head: true }).neq('estado_moderacion', 'rechazado'),
+      supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
+      supabase.from('lugares').select('id', { count: 'exact', head: true }).eq('tipo', 'colectivo'),
+    ])
+    return {
+      espacios: esp.count ?? 0,
+      eventos: ev.count ?? 0,
+      zonas: z.count ?? 0,
+      colectivos: col.count ?? 0,
+    }
+  } catch {
+    return apiGet<StatsResponse>('/espacios/stats')
+  }
 }
 
 export async function getZona(slug: string): Promise<Zona> {
-  return apiGet<Zona>(`/zonas/${encodeURIComponent(slug)}`)
+  try {
+    const { data, error } = await supabase
+      .from('zonas_culturales')
+      .select('*')
+      .eq('slug', slug)
+      .single()
+    if (error) throw error
+    return data as Zona
+  } catch {
+    return apiGet<Zona>(`/zonas/${encodeURIComponent(slug)}`)
+  }
 }
 
 export async function enviarMensajeChat(mensaje: string, historial: ChatMessage[]): Promise<ChatResponse> {
@@ -654,7 +746,61 @@ export interface ZonaCulturaHoy {
 }
 
 export async function getZonaCulturaHoy(slug: string): Promise<ZonaCulturaHoy> {
-  return apiGet<ZonaCulturaHoy>(`/zonas/${encodeURIComponent(slug)}/cultura-hoy`)
+  try {
+    const { data: zona, error: zonaErr } = await supabase
+      .from('zonas_culturales')
+      .select('*')
+      .eq('slug', slug)
+      .single()
+    if (zonaErr || !zona) throw new Error('Zona no encontrada')
+
+    const today = new Date().toISOString().slice(0, 10)
+    const in14d = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const municipio = (zona.municipio ?? '').trim()
+
+    let eventosQuery = supabase
+      .from('eventos')
+      .select('*')
+      .gte('fecha_inicio', today)
+      .lte('fecha_inicio', in14d)
+      .neq('estado_moderacion', 'rechazado')
+      .order('fecha_inicio')
+      .limit(50)
+
+    let espaciosQuery = supabase
+      .from('lugares')
+      .select('*')
+      .neq('nivel_actividad', 'cerrado')
+      .limit(100)
+
+    if (municipio) {
+      eventosQuery = eventosQuery.ilike('municipio', `%${municipio}%`)
+      espaciosQuery = espaciosQuery.ilike('municipio', `%${municipio}%`)
+    }
+
+    const [eventosRes, espaciosRes] = await Promise.all([eventosQuery, espaciosQuery])
+    let eventos = (eventosRes.data ?? []) as Evento[]
+
+    if (eventos.length === 0) {
+      const fallback = await supabase
+        .from('eventos')
+        .select('*')
+        .gte('fecha_inicio', today)
+        .lte('fecha_inicio', in14d)
+        .neq('estado_moderacion', 'rechazado')
+        .order('fecha_inicio')
+        .limit(20)
+      eventos = (fallback.data ?? []) as Evento[]
+    }
+
+    return {
+      zona: zona as Zona,
+      eventos,
+      espacios: (espaciosRes.data ?? []) as Espacio[],
+    }
+  } catch {
+    return apiGet<ZonaCulturaHoy>(`/zonas/${encodeURIComponent(slug)}/cultura-hoy`)
+  }
 }
 
 export const CATEGORIAS_CULTURALES = [
