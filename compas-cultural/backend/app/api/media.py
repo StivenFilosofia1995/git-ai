@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import ipaddress
+import re
 import socket
 from typing import Iterable, Optional
 from urllib.parse import urlparse
@@ -71,6 +72,54 @@ def _is_safe_public_url(value: Optional[str]) -> bool:
 
 def _build_screenshot_url(source_url: str) -> str:
     return f"https://image.thum.io/get/width/1200/noanimate/{source_url}"
+
+
+_OG_IMAGE_RE = re.compile(
+    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https?://[^"\'>\s]+)["\']',
+    re.IGNORECASE,
+)
+_OG_IMAGE_RE2 = re.compile(
+    r'<meta[^>]+content=["\'](https?://[^"\'>\s]+)["\'][^>]+property=["\']og:image["\']',
+    re.IGNORECASE,
+)
+_TWITTER_IMAGE_RE = re.compile(
+    r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\'](https?://[^"\'>\s]+)["\']',
+    re.IGNORECASE,
+)
+_TWITTER_IMAGE_RE2 = re.compile(
+    r'<meta[^>]+content=["\'](https?://[^"\'>\s]+)["\'][^>]+name=["\']twitter:image["\']',
+    re.IGNORECASE,
+)
+
+
+async def _extract_og_image(source_url: str) -> Optional[str]:
+    """Fetch page HTML and extract og:image or twitter:image URL."""
+    if not _is_safe_public_url(source_url):
+        return None
+    # Skip known media domains — fetching their HTML won't give og:image for the post
+    hostname = (urlparse(source_url).hostname or "").lower()
+    if any(h in hostname for h in ("instagram.com", "fb.com", "facebook.com", "tiktok.com")):
+        return None
+    try:
+        timeout = httpx.Timeout(10.0, connect=5.0)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; CulturaEtereaBot/1.0)",
+            "Accept": "text/html,application/xhtml+xml",
+        }
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
+            resp = await client.get(source_url)
+        if resp.status_code != 200:
+            return None
+        html = resp.text[:80_000]  # only need the head
+        for pattern in (_OG_IMAGE_RE, _OG_IMAGE_RE2, _TWITTER_IMAGE_RE, _TWITTER_IMAGE_RE2):
+            m = pattern.search(html)
+            if m:
+                candidate = m.group(1)
+                if _is_safe_public_url(candidate):
+                    return candidate
+    except Exception:
+        pass
+    return None
 
 
 async def _fetch_image_bytes(candidates: Iterable[str]) -> tuple[bytes, str, str]:
@@ -144,17 +193,27 @@ async def get_event_image(
 ):
     """Fetch and normalize remote event image to a frontend-safe output.
 
-    - Accepts direct image URL (src)
-    - Falls back to a source screenshot when direct image is missing/invalid
-    - Normalizes size/format to improve consistency across mobile and desktop
+    Priority chain:
+      1. Direct image URL (src)
+      2. og:image / twitter:image extracted from source_url HTML
+      3. Screenshot fallback (thum.io)
     """
     if kind not in _ALLOWED_KINDS:
         raise HTTPException(status_code=400, detail="kind invalido")
 
     candidates: list[str] = []
+
+    # 1. Direct image URL
     if _is_safe_public_url(src):
         candidates.append(src or "")
 
+    # 2. og:image / twitter:image from source page
+    if _is_safe_public_url(source_url):
+        og_url = await _extract_og_image(source_url or "")
+        if og_url:
+            candidates.append(og_url)
+
+    # 3. Screenshot fallback
     if _is_safe_public_url(source_url):
         candidates.append(_build_screenshot_url(source_url or ""))
 
