@@ -26,6 +26,8 @@ export interface Espacio {
   coordenadas?: Coordenadas | null
   lat?: number | null
   lng?: number | null
+  es_equipamiento_publico?: boolean | null
+  facebook_url?: string | null
 }
 
 export interface Evento {
@@ -354,27 +356,11 @@ export async function getEventos(params?: {
 }
 
 export async function buscar(q: string): Promise<BusquedaResponse> {
-  const term = `%${q}%`
-  // Filtrar eventos futuros usando hora Colombia (UTC-5)
-  const bogotaNow = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().slice(0, 19)
-  const [espaciosRes, eventosRes] = await Promise.all([
-    supabase.from('lugares').select('*').neq('nivel_actividad', 'cerrado').or(`nombre.ilike.${term},descripcion_corta.ilike.${term},barrio.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term}`).limit(50),
-    supabase.from('eventos').select('*').gte('fecha_inicio', bogotaNow).or(`titulo.ilike.${term},descripcion.ilike.${term},nombre_lugar.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term},barrio.ilike.${term}`).order('fecha_inicio').limit(50),
-  ])
-  const resultados: ResultadoBusqueda[] = [
-    ...((espaciosRes.data ?? []) as Espacio[]).map(item => ({ tipo: 'espacio' as const, item })),
-    ...((eventosRes.data ?? []) as Evento[]).map(item => ({ tipo: 'evento' as const, item })),
-  ]
-  return { resultados, total: resultados.length, query: q }
+  return apiGet<BusquedaResponse>(`/busqueda/?q=${encodeURIComponent(q)}&limit=50`)
 }
 
 export async function getZonas(): Promise<Zona[]> {
-  const { data, error } = await supabase
-    .from('zonas_culturales')
-    .select('*')
-    .order('nombre')
-  if (error) throw new Error(error.message)
-  return (data ?? []) as Zona[]
+  return apiGet<Zona[]>('/zonas/')
 }
 
 export interface StatsResponse {
@@ -385,18 +371,7 @@ export interface StatsResponse {
 }
 
 export async function getStats(): Promise<StatsResponse> {
-  const [esp, ev, z, col] = await Promise.all([
-    supabase.from('lugares').select('id', { count: 'exact', head: true }),
-    supabase.from('eventos').select('id', { count: 'exact', head: true }),
-    supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
-    supabase.from('lugares').select('id', { count: 'exact', head: true }).eq('tipo', 'colectivo'),
-  ])
-  return {
-    espacios: esp.count ?? 0,
-    eventos: ev.count ?? 0,
-    zonas: z.count ?? 0,
-    colectivos: col.count ?? 0,
-  }
+  return apiGet<StatsResponse>('/espacios/stats')
 }
 
 export async function getZona(slug: string): Promise<Zona> {

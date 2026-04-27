@@ -80,6 +80,7 @@ export default function CulturalMap() {
   const [espacios, setEspacios] = useState<Espacio[]>([])
   const [activeCats, setActiveCats] = useState<Set<string>>(new Set(ALL_CATS))
   const [showAllCats, setShowAllCats] = useState(false)
+  const [showEquipamientos, setShowEquipamientos] = useState(true)
 
   useEffect(() => {
     getEspacios({ limit: 1000 }).then(setEspacios).catch(console.error)
@@ -90,9 +91,10 @@ export default function CulturalMap() {
       const lat = e.lat ?? e.coordenadas?.lat
       const lng = e.lng ?? e.coordenadas?.lng
       if (!lat || !lng) return false
+      if (e.es_equipamiento_publico && !showEquipamientos) return false
       return activeCats.has(e.categoria_principal) || !ALL_CATS.includes(e.categoria_principal)
     }),
-  [espacios, activeCats])
+  [espacios, activeCats, showEquipamientos])
 
   const coords = useMemo<[number, number][]>(() =>
     filtered.map(e => [e.lat ?? e.coordenadas?.lat ?? 0, e.lng ?? e.coordenadas?.lng ?? 0]),
@@ -137,16 +139,18 @@ export default function CulturalMap() {
           const lat = espacio.lat ?? espacio.coordenadas?.lat ?? 0
           const lng = espacio.lng ?? espacio.coordenadas?.lng ?? 0
           const color = CAT_MARKER_COLORS[espacio.categoria_principal] ?? '#6B7280'
+          const isPublico = !!espacio.es_equipamiento_publico
           return (
             <CircleMarker
               key={espacio.id}
               center={[lat, lng]}
-              radius={7}
+              radius={isPublico ? 10 : 7}
               pathOptions={{
                 fillColor: color,
-                fillOpacity: 0.85,
-                color: '#fff',
-                weight: 2,
+                fillOpacity: isPublico ? 0.95 : 0.85,
+                color: isPublico ? '#000' : '#fff',
+                weight: isPublico ? 2.5 : 2,
+                dashArray: isPublico ? '4 2' : undefined,
               }}
             >
               <Popup>
@@ -154,7 +158,9 @@ export default function CulturalMap() {
                   href={`/espacio/${espacio.slug}`}
                   style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'Space Mono', monospace" }}
                 >
-                  <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2 }}>{espacio.nombre}</div>
+                  <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2 }}>
+                    {isPublico && <span title="Equipamiento público">★ </span>}{espacio.nombre}
+                  </div>
                   <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     {espacio.categoria_principal.replace(/_/g, ' ')}
                   </div>
@@ -179,7 +185,7 @@ export default function CulturalMap() {
         <h3 className="font-mono font-bold text-sm mb-2">FILTROS</h3>
         <div className="space-y-2">
           {mainCats.map((cat) => (
-            <label key={cat} className="flex items-center space-x-2 text-xs cursor-pointer">
+            <label key={cat} className="flex items-center gap-2 text-xs cursor-pointer">
               <input
                 type="checkbox"
                 className="rounded"
@@ -194,7 +200,7 @@ export default function CulturalMap() {
             </label>
           ))}
           {showAllCats && extraCats.map((cat) => (
-            <label key={cat} className="flex items-center space-x-2 text-xs cursor-pointer">
+            <label key={cat} className="flex items-center gap-2 text-xs cursor-pointer">
               <input
                 type="checkbox"
                 className="rounded"
@@ -217,6 +223,18 @@ export default function CulturalMap() {
               {showAllCats ? '▲ Menos' : `▼ +${extraCats.length} más`}
             </button>
           )}
+        </div>
+        <div className="border-t-2 border-black mt-3 pt-3">
+          <label className="flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded"
+              checked={showEquipamientos}
+              onChange={() => setShowEquipamientos(v => !v)}
+            />
+            <span className="font-bold">★ Equipamientos Públicos</span>
+          </label>
+          <p className="text-[9px] font-mono opacity-50 mt-1">UVAs · Bibliotecas · Teatros oficiales</p>
         </div>
         <p className="text-[10px] font-mono font-bold mt-2 uppercase tracking-wider">
           {espaciosConCoords} lugares
