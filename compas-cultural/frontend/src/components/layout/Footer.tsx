@@ -12,7 +12,7 @@ export default function Footer() {
             <span className="text-sm font-heading font-black uppercase tracking-wider">Cultura ETÉREA</span>
           </div>
           <div className="flex items-center gap-6 flex-wrap">
-            {['Explorar', 'Agenda', 'Mapa', 'Registrar'].map(label => (
+            {['Agenda', 'Mapa', 'Registrar'].map(label => (
               <Link
                 key={label}
                 to={`/${label.toLowerCase()}`}

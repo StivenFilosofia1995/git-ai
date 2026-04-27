@@ -8,7 +8,7 @@ import HomeChatSection from '../components/chat/HomeChatSection'
 import AISearchBar from '../components/search/AISearchBar'
 import ColtejerWireframe from '../components/illustrations/ColtejerWireframe'
 import ZonaCard from '../components/zones/ZonaCard'
-import { getZonas, getStats, type Zona } from '../lib/api'
+import { getZonas, getStats, getEventos, type Zona } from '../lib/api'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 
@@ -34,10 +34,19 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
 export default function Home() {
   const [zonas, setZonas] = useState<Zona[]>([])
   const [stats, setStats] = useState({ espacios: 0, eventos: 0, zonas: 0 })
+  const [eventosCount, setEventosCount] = useState(0)
 
   useEffect(() => {
     getZonas().then(setZonas).catch(() => {})
-    getStats().then(setStats).catch(() => {})
+    // Load stats and fallback eventos count in parallel
+    Promise.allSettled([
+      getStats().then(setStats),
+      getEventos({ limit: 1 }).then(() => {
+        // If getEventos works, get a real count via stats fallback
+      }),
+    ])
+    // Also try a direct eventos count for the fallback display
+    getEventos({ limit: 500 }).then(evs => setEventosCount(evs.length)).catch(() => {})
   }, [])
 
   return (
@@ -82,19 +91,13 @@ export default function Home() {
                 >
                   📍 Cerca de ti
                 </Link>
-                <Link
-                  to="/explorar"
-                  className="px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black hover:bg-black hover:text-white transition-all"
-                >
-                  Explorar red cultural
-                </Link>
               </div>
 
               {/* Real-time data counters */}
               <div className="flex gap-8 mt-10">
                 {[
                   { n: stats.espacios || zonas.length || 0, label: 'ESPACIOS' },
-                  { n: stats.eventos || 0, label: 'EVENTOS' },
+                  { n: stats.eventos || eventosCount || 0, label: 'EVENTOS' },
                   { n: stats.zonas || zonas.length || 0, label: 'ZONAS' },
                 ].map(d => {
                   const displayNum = typeof d.n === 'number' ? d.n.toLocaleString('es-CO') : d.n
