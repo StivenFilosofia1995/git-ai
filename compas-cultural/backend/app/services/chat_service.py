@@ -10,6 +10,12 @@ from app.database import supabase
 from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
 from app.services.gemini_client import gemini_chat
 from app.services.ollama_client import ollama_chat
+from app.services.ml_utils import (
+    multi_field_bm25,
+    tokenize as ml_tokenize,
+    urgency_score,
+    activity_to_numeric,
+)
 
 CO_TZ = ZoneInfo("America/Bogota")
 EVENT_SELECT_FIELDS = "id,slug,titulo,categoria_principal,fecha_inicio,fecha_fin,barrio,municipio,nombre_lugar,descripcion,precio,es_gratuito,imagen_url,direccion"
@@ -722,6 +728,92 @@ def _respuesta_fallback(contexto: Dict, user_message: str = "") -> str:
     return "\n\n".join(bloques) if bloques else "¡Hola! Soy ETÉREA. ¿En qué barrio o municipio estás y qué tipo de experiencias culturales te interesan?"
 
 
+def _rank_eventos_por_relevancia(
+    eventos: list[dict],
+    query: str,
+    now: datetime,
+    top_n: int = 20,
+) -> list[dict]:
+    """
+    Reordena eventos por relevancia ML al mensaje del usuario.
+
+    Score = BM25_multi_campo(query, evento) + urgency_score(días_hasta)
+
+    Asegura que el LLM reciba los eventos MÁS RELEVANTES en las primeras
+    posiciones, en lugar de los primeros cronológicamente.
+    """
+    if not eventos or not query:
+        return eventos[:top_n]
+
+    q_tokens = ml_tokenize(query)
+    if not q_tokens:
+        return eventos[:top_n]
+
+    scored = []
+    for ev in eventos:
+        bm25 = multi_field_bm25(
+            q_tokens,
+            {
+                "titulo":       (ev.get("titulo") or "", 3.0),
+                "nombre_lugar": (ev.get("nombre_lugar") or "", 2.0),
+                "categoria":    (ev.get("categoria_principal") or "", 2.5),
+                "barrio":       (ev.get("barrio") or "", 1.5),
+                "descripcion":  (ev.get("descripcion") or "", 1.0),
+                "municipio":    (ev.get("municipio") or "", 1.2),
+            },
+        )
+        days_until = 0.0
+        try:
+            fecha_str = ev.get("fecha_inicio") or ""
+            if fecha_str:
+                ev_dt = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
+                ev_dt_naive = ev_dt.replace(tzinfo=None)
+                now_naive = now.replace(tzinfo=None)
+                days_until = max(0.0, (ev_dt_naive - now_naive).total_seconds() / 86400)
+        except Exception:
+            pass
+        urgencia = urgency_score(days_until, weight=1.0, decay=7.0)
+        scored.append((ev, bm25 + urgencia))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [ev for ev, _ in scored[:top_n]]
+
+
+def _rank_espacios_por_relevancia(
+    espacios: list[dict],
+    query: str,
+    top_n: int = 15,
+) -> list[dict]:
+    """
+    Reordena espacios por relevancia BM25 al mensaje del usuario.
+    Bonus: activity_to_numeric(nivel_actividad) * 0.3
+    """
+    if not espacios or not query:
+        return espacios[:top_n]
+
+    q_tokens = ml_tokenize(query)
+    if not q_tokens:
+        return espacios[:top_n]
+
+    scored = []
+    for e in espacios:
+        bm25 = multi_field_bm25(
+            q_tokens,
+            {
+                "nombre":     (e.get("nombre") or "", 3.0),
+                "categoria":  (e.get("categoria_principal") or "", 2.5),
+                "barrio":     (e.get("barrio") or "", 1.5),
+                "municipio":  (e.get("municipio") or "", 1.2),
+                "descripcion":(e.get("descripcion") or e.get("descripcion_corta") or "", 1.0),
+            },
+        )
+        actividad = activity_to_numeric(e.get("nivel_actividad")) * 0.3
+        scored.append((e, bm25 + actividad))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [e for e, _ in scored[:top_n]]
+
+
 def _obtener_contexto(mensaje: str) -> Dict:
     import re
     contexto: Dict = {
@@ -744,19 +836,27 @@ def _obtener_contexto(mensaje: str) -> Dict:
 
     # Get spaces and keywords
     espacios, espacios_relevantes, keywords = _obtener_espacios(msg_clean, zona_filtro)
-    contexto["espacios"] = espacios
-    contexto["espacios_relevantes"] = espacios_relevantes
+
+    # ML ranking de espacios por relevancia al mensaje
+    now = _now_co()
+    contexto["espacios"] = _rank_espacios_por_relevancia(espacios, msg_clean)
+    contexto["espacios_relevantes"] = _rank_espacios_por_relevancia(espacios_relevantes, msg_clean)
 
     # Get events
     eventos_hoy, eventos_en_curso, eventos_anteriores, eventos_semana, hoy_iso = _obtener_eventos(zona_filtro)
-    contexto["eventos_hoy"] = eventos_hoy
-    contexto["eventos_en_curso"] = eventos_en_curso
-    contexto["eventos_anteriores"] = eventos_anteriores
-    
+
+    # ML ranking: reordenar eventos por relevancia al mensaje del usuario
+    # Asegura que el LLM reciba primero los más relevantes, no solo los más cercanos en fecha
+    msg_para_ranking = _strip_chat_context_prefixes(msg_clean)
+    contexto["eventos_hoy"] = _rank_eventos_por_relevancia(eventos_hoy, msg_para_ranking, now)
+    contexto["eventos_en_curso"] = _rank_eventos_por_relevancia(eventos_en_curso, msg_para_ranking, now)
+    contexto["eventos_anteriores"] = _rank_eventos_por_relevancia(eventos_anteriores, msg_para_ranking, now, top_n=10)
+
     # Search events by keywords
     all_ev_ids = {e["id"] for e in eventos_hoy + eventos_en_curso + eventos_semana}
     eventos_semana_extra = _buscar_eventos_por_keywords(keywords, hoy_iso, zona_filtro, all_ev_ids)
-    contexto["eventos_semana"] = eventos_semana + eventos_semana_extra
+    eventos_semana_todos = eventos_semana + eventos_semana_extra
+    contexto["eventos_semana"] = _rank_eventos_por_relevancia(eventos_semana_todos, msg_para_ranking, now)
 
     if zona_filtro:
         contexto["zona_usuario"] = zona_filtro

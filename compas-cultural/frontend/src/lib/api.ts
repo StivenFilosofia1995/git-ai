@@ -845,3 +845,29 @@ export async function eliminarResena(resenaId: string, userId: string): Promise<
     headers: { 'Authorization': `Bearer ${userId}` },
   })
 }
+
+// ─────────────────────────────────────────────────────────────
+// ML client-side — scoring de urgencia para UI
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Score de urgencia de un evento para mostrar badge en UI.
+ * urgency = 4 * e^(-días/3)
+ * Retorna: 'alta' | 'media' | 'baja' | null
+ */
+export function getUrgencyLabel(fechaInicio: string): 'alta' | 'media' | 'baja' | null {
+  try {
+    const now = new Date()
+    const ev = new Date(fechaInicio)
+    const daysUntil = (ev.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    if (daysUntil < 0) return null
+    const score = 4 * Math.exp(-daysUntil / 3)
+    if (score >= 3.0) return 'alta'   // < 1 día
+    if (score >= 1.5) return 'media'  // 1-3 días
+    if (score >= 0.5) return 'baja'   // 3-7 días
+    return null
+  } catch {
+    return null
+  }
+}
+

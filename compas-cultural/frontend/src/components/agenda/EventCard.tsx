@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useRef } from 'react'
-import { type Evento, trackInteraccion } from '../../lib/api'
+import { type Evento, trackInteraccion, getUrgencyLabel } from '../../lib/api'
 import { getEventDateParts } from '../../lib/datetime'
 import SmartEventImage from '../ui/SmartEventImage'
 import { useAuth } from '../../lib/AuthContext'
@@ -44,6 +44,9 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
   const horaConfirmada = evento.hora_confirmada === true && hora
   const fechaLabel = horaConfirmada ? `${dia} · ${hora}` : dia
   const horaPrompt = horaConfirmada ? hora : 'Horario en el enlace'
+
+  // ML: urgency score para badge visual
+  const urgency = getUrgencyLabel(evento.fecha_inicio)
 
   const sourceUrl = evento.fuente_url || null
   const isIg = evento.fuente?.includes('instagram')
@@ -147,7 +150,19 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-current px-2 py-0.5">
             {cat.replaceAll('_', ' ')}
           </span>
-          <span className="text-[10px] font-mono font-bold">{fechaLabel}</span>
+          <div className="flex items-center gap-1.5">
+            {urgency === 'alta' && (
+              <span className="text-[9px] font-mono font-black uppercase tracking-widest bg-black text-white px-1.5 py-0.5 animate-pulse">
+                HOY
+              </span>
+            )}
+            {urgency === 'media' && (
+              <span className="text-[9px] font-mono font-bold uppercase tracking-widest border border-black px-1.5 py-0.5 opacity-80">
+                PRONTO
+              </span>
+            )}
+            <span className="text-[10px] font-mono font-bold">{fechaLabel}</span>
+          </div>
         </div>
         {!horaConfirmada && sourceUrl && (
           <a

@@ -1,5 +1,6 @@
 from typing import List, Optional
 from app.database import supabase
+from app.services.ml_utils import wilson_lower_bound, bayesian_average
 
 
 def crear_resena(user_id: str, user_nombre: Optional[str], data: dict) -> dict:
@@ -32,7 +33,20 @@ def obtener_resenas(tipo: str, item_id: str, limit: int = 20, offset: int = 0) -
 
 
 def obtener_stats(tipo: str, item_id: str) -> dict:
-    """Get rating statistics for an event or space."""
+    """
+    Estadísticas de reseñas con scoring bayesiano avanzado.
+
+    Métricas ML añadidas:
+      promedio_bayesiano — media bayesiana con prior C=5, m=3.5
+        Evita que 1 reseña perfecta infle el score.
+        Con n→∞ converge a la media real.
+
+      wilson_score — límite inferior del CI de Wilson al 95%.
+        Mejor para ranking: un item con 100 reseñas de 4★
+        supera a uno con 2 reseñas de 5★.
+        
+      distribucion — histograma de puntuaciones 1-5
+    """
     resp = (
         supabase.table("resenas")
         .select("puntuacion")
@@ -41,13 +55,32 @@ def obtener_stats(tipo: str, item_id: str) -> dict:
         .execute()
     )
     puntuaciones = [r["puntuacion"] for r in resp.data]
-    if not puntuaciones:
-        return {"promedio": 0, "total": 0, "distribucion": {str(i): 0 for i in range(1, 6)}}
+    n = len(puntuaciones)
+
+    if n == 0:
+        return {
+            "promedio": 0,
+            "promedio_bayesiano": 0,
+            "wilson_score": 0.0,
+            "total": 0,
+            "distribucion": {str(i): 0 for i in range(1, 6)},
+        }
 
     distribucion = {str(i): puntuaciones.count(i) for i in range(1, 6)}
+    promedio_real = round(sum(puntuaciones) / n, 2)
+
+    # Media bayesiana con prior (C=5 votos, media=3.5/5)
+    prom_bayesiano = round(bayesian_average(puntuaciones, prior_n=5, prior_mean=3.5), 2)
+
+    # Wilson score: 4★ o 5★ como "positivas" para ranking
+    n_positivas = sum(1 for p in puntuaciones if p >= 4)
+    w_score = round(wilson_lower_bound(n_positivas, n), 4)
+
     return {
-        "promedio": round(sum(puntuaciones) / len(puntuaciones), 1),
-        "total": len(puntuaciones),
+        "promedio": promedio_real,
+        "promedio_bayesiano": prom_bayesiano,
+        "wilson_score": w_score,
+        "total": n,
         "distribucion": distribucion,
     }
 

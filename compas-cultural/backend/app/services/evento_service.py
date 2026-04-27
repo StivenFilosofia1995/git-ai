@@ -14,6 +14,14 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.database import supabase
+from app.services.ml_utils import (
+    urgency_score,
+    quality_score,
+    exponential_decay,
+    log1p_score,
+    multi_field_bm25,
+    tokenize,
+)
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -148,6 +156,63 @@ def _filter_events(
 
 
 # ══════════════════════════════════════════════════════════════
+# ML Scoring de eventos
+# ══════════════════════════════════════════════════════════════
+
+def _score_evento_ml(
+    ev: dict,
+    now: datetime,
+    texto: Optional[str] = None,
+) -> float:
+    """
+    Score ML compuesto para un evento. Usado para reordenar resultados
+    después de la consulta SQL (post-retrieval ranking).
+
+    Componentes:
+      f_urgencia  = 4 * e^(-days_until / 3)   — eventos pronto pesan más
+      f_calidad   = quality_score(ev) ∈ [0,4]  — contenido completo
+      f_texto     = BM25 multi-campo si hay query de texto
+      f_gratuito  = 0.3 bonus si es gratis
+
+    Retorna score ≥ 0 (sin cota superior fija).
+    """
+    # Urgencia
+    fecha_str = ev.get("fecha_inicio") or ""
+    days_until = 0.0
+    try:
+        if fecha_str:
+            ev_dt = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
+            ev_dt_naive = ev_dt.replace(tzinfo=None)
+            now_naive = now.replace(tzinfo=None)
+            days_until = max(0.0, (ev_dt_naive - now_naive).total_seconds() / 86400)
+    except Exception:
+        pass
+    f_urgencia = urgency_score(days_until, weight=4.0, decay=3.0)
+
+    # Calidad del contenido
+    f_calidad = quality_score(ev)
+
+    # BM25 si hay query
+    f_texto = 0.0
+    if texto:
+        f_texto = multi_field_bm25(
+            tokenize(texto),
+            {
+                "titulo":       (ev.get("titulo") or "", 3.0),
+                "nombre_lugar": (ev.get("nombre_lugar") or "", 2.0),
+                "categoria":    (ev.get("categoria_principal") or "", 2.0),
+                "barrio":       (ev.get("barrio") or "", 1.5),
+                "descripcion":  (ev.get("descripcion") or "", 1.0),
+            },
+        )
+
+    # Bonus accesibilidad
+    f_gratuito = 0.3 if ev.get("es_gratuito") else 0.0
+
+    return f_urgencia + f_calidad + f_texto + f_gratuito
+
+
+# ══════════════════════════════════════════════════════════════
 # Listado con filtros
 # ══════════════════════════════════════════════════════════════
 
@@ -234,7 +299,13 @@ def get_eventos(
         .range(offset, offset + limit - 1)
         .execute()
     )
-    return response.data or []
+    eventos = response.data or []
+
+    # Post-retrieval ML ranking: reordenar por score compuesto
+    # (urgencia + calidad + coincidencia textual)
+    now = _now_co()
+    eventos.sort(key=lambda ev: _score_evento_ml(ev, now, texto), reverse=True)
+    return eventos
 
 
 # ══════════════════════════════════════════════════════════════
@@ -403,13 +474,15 @@ def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
 
 def get_eventos_feed(limit: int = 20) -> List[dict]:
     """
-    Smart feed: diverse mix of upcoming events across all categories.
-    Ensures variety by limiting max events per category and shuffling.
-    Shows a mix of free/paid, different municipios, and different categories.
-    Used for non-logged-in users and the general home feed.
+    Smart feed con ML: mix diverso de eventos ordenado por score compuesto.
+
+    Score = urgency_decay(días) + quality_score + log1p(días_hasta*0) — diversificado
+    por categoría (máx 3) y municipio (máx 6). Prioriza eventos con imagen y
+    descripción completa sobre los que no tienen.
+
+    Para usuarios no logueados y el feed general de Home.
     """
     from collections import Counter
-    import random
 
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -439,21 +512,22 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
     if len(pool) <= limit:
         return pool
 
+    # Puntuar cada evento con ML
+    scored = [
+        (ev, _score_evento_ml(ev, ahora))
+        for ev in pool
+    ]
+    # Ordenar por score descendente
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Diversificación: máx 3 por categoría, máx 6 por municipio
     cat_count: Counter = Counter()
     muni_count: Counter = Counter()
     result = []
 
-    with_img = [e for e in pool if e.get("imagen_url")]
-    without_img = [e for e in pool if not e.get("imagen_url")]
-
-    random.shuffle(with_img)
-    random.shuffle(without_img)
-
-    candidates = with_img + without_img
-
-    for ev in candidates:
-        cat = ev.get("categoria_principal", "otro")
-        muni = ev.get("municipio", "medellin")
+    for ev, _score in scored:
+        cat = ev.get("categoria_principal") or "otro"
+        muni = ev.get("municipio") or "medellin"
 
         if cat_count[cat] >= 3:
             continue
@@ -467,5 +541,4 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
         if len(result) >= limit:
             break
 
-    result.sort(key=lambda e: e.get("fecha_inicio", ""))
     return result
