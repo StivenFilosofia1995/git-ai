@@ -588,12 +588,8 @@ def upsert_equipamiento(record: dict) -> str:
         "descripcion_corta": record.get("descripcion_corta"),
         "sitio_web": record.get("sitio_web"),
         "instagram_handle": record.get("instagram_handle"),
-        "facebook_url": (
-            f"https://facebook.com/{record['facebook']}" if record.get("facebook") else None
-        ),
         "nivel_actividad": record.get("nivel_actividad", "activo"),
         "es_underground": False,
-        "es_equipamiento_publico": True,
     }
     # Remove None values
     payload = {k: v for k, v in payload.items() if v is not None}

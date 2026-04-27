@@ -252,26 +252,30 @@ export async function getEventosTodos(params?: {
   es_gratuito?: boolean
   maxRows?: number
 }): Promise<Evento[]> {
-  const pageSize = 500
-  const maxRows = Math.max(500, params?.maxRows ?? 20000)
-  const all: Evento[] = []
-  let offset = 0
-
-  while (all.length < maxRows) {
-    const chunk = await getEventos({
-      limit: pageSize,
-      offset,
-      categoria: params?.categoria,
-      municipio: params?.municipio,
-      barrio: params?.barrio,
-      es_gratuito: params?.es_gratuito,
-    })
-    all.push(...chunk)
-    if (chunk.length < pageSize) break
-    offset += pageSize
+  // Use backend directly with high limit — it has no date filter
+  const search = new URLSearchParams()
+  search.set('limit', String(params?.maxRows ?? 5000))
+  search.set('offset', '0')
+  if (params?.categoria) search.set('categoria', params.categoria)
+  if (params?.municipio) search.set('municipio', params.municipio)
+  if (params?.barrio) search.set('barrio', params.barrio)
+  if (typeof params?.es_gratuito === 'boolean') search.set('es_gratuito', String(params.es_gratuito))
+  try {
+    return await apiGet<Evento[]>(`/eventos/?${search.toString()}`)
+  } catch {
+    // Supabase fallback — paginate all
+    const pageSize = 500
+    const maxRows = Math.max(500, params?.maxRows ?? 5000)
+    const all: Evento[] = []
+    let offset = 0
+    while (all.length < maxRows) {
+      const chunk = await getEventos({ limit: pageSize, offset, ...params })
+      all.push(...chunk)
+      if (chunk.length < pageSize) break
+      offset += pageSize
+    }
+    return all
   }
-
-  return all
 }
 
 export async function getEvento(slug: string): Promise<Evento> {
@@ -399,7 +403,7 @@ export async function getEventos(params?: {
   const limit = params?.limit ?? 500
   const offset = params?.offset ?? 0
   try {
-    // Supabase primary — exclude rechazado (NULL included automatically in supabase-js neq)
+    // Supabase primary — all events, exclude rechazado
     let query = supabase
       .from('eventos')
       .select('*')

@@ -239,16 +239,10 @@ def get_eventos(
     texto: Optional[str] = None,
 ) -> List[dict]:
     """
-    Listar eventos futuros con filtros robustos.
-    
-    Filtros:
-      - municipio: match exacto O fallback a nombre_lugar/barrio (ilike)
-      - categoria: match en categoria_principal O en array categorias
-      - colectivo_slug: resuelve slug → espacio_id
-      - texto: búsqueda en titulo/descripcion/nombre_lugar
+    Listar eventos con filtros robustos. Sin fecha_desde devuelve TODOS (no solo futuros).
     """
-    query = supabase.table("eventos").select("*").gte("fecha_inicio", _today_iso())
-    # Excluir eventos rechazados en consultas públicas (campo puede no existir en BD vieja)
+    query = supabase.table("eventos").select("*")
+    # Excluir rechazados
     query = query.neq("estado_moderacion", "rechazado")
 
     if fecha_desde:
@@ -386,12 +380,12 @@ def get_eventos_semana(
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
-    """Eventos desde mañana hasta el domingo de la PRÓXIMA semana. Con cache 10 min."""
+    """Eventos de los próximos 7 días (mañana a 7 días). Con cache 10 min."""
     _cache_key = (municipio, barrio, categoria, es_gratuito)
     if _CACHE_AVAILABLE and _cache_key in _SEMANA_CACHE:
         return _SEMANA_CACHE[_cache_key]
     manana_inicio = _tomorrow_start_co()
-    fin = datetime.fromisoformat(_sunday_of_next_week_iso())
+    fin = manana_inicio + timedelta(days=7)
     result = get_eventos(
         fecha_desde=manana_inicio,
         fecha_hasta=fin,
@@ -409,19 +403,19 @@ def get_eventos_semana(
 
 def get_eventos_proximas_semanas(
     dias: int = 21,
-    desde_dias: int = 1,
+    desde_dias: int = 7,
     municipio: Optional[str] = None,
     barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
-    """Ventana extendida con offset: eventos de `desde_dias` a `dias` días desde mañana."""
+    """Próximas 3 semanas: default desde día 7 hasta día 28 después de hoy."""
     if dias < 1:
-        dias = 1
+        dias = 21
     if dias > 90:
         dias = 90
     if desde_dias < 1:
-        desde_dias = 1
+        desde_dias = 7
     if desde_dias > dias:
         desde_dias = dias
 
