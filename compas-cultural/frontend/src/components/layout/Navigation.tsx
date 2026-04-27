@@ -1,9 +1,9 @@
 import { Link, useLocation } from 'react-router-dom'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Agenda' },
+  { to: '/explorar#cerca-de-ti', label: 'Cerca de ti' },
+  { to: '/agenda', label: 'Agenda' },
   { to: '/colectivos', label: 'Colectivos' },
-  { to: '/mapa', label: 'Mapa' },
   { to: '/nosotros', label: 'Nosotros' },
 ]
 
@@ -13,7 +13,8 @@ export default function Navigation() {
   return (
     <nav className="hidden md:flex items-center gap-0">
       {NAV_ITEMS.map(({ to, label }) => {
-        const active = to === '/' ? pathname === '/' : pathname.startsWith(to)
+        const basePath = to.split('#')[0]
+        const active = basePath === '/' ? pathname === '/' : pathname.startsWith(basePath)
         return (
           <Link
             key={to}

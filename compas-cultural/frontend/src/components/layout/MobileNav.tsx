@@ -1,9 +1,9 @@
 import { Link, useLocation } from 'react-router-dom'
 
 const LINKS = [
-  { to: '/', label: 'AGENDA', icon: '▲' },
+  { to: '/explorar#cerca-de-ti', label: 'CERCA', icon: '📍' },
+  { to: '/agenda', label: 'AGENDA', icon: '▲' },
   { to: '/colectivos', label: 'COLECTIVOS', icon: '◇' },
-  { to: '/nosotros', label: 'NOSOTROS', icon: '●' },
 ]
 
 export default function MobileNav() {
@@ -13,7 +13,8 @@ export default function MobileNav() {
     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t-2 border-black pb-[env(safe-area-inset-bottom)] z-50">
       <div className="flex">
         {LINKS.map(({ to, label, icon }) => {
-          const active = to === '/' ? pathname === '/' : pathname.startsWith(to)
+          const basePath = to.split('#')[0]
+          const active = basePath === '/' ? pathname === '/' : pathname.startsWith(basePath)
           return (
             <Link
               key={to}

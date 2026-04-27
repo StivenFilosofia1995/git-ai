@@ -149,7 +149,7 @@ export default function CercaDeTi() {
   const hayResultados = eventosProximos.length > 0 || espaciosProximos.length > 0
 
   return (
-    <section className="border-2 border-black mb-10">
+    <section id="cerca-de-ti" className="border-2 border-black mb-10 scroll-mt-24">
       {/* Header */}
       <div className="border-b-2 border-black px-5 py-4 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">

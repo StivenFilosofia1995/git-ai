@@ -75,6 +75,21 @@ export default function Home() {
 
               <AISearchBar />
 
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  to="/explorar#cerca-de-ti"
+                  className="px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-black text-white hover:bg-neutral-800 transition-all"
+                >
+                  📍 Cerca de ti
+                </Link>
+                <Link
+                  to="/explorar"
+                  className="px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black hover:bg-black hover:text-white transition-all"
+                >
+                  Explorar red cultural
+                </Link>
+              </div>
+
               {/* Real-time data counters */}
               <div className="flex gap-8 mt-10">
                 {[
