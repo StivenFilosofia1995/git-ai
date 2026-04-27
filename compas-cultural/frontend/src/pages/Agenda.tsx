@@ -1,6 +1,7 @@
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode } from 'react'
 import EventCard from '../components/agenda/EventCard'
+import EmptyEstadoInteligente from '../components/agenda/EmptyEstadoInteligente'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import HomeChatSection from '../components/chat/HomeChatSection'
 import { commitEventosDescubiertos, discoverEventosAI, getEventosHoy, getEventosSemana, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
@@ -297,14 +298,6 @@ export default function Agenda() {
   // Reset to page 1 whenever filters change
   useEffect(() => { setPage(1) }, [catFilter, zonaFilter, textFilter, municipioFilter, precioFilter, timeFilter])
 
-  function getEmptyMsg(cat: string, zona: string, municipio: string, precio: PrecioFilter, time: TimeFilter): string {
-    if (cat || zona) return 'No hay eventos con esos filtros.'
-    if (municipio) return `No hay eventos en ${MUNICIPIOS.find(m => m.value === municipio)?.label ?? municipio}.`
-    if (precio === 'gratuito') return 'No hay eventos gratuitos hoy.'
-    if (time === 'hoy') return 'No hay eventos registrados para hoy.'
-    return 'No hay eventos próximos.'
-  }
-
   function getTimeLabel(t: TimeFilter): string {
     if (t === 'hoy') return ' hoy'
     if (t === 'semana') return ' esta semana y la próxima'
@@ -562,23 +555,14 @@ export default function Agenda() {
         )}
 
         {!loading && !error && filtered.length === 0 && (
-          <div className="text-center py-14 border-2 border-dashed border-black space-y-4">
-            <p className="font-mono text-sm uppercase tracking-wider">
-              {getEmptyMsg(catFilter, zonaFilter, municipioFilter, precioFilter, timeFilter)}
-            </p>
-            <div className="flex justify-center">
-              <BuscarConAI
-                label="Buscar eventos con AI"
-                onSearch={() => runZonaScrape(20)}
-                autoCommit
-                onCommit={async candidatos => {
-                  const saved = await commitEventosDescubiertos(candidatos)
-                  return saved.message
-                }}
-                onComplete={reloadEventos}
-              />
-            </div>
-          </div>
+          <EmptyEstadoInteligente
+            catFilter={catFilter}
+            zonaFilter={zonaFilter}
+            zonaLabel={zonas.find(z => z.slug === zonaFilter)?.nombre ?? ''}
+            municipioFilter={municipioFilter}
+            timeFilter={timeFilter}
+            onEventosFound={() => reloadEventos()}
+          />
         )}
 
         {/* Grid compacto de eventos */}
