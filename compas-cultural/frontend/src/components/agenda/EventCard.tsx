@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom'
-import { type Evento } from '../../lib/api'
+import { useEffect, useRef } from 'react'
+import { type Evento, trackInteraccion } from '../../lib/api'
 import { getEventDateParts } from '../../lib/datetime'
 import SmartEventImage from '../ui/SmartEventImage'
+import { useAuth } from '../../lib/AuthContext'
 
 interface EventCardProps {
   evento: Evento
@@ -32,10 +34,13 @@ const CAT_COLORS: Record<string, string> = {
 }
 
 export default function EventCard({ evento, compact }: Readonly<EventCardProps>) {
+  const { user } = useAuth()
+  const cardRef = useRef<HTMLDivElement>(null)
+  const viewTracked = useRef(false)
+
   const { diaCorto: dia, hora } = getEventDateParts(evento)
   const cat = evento.categoria_principal
   const placeholderColor = CAT_COLORS[cat] ?? '#0a0a0a'
-  // Si no hay hora confirmada, no mostrar hora en el label de fecha
   const horaConfirmada = evento.hora_confirmada === true && hora
   const fechaLabel = horaConfirmada ? `${dia} · ${hora}` : dia
   const horaPrompt = horaConfirmada ? hora : 'Horario en el enlace'
@@ -51,10 +56,44 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
     `Quiero que me cuentes mas detalles solo de este evento: "${evento.titulo}". No me listes otros eventos. Fecha: ${dia} ${horaPrompt}. Lugar: ${ubicacionLabel || 'Medellin'}.`
   )
 
+  // ─── ML: Intersection Observer para trackear view cuando el card es visible ──
+  // Registra view_evento solo 1 vez por montaje y solo si hay usuario logueado.
+  // Usa threshold=0.5 para asegurar que el usuario realmente vio la card.
+  useEffect(() => {
+    if (!user || viewTracked.current) return
+    const el = cardRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && !viewTracked.current) {
+          viewTracked.current = true
+          void trackInteraccion('view_evento', evento.id, cat, user.id, {
+            barrio: evento.barrio ?? undefined,
+            municipio: evento.municipio ?? undefined,
+          })
+          observer.disconnect()
+        }
+      },
+      { threshold: 0.5 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [user, evento.id, cat, evento.barrio, evento.municipio])
+
+  // ─── ML: Handler de click para trackear interacción más fuerte ───────────
+  const handleClick = () => {
+    if (user) {
+      void trackInteraccion('click', evento.id, cat, user.id, {
+        barrio: evento.barrio ?? undefined,
+        municipio: evento.municipio ?? undefined,
+      })
+    }
+  }
+
   return (
-    <div className="group bg-white border-2 border-black hover:bg-black hover:text-white transition-all duration-300 overflow-hidden hover-lift flex flex-col">
+    <div ref={cardRef} className="group bg-white border-2 border-black hover:bg-black hover:text-white transition-all duration-300 overflow-hidden hover-lift flex flex-col">
       {/* Image */}
-      <Link to={`/evento/${evento.slug}`}>
+      <Link to={`/evento/${evento.slug}`} onClick={handleClick}>
         {evento.imagen_url ? (
           <div className={`${compact ? 'aspect-[2/1]' : 'aspect-[16/9]'} overflow-hidden border-b-2 border-black`}>
             <SmartEventImage
@@ -125,7 +164,7 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
           <span className="text-[9px] font-mono opacity-50 mb-2 block">🕐 Horario en el enlace</span>
         )}
 
-        <Link to={`/evento/${evento.slug}`}>
+        <Link to={`/evento/${evento.slug}`} onClick={handleClick}>
           <h3 className="font-heading font-black text-sm leading-snug mb-2 uppercase tracking-wide">
             {evento.titulo}
           </h3>

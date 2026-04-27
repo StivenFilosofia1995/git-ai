@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 from datetime import datetime, timedelta
 from typing import Optional
@@ -132,26 +133,53 @@ def _build_google_queries(
     categoria: Optional[str],
     colectivo_nombre: Optional[str],
     texto: Optional[str],
+    barrio: Optional[str] = None,
 ) -> list[str]:
-    q_parts = [p for p in [colectivo_nombre, categoria, texto, municipio] if p]
-    base = " ".join(q_parts).strip()
-    if not base:
-        base = "eventos culturales Medellin"
+    """Construye queries priorizando el texto libre del usuario (búsqueda semántica ligera).
 
-    region = municipio or "Valle de Aburrá"
-    return [
+    Estrategia de queries:
+    1. Si hay barrio: primero buscar en ese barrio específico → máxima precisión
+    2. Texto libre primero (lo que el usuario pidió) + contexto geográfico
+    3. Fuentes oficiales de la ciudad (alcaldía, instituciones)
+    4. Fuentes de colectivos (Instagram, Facebook local)
+    5. Ticketeras (Eventbrite, TuBoleta)
+    """
+    q_parts = [p for p in [colectivo_nombre, categoria, texto] if p]
+    base = " ".join(q_parts).strip() or "eventos culturales"
+    region = barrio or municipio or "Medellín"
+    ciudad = municipio or "Medellín"
+
+    queries = []
+
+    # Búsqueda hiper-local si hay barrio (ej: "aranjuez rock" → busca en Aranjuez)
+    if barrio:
+        queries.append(f"{base} {barrio} {ciudad}")
+        queries.append(f"colectivos culturales {barrio} {ciudad} agenda")
+        queries.append(f"site:instagram.com {base} {barrio}")
+        queries.append(f"eventos hoy fin de semana {barrio} {ciudad}")
+
+    queries += [
         f"{base} agenda cultural {region}",
-        f"{base} concierto teatro taller {region}",
-        f"site:instagram.com {base} evento {region}",
-        f"site:facebook.com events {base} {region}",
-        f"{base} abril mayo junio {region}",
-        f"agenda cultural gratis {region} hoy",
-        f"eventos hoy mañana fin de semana {region}",
-        f"cartelera cultural {region} {base}",
-        f"programacion cultural {region} {base}",
-        f"site:eventbrite.com {base} {region}",
-        f"site:tuboleta.com {base} {region}",
+        f"{base} concierto teatro taller {ciudad}",
+        f"colectivos culturales {base} {ciudad}",
+        f"site:instagram.com {base} evento {ciudad}",
+        f"site:facebook.com events {base} {ciudad}",
+        f"agenda cultural gratis {ciudad} hoy fin de semana",
+        f"cartelera cultural {ciudad} {base}",
+        f"programacion cultural {ciudad} {base}",
+        f"site:eventbrite.com {base} {ciudad}",
+        f"site:tuboleta.com {base} {ciudad}",
+        f"cultura medellín {base} unofficial colectivo",
+        f"eventos hoy mañana fin de semana {ciudad}",
     ]
+    # Deduplicar preservando orden
+    seen: set = set()
+    unique = []
+    for q in queries:
+        if q not in seen:
+            seen.add(q)
+            unique.append(q)
+    return unique
 
 
 async def _google_search_urls(query: str, max_results: int = 8) -> list[str]:
@@ -671,6 +699,59 @@ def _insert_discovered_event(evento_data: dict) -> tuple[bool, bool]:
     return True, False
 
 
+# ─── Scheduling Poisson: ¿cuándo scrapar cada fuente? ────────────────────────
+
+def _poisson_should_scrape(fuente_url: str, window_hours: float = 6.0) -> bool:
+    """Proceso de Poisson homogéneo para decidir si scrapar una fuente ahora.
+
+    λ = eventos_nuevos_últimos_7días / 7  (tasa diaria de publicación)
+    P(al menos 1 evento nuevo en window_hours) = 1 - e^(-λ * window_hours/24)
+
+    Si P > umbral (0.35), vale la pena scrapar ahora.
+    Fuentes sin historial: scrapar siempre (prior optimista).
+    """
+    try:
+        hace_7d = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        resp = (
+            supabase.table("eventos")
+            .select("id", count="exact")  # type: ignore[arg-type]
+            .eq("fuente_url", fuente_url)
+            .gte("created_at", hace_7d)
+            .execute()
+        )
+        k7 = resp.count or len(resp.data or [])
+    except Exception:
+        return True  # sin datos → scrapar (prior optimista)
+
+    lam_daily = k7 / 7.0  # λ eventos/día
+    prob = 1.0 - math.exp(-lam_daily * window_hours / 24.0)
+    return prob > 0.35  # umbral configurable
+
+
+def _rank_lugares_by_poisson(lugares: list[dict]) -> list[dict]:
+    """Ordena lugares candidatos por probabilidad Poisson de tener eventos nuevos.
+
+    Lugares con más actividad reciente en la BD van primero — el scraper
+    prioriza los que estadísticamente tienen mayor tasa de publicación.
+    """
+    def _lambda(lugar: dict) -> float:
+        try:
+            hace_7d = (datetime.utcnow() - timedelta(days=7)).isoformat()
+            resp = (
+                supabase.table("eventos")
+                .select("id", count="exact")  # type: ignore[arg-type]
+                .eq("espacio_id", lugar["id"])
+                .gte("created_at", hace_7d)
+                .execute()
+            )
+            k7 = resp.count or len(resp.data or [])
+            return k7 / 7.0
+        except Exception:
+            return 0.5  # prior neutro
+
+    return sorted(lugares, key=_lambda, reverse=True)
+
+
 async def discover_events_for_filters(
     *,
     municipio: Optional[str] = None,
@@ -678,6 +759,7 @@ async def discover_events_for_filters(
     es_gratuito: Optional[bool] = None,
     colectivo_slug: Optional[str] = None,
     texto: Optional[str] = None,
+    barrio: Optional[str] = None,
     max_queries: int = 4,
     max_results_per_query: int = 6,
     days_from: int = 0,
@@ -707,6 +789,7 @@ async def discover_events_for_filters(
     municipio = _normalize_text(municipio) or None
     categoria = _normalize_text(categoria) or None
     texto = (texto or "").strip() or None
+    barrio = (barrio or "").strip() or None
     colectivo = _resolve_colectivo_by_slug(colectivo_slug)
     if colectivo:
         stats["colectivo"] = colectivo.get("slug")
@@ -719,6 +802,7 @@ async def discover_events_for_filters(
         "days_ahead": str(days_ahead) if days_ahead is not None else "",
         "texto_usuario": texto or "",
         "tipo_precio": _precio_label(es_gratuito),
+        "barrio": barrio or "",
     }
 
     # ── 1. Direct scrape of known Medellín cultural sites (reliable, no Google) ──
@@ -755,13 +839,15 @@ async def discover_events_for_filters(
         except Exception:
             stats["errores"] += 1
 
-    # ── 2. Scrape websites from matching lugares in DB (pure code) ───────────
+    # ── 2. Scrape websites from matching lugares en DB, priorizados por Poisson ──
     candidate_lugares = _find_candidate_lugares(
         municipio=municipio,
         categoria=categoria,
-        texto=texto,
-        limit=20,
+        texto=texto or (stats["variables"].get("barrio")),
+        limit=24,
     )
+    # Ordenar por tasa Poisson (λ) — lugares que publican más eventos van primero
+    candidate_lugares = _rank_lugares_by_poisson(candidate_lugares)
     if colectivo:
         cid = colectivo.get("id")
         if cid and not any((l.get("id") == cid) for l in candidate_lugares):
@@ -799,11 +885,13 @@ async def discover_events_for_filters(
             stats["errores"] += 1
 
     # ── 3. Google discovery (last resort — fills remaining gaps) ─────────────
+    _barrio = stats["variables"].get("barrio") or None
     queries = _build_google_queries(
         municipio=municipio,
         categoria=categoria,
         colectivo_nombre=(colectivo or {}).get("nombre"),
         texto=texto,
+        barrio=_barrio,
     )[:max_queries]
 
     seen_urls: set[str] = set()

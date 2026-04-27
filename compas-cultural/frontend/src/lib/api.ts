@@ -598,6 +598,75 @@ export async function actualizarPerfil(
   return response.json() as Promise<PerfilUsuario>
 }
 
+// ─── ML: Tracking de interacciones + Recomendaciones personalizadas ───────────
+
+/**
+ * Registra una interacción del usuario para entrenar el modelo de recomendación.
+ * Llamar esto desde EventCard (view, click) y desde EventoPage (share).
+ *
+ * Los pesos implícitos en el backend:
+ *   view_evento=3, click=4, share=6, asistir=8
+ */
+export async function trackInteraccion(
+  tipo: 'view_evento' | 'click' | 'share' | 'asistir',
+  eventoId: string,
+  categoria: string,
+  userId: string,
+  metadata?: { barrio?: string; municipio?: string }
+): Promise<void> {
+  try {
+    await fetch(`${API_BASE_URL}/perfil/interaccion`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${userId}`,
+      },
+      body: JSON.stringify({ tipo, item_id: eventoId, categoria, metadata }),
+    })
+  } catch {
+    // Fire-and-forget: nunca bloquear la UI por tracking fallido
+  }
+}
+
+/**
+ * Obtiene eventos recomendados para el usuario usando el scoring ML del backend:
+ *   f_cat (decaimiento exponencial t½=14d) + f_geo (Haversine) +
+ *   f_urgencia (e^(-días/3)) + f_popularidad (log1p clicks 24h) + f_calidad
+ */
+export async function getRecomendaciones(userId: string, limit = 12): Promise<Evento[]> {
+  const response = await fetch(`${API_BASE_URL}/perfil/recomendaciones?limit=${limit}`, {
+    headers: { 'Authorization': `Bearer ${userId}` },
+  })
+  if (!response.ok) return []
+  const data = await response.json() as { recomendaciones?: Evento[] } | Evento[]
+  if (Array.isArray(data)) return data
+  return (data as { recomendaciones?: Evento[] }).recomendaciones ?? []
+}
+
+/**
+ * Versión extendida de discoverEventosAI que incluye barrio para búsqueda
+ * semántica hiper-local (ej: "aranjuez rock" busca colectivos en Aranjuez).
+ */
+export async function discoverEventosConBarrio(
+  params: DiscoverEventosParams & { barrio?: string }
+): Promise<DiscoverEventosResponse> {
+  const search = new URLSearchParams()
+  if (params.municipio) search.set('municipio', params.municipio)
+  if (params.categoria) search.set('categoria', params.categoria)
+  if (params.barrio) search.set('barrio', params.barrio)
+  if (typeof params.es_gratuito === 'boolean') search.set('es_gratuito', String(params.es_gratuito))
+  if (params.colectivo_slug) search.set('colectivo_slug', params.colectivo_slug)
+  if (params.texto) search.set('texto', params.texto)
+  if (params.max_queries) search.set('max_queries', String(params.max_queries))
+  if (params.max_results_per_query) search.set('max_results_per_query', String(params.max_results_per_query))
+  if (typeof params.days_from === 'number') search.set('days_from', String(params.days_from))
+  if (typeof params.days_ahead === 'number') search.set('days_ahead', String(params.days_ahead))
+  if (typeof params.strict_categoria === 'boolean') search.set('strict_categoria', String(params.strict_categoria))
+  search.set('auto_insert', String(params.auto_insert ?? true))
+  const path = '/scraper/discover-events/publico?' + search.toString()
+  return apiPost<DiscoverEventosResponse>(path, {})
+}
+
 export async function registrarInteraccion(
   data: { tipo: string; item_id: string; categoria?: string },
   userId: string
