@@ -181,8 +181,11 @@ export default function Agenda() {
         const municipioParam = municipioFilter || undefined
         const categoriaParam = catFilter || undefined
         const esGratuitoParam = priceFilterToBool(precioFilter)
+        const zonaObj = zonas.find(z => z.slug === zonaFilter)
+        const barrioParam = zonaObj?.nombre || undefined
         const temporalFilters = {
           municipio: municipioParam,
+          barrio: barrioParam,
           categoria: categoriaParam,
           es_gratuito: esGratuitoParam,
         }
@@ -195,6 +198,7 @@ export default function Agenda() {
         } else {
           setEventos(await getEventosTodos({
             municipio: municipioParam,
+            barrio: barrioParam,
             categoria: categoriaParam,
             es_gratuito: esGratuitoParam,
           }))
@@ -217,8 +221,11 @@ export default function Agenda() {
         const municipioParam = municipioFilter || undefined
         const categoriaParam = catFilter || undefined
         const esGratuitoParam = priceFilterToBool(precioFilter)
+        const zonaObj = zonas.find(z => z.slug === zonaFilter)
+        const barrioParam = zonaObj?.nombre || undefined
         const temporalFilters = {
           municipio: municipioParam,
+          barrio: barrioParam,
           categoria: categoriaParam,
           es_gratuito: esGratuitoParam,
         }
@@ -231,6 +238,7 @@ export default function Agenda() {
         } else {
           setEventos(await getEventosTodos({
             municipio: municipioParam,
+            barrio: barrioParam,
             categoria: categoriaParam,
             es_gratuito: esGratuitoParam,
           }))
@@ -242,7 +250,7 @@ export default function Agenda() {
       }
     }
     void cargar()
-  }, [timeFilter, municipioFilter, catFilter, precioFilter])
+  }, [timeFilter, municipioFilter, catFilter, precioFilter, zonaFilter, zonas])
 
   const filtered = useMemo(() => {
     let result = eventos
@@ -265,7 +273,10 @@ export default function Agenda() {
         result = result.filter(e => {
           const barrio = normalizeText(e.barrio)
           const lugar = normalizeText(e.nombre_lugar)
-          return zonaTokens.some(t => barrio.includes(t) || lugar.includes(t))
+          // Si tiene barrio, debe coincidir con tokens de zona
+          if (barrio) return zonaTokens.some(t => barrio.includes(t) || lugar.includes(t))
+          // Sin barrio: pasa si ya fue filtrado por backend (llegó en la respuesta)
+          return true
         })
       }
     }

@@ -142,11 +142,13 @@ async def publicar_evento(body: dict, request: Request):
 @router.get("/hoy")
 def get_eventos_hoy(
     municipio: Optional[str] = None,
+    barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ):
     return evento_service.get_eventos_hoy(
         municipio=municipio,
+        barrio=barrio,
         categoria=categoria,
         es_gratuito=es_gratuito,
     )
@@ -161,12 +163,14 @@ def get_eventos_feed(limit: Annotated[int, Query(ge=1, le=50)] = 20):
 @router.get("/semana")
 def get_eventos_semana(
     municipio: Optional[str] = None,
+    barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ):
     """Eventos hasta el domingo de la próxima semana (7–14 días)."""
     return evento_service.get_eventos_semana(
         municipio=municipio,
+        barrio=barrio,
         categoria=categoria,
         es_gratuito=es_gratuito,
     )
@@ -177,6 +181,7 @@ def get_eventos_proximas_semanas(
     dias: Annotated[int, Query(ge=7, le=90)] = 21,
     desde_dias: Annotated[int, Query(ge=1, le=60)] = 1,
     municipio: Optional[str] = None,
+    barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ):
@@ -185,6 +190,7 @@ def get_eventos_proximas_semanas(
         dias=dias,
         desde_dias=desde_dias,
         municipio=municipio,
+        barrio=barrio,
         categoria=categoria,
         es_gratuito=es_gratuito,
     )

@@ -175,6 +175,7 @@ export async function getEspacio(slugOrId: string): Promise<Espacio> {
 
 type EventosTemporalFilters = {
   municipio?: string
+  barrio?: string
   categoria?: string
   es_gratuito?: boolean
 }
@@ -182,6 +183,7 @@ type EventosTemporalFilters = {
 function buildTemporalFiltersQS(filters?: EventosTemporalFilters): string {
   const search = new URLSearchParams()
   if (filters?.municipio) search.set('municipio', filters.municipio)
+  if (filters?.barrio) search.set('barrio', filters.barrio)
   if (filters?.categoria) search.set('categoria', filters.categoria)
   if (typeof filters?.es_gratuito === 'boolean') search.set('es_gratuito', String(filters.es_gratuito))
   const qs = search.toString()
@@ -214,6 +216,7 @@ export async function getEventosProximasSemanas(
   search.set('dias', String(dias))
   search.set('desde_dias', String(desdeDias))
   if (filters?.municipio) search.set('municipio', filters.municipio)
+  if (filters?.barrio) search.set('barrio', filters.barrio)
   if (filters?.categoria) search.set('categoria', filters.categoria)
   if (typeof filters?.es_gratuito === 'boolean') search.set('es_gratuito', String(filters.es_gratuito))
   return apiGet<Evento[]>(`/eventos/proximas-semanas?${search.toString()}`)
@@ -222,6 +225,7 @@ export async function getEventosProximasSemanas(
 export async function getEventosTodos(params?: {
   categoria?: string
   municipio?: string
+  barrio?: string
   es_gratuito?: boolean
   maxRows?: number
 }): Promise<Evento[]> {
@@ -236,6 +240,7 @@ export async function getEventosTodos(params?: {
       offset,
       categoria: params?.categoria,
       municipio: params?.municipio,
+      barrio: params?.barrio,
       es_gratuito: params?.es_gratuito,
     })
     all.push(...chunk)
@@ -361,6 +366,7 @@ export async function getEventos(params?: {
   offset?: number
   categoria?: string
   municipio?: string
+  barrio?: string
   es_gratuito?: boolean
 }): Promise<Evento[]> {
   const limit = params?.limit ?? 500
@@ -370,6 +376,7 @@ export async function getEventos(params?: {
   search.set('offset', String(offset))
   if (params?.categoria) search.set('categoria', params.categoria)
   if (params?.municipio) search.set('municipio', params.municipio)
+  if (params?.barrio) search.set('barrio', params.barrio)
   if (typeof params?.es_gratuito === 'boolean') search.set('es_gratuito', String(params.es_gratuito))
   return apiGet<Evento[]>(`/eventos/?${search.toString()}`)
 }

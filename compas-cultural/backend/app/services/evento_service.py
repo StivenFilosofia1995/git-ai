@@ -121,16 +121,27 @@ def _is_event_happening_today(ev: dict, today_start: datetime, tomorrow_start: d
     return False
 
 
+def _event_matches_barrio(ev: dict, barrio: Optional[str]) -> bool:
+    if not barrio:
+        return True
+    b = _normalize_text(barrio)
+    ev_barrio = _normalize_text(ev.get("barrio"))
+    ev_lugar = _normalize_text(ev.get("nombre_lugar"))
+    return b in ev_barrio or b in ev_lugar or ev_barrio in b
+
+
 def _filter_events(
     eventos: List[dict],
     *,
     municipio: Optional[str] = None,
+    barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
     return [
         ev for ev in eventos
         if _event_matches_municipio(ev, municipio)
+        and _event_matches_barrio(ev, barrio)
         and _event_matches_categoria(ev, categoria)
         and _event_matches_precio(ev, es_gratuito)
     ]
@@ -232,6 +243,7 @@ def get_eventos(
 
 def get_eventos_hoy(
     municipio: Optional[str] = None,
+    barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
@@ -273,6 +285,7 @@ def get_eventos_hoy(
     return _filter_events(
         eventos,
         municipio=municipio,
+        barrio=barrio,
         categoria=categoria,
         es_gratuito=es_gratuito,
     )
@@ -280,6 +293,7 @@ def get_eventos_hoy(
 
 def get_eventos_semana(
     municipio: Optional[str] = None,
+    barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
@@ -294,6 +308,7 @@ def get_eventos_semana(
         fecha_desde=manana_inicio,
         fecha_hasta=fin,
         municipio=municipio,
+        barrio=barrio,
         categoria=categoria,
         es_gratuito=es_gratuito,
         limit=500,
@@ -305,6 +320,7 @@ def get_eventos_proximas_semanas(
     dias: int = 21,
     desde_dias: int = 1,
     municipio: Optional[str] = None,
+    barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
@@ -325,6 +341,7 @@ def get_eventos_proximas_semanas(
         fecha_desde=inicio,
         fecha_hasta=fin,
         municipio=municipio,
+        barrio=barrio,
         categoria=categoria,
         es_gratuito=es_gratuito,
         limit=500,
