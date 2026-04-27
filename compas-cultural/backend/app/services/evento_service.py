@@ -242,8 +242,6 @@ def get_eventos(
     Listar eventos con filtros robustos. Sin fecha_desde devuelve TODOS (no solo futuros).
     """
     query = supabase.table("eventos").select("*")
-    # Excluir rechazados
-    query = query.neq("estado_moderacion", "rechazado")
 
     if fecha_desde:
         query = query.gte("fecha_inicio", fecha_desde.isoformat())
