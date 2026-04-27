@@ -118,21 +118,31 @@ function isMidnightMarker(value: string | null | undefined): boolean {
  */
 export function hasReliableEventTime(value: EventDateInput): boolean {
   const context = getInputContext(value)
+  const parsed = parseEventDate(context.fecha_inicio)
+
+  if (!parsed) return false
+
+  const { hour, minute, second } = getBogotaClockParts(parsed)
+
+  const isScraperSource = Boolean(
+    context.fuente && /google_discovery|auto_scraper|agenda|scraping|generic|parser/i.test(context.fuente),
+  )
 
   // 1. Si el backend marca explícitamente, respetamos (nuevo flujo).
   if (context.hora_confirmada === true) {
     // Defensa extra: algunos navegadores pueden formatear medianoche como 24:00
     // y terminar mostrando 12:00 a. m. para eventos sin hora real.
-    return !isMidnightMarker(context.fecha_inicio)
+    if (isMidnightMarker(context.fecha_inicio)) return false
+
+    // Defensa adicional para horas extrañas de madrugada en fuentes de scraping.
+    // Evita mostrar 01:00-05:59 cuando suelen ser artefactos de parsing/zona horaria.
+    if (isScraperSource && hour >= 1 && hour <= 5) return false
+
+    return true
   }
   if (context.hora_confirmada === false) return false
 
   // 2. Fallback legacy: analizar por heurística (compatibilidad con datos viejos).
-  const parsed = parseEventDate(context.fecha_inicio)
-  if (!parsed) return false
-
-  const { hour, minute, second } = getBogotaClockParts(parsed)
-
   // 2a. 00:00:00 = "sin hora extraída" (marcador universal).
   if (hour === 0 && minute === 0 && second === 0) {
     return false
@@ -144,9 +154,13 @@ export function hasReliableEventTime(value: EventDateInput): boolean {
     hour === 19 &&
     minute === 0 &&
     second === 0 &&
-    context.fuente &&
-    /auto_scraper|agenda|scraping/i.test(context.fuente)
+    isScraperSource
   ) {
+    return false
+  }
+
+  // 2c. También ocultamos madrugadas sospechosas en fuentes de scraping.
+  if (isScraperSource && hour >= 1 && hour <= 5) {
     return false
   }
 
