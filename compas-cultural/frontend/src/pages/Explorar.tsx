@@ -64,9 +64,6 @@ export default function Explorar() {
       setWebMsg(null)
       setCommitMsg(null)
       try {
-        // Cargar stats siempre, incluso cuando hay ?q=, para que el contador no quede en cero.
-        const statsPromise = getStats()
-
         if (query) {
           // DB search + web discovery in PARALLEL
           await Promise.all([
@@ -96,8 +93,9 @@ export default function Explorar() {
                 setWebLoading(false)
               }
             })(),
-            statsPromise.then(st => setStats(st)).catch(() => undefined),
           ])
+          // Load stats in background for query mode
+          getStats().then(st => setStats(st)).catch(() => undefined)
 
         } else {
           const [esp, ev, hoy, z, st] = await Promise.all([
@@ -105,7 +103,7 @@ export default function Explorar() {
             getEventos({ limit: 800 }),
             getEventosHoy(),
             getZonas(),
-            statsPromise,
+            getStats(),
           ])
           setEspacios(esp)
           setEventos(ev)

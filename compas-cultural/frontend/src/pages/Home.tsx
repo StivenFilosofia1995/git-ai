@@ -93,15 +93,18 @@ export default function Home() {
               {/* Real-time data counters */}
               <div className="flex gap-8 mt-10">
                 {[
-                  { n: stats.espacios > 0 ? stats.espacios.toLocaleString('es-CO') : zonas.length, label: 'ESPACIOS' },
-                  { n: stats.eventos > 0 ? stats.eventos.toLocaleString('es-CO') : '—', label: 'EVENTOS' },
-                  { n: stats.zonas > 0 ? stats.zonas.toLocaleString('es-CO') : zonas.length, label: 'ZONAS' },
-                ].map(d => (
-                  <div key={d.label}>
-                    <div className="text-3xl font-heading font-black">{d.n}</div>
-                    <div className="text-[9px] font-mono font-bold tracking-[0.2em] mt-1">{d.label}</div>
-                  </div>
-                ))}
+                  { n: stats.espacios || zonas.length || 0, label: 'ESPACIOS' },
+                  { n: stats.eventos || 0, label: 'EVENTOS' },
+                  { n: stats.zonas || zonas.length || 0, label: 'ZONAS' },
+                ].map(d => {
+                  const displayNum = typeof d.n === 'number' ? d.n.toLocaleString('es-CO') : d.n
+                  return (
+                    <div key={d.label}>
+                      <div className="text-3xl font-heading font-black">{displayNum}</div>
+                      <div className="text-[9px] font-mono font-bold tracking-[0.2em] mt-1">{d.label}</div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
