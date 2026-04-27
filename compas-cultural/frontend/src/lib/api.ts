@@ -466,21 +466,26 @@ export interface StatsResponse {
 
 export async function getStats(): Promise<StatsResponse> {
   try {
-    // Count queries can be slow on large tables — allow 5s timeout instead of default 2.5s
-    const [esp, ev, z, col] = await withTimeout(Promise.all([
-      supabase.from('lugares').select('id', { count: 'exact', head: true }).neq('nivel_actividad', 'cerrado'),
-      supabase.from('eventos').select('id', { count: 'exact', head: true }),
-      supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
-      supabase.from('lugares').select('id', { count: 'exact', head: true }).eq('tipo', 'colectivo'),
-    ]), 5000)
-    return {
-      espacios: esp.count ?? 0,
-      eventos: ev.count ?? 0,
-      zonas: z.count ?? 0,
-      colectivos: col.count ?? 0,
-    }
+    // Backend first (cached 5min in Railway) — faster and more reliable than direct Supabase count
+    return await apiGet<StatsResponse>('/espacios/stats')
   } catch {
-    return apiGet<StatsResponse>('/espacios/stats')
+    // Fallback: direct Supabase count queries
+    try {
+      const [esp, ev, z, col] = await withTimeout(Promise.all([
+        supabase.from('lugares').select('id', { count: 'exact', head: true }).neq('nivel_actividad', 'cerrado'),
+        supabase.from('eventos').select('id', { count: 'exact', head: true }),
+        supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
+        supabase.from('lugares').select('id', { count: 'exact', head: true }).eq('tipo', 'colectivo'),
+      ]), 5000)
+      return {
+        espacios: esp.count ?? 0,
+        eventos: ev.count ?? 0,
+        zonas: z.count ?? 0,
+        colectivos: col.count ?? 0,
+      }
+    } catch {
+      return { espacios: 0, eventos: 0, zonas: 0, colectivos: 0 }
+    }
   }
 }
 
