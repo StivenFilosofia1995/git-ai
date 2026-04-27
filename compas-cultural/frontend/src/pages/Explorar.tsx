@@ -64,6 +64,9 @@ export default function Explorar() {
       setWebMsg(null)
       setCommitMsg(null)
       try {
+        // Cargar stats siempre, incluso cuando hay ?q=, para que el contador no quede en cero.
+        const statsPromise = getStats()
+
         if (query) {
           // DB search + web discovery in PARALLEL
           await Promise.all([
@@ -93,15 +96,16 @@ export default function Explorar() {
                 setWebLoading(false)
               }
             })(),
+            statsPromise.then(st => setStats(st)).catch(() => undefined),
           ])
 
         } else {
           const [esp, ev, hoy, z, st] = await Promise.all([
             getEspacios({ limit: 500 }),
-            getEventos({ limit: 200 }),
+            getEventos({ limit: 800 }),
             getEventosHoy(),
             getZonas(),
-            getStats(),
+            statsPromise,
           ])
           setEspacios(esp)
           setEventos(ev)
@@ -168,6 +172,20 @@ export default function Explorar() {
     }
     return result
   }, [eventosHoy, catFilter, muniFilter, textFilter])
+
+  const eventosBibliotecas = useMemo(() => {
+    const terminos = ['biblioteca', 'parque biblioteca', 'sistema de bibliotecas']
+    const base = filteredEventos.filter(e => {
+      const lugar = (e.nombre_lugar ?? '').toLowerCase()
+      const barrio = (e.barrio ?? '').toLowerCase()
+      const categoria = (e.categoria_principal ?? '').toLowerCase()
+      const cats = (e.categorias ?? []).map(c => c.toLowerCase())
+      return terminos.some(t => lugar.includes(t) || barrio.includes(t) || categoria.includes(t) || cats.includes(t))
+    })
+    return base
+      .sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio))
+      .slice(0, 12)
+  }, [filteredEventos])
 
   const municipios = useMemo(() => {
     const set = new Set<string>()
@@ -499,6 +517,27 @@ export default function Explorar() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredHoy.map(ev => (
+                    <EventCard key={ev.id} evento={ev} />
+                  ))}
+                </div>
+                <div className="border-t-2 border-black mt-8" />
+              </section>
+            )}
+
+            {/* SISTEMA DE BIBLIOTECAS */}
+            {(viewMode === 'todo' || viewMode === 'agenda') && eventosBibliotecas.length > 0 && (
+              <section className="mb-10">
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="w-4 h-4 bg-black" />
+                  <h2 className="text-lg font-heading font-black uppercase tracking-wider">
+                    Sistema de Bibliotecas por Barrios
+                  </h2>
+                  <span className="text-[10px] font-mono font-bold">
+                    {eventosBibliotecas.length} evento{eventosBibliotecas.length > 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {eventosBibliotecas.map(ev => (
                     <EventCard key={ev.id} evento={ev} />
                   ))}
                 </div>
