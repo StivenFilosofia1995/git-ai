@@ -303,20 +303,26 @@ def get_eventos_semana(
 
 def get_eventos_proximas_semanas(
     dias: int = 21,
+    desde_dias: int = 1,
     municipio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
-    """Ventana extendida: eventos desde mañana hasta N días en el futuro (default 21)."""
+    """Ventana extendida con offset: eventos de `desde_dias` a `dias` días desde mañana."""
     if dias < 1:
         dias = 1
     if dias > 90:
         dias = 90
+    if desde_dias < 1:
+        desde_dias = 1
+    if desde_dias > dias:
+        desde_dias = dias
 
     manana_inicio = _tomorrow_start_co()
+    inicio = manana_inicio + timedelta(days=desde_dias - 1)
     fin = manana_inicio + timedelta(days=dias)
     return get_eventos(
-        fecha_desde=manana_inicio,
+        fecha_desde=inicio,
         fecha_hasta=fin,
         municipio=municipio,
         categoria=categoria,

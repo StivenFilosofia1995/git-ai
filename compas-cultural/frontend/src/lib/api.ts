@@ -205,13 +205,45 @@ export async function getEventosSemana(filters?: EventosTemporalFilters): Promis
   return apiGet<Evento[]>(`/eventos/semana${qs}`)
 }
 
-export async function getEventosProximasSemanas(dias = 21, filters?: EventosTemporalFilters): Promise<Evento[]> {
+export async function getEventosProximasSemanas(
+  dias = 21,
+  filters?: EventosTemporalFilters,
+  desdeDias = 1,
+): Promise<Evento[]> {
   const search = new URLSearchParams()
   search.set('dias', String(dias))
+  search.set('desde_dias', String(desdeDias))
   if (filters?.municipio) search.set('municipio', filters.municipio)
   if (filters?.categoria) search.set('categoria', filters.categoria)
   if (typeof filters?.es_gratuito === 'boolean') search.set('es_gratuito', String(filters.es_gratuito))
   return apiGet<Evento[]>(`/eventos/proximas-semanas?${search.toString()}`)
+}
+
+export async function getEventosTodos(params?: {
+  categoria?: string
+  municipio?: string
+  es_gratuito?: boolean
+  maxRows?: number
+}): Promise<Evento[]> {
+  const pageSize = 500
+  const maxRows = Math.max(500, params?.maxRows ?? 20000)
+  const all: Evento[] = []
+  let offset = 0
+
+  while (all.length < maxRows) {
+    const chunk = await getEventos({
+      limit: pageSize,
+      offset,
+      categoria: params?.categoria,
+      municipio: params?.municipio,
+      es_gratuito: params?.es_gratuito,
+    })
+    all.push(...chunk)
+    if (chunk.length < pageSize) break
+    offset += pageSize
+  }
+
+  return all
 }
 
 export async function getEvento(slug: string): Promise<Evento> {
@@ -420,12 +452,35 @@ export interface RegistroEstadoResponse extends RegistroURLResponse {
   updated_at: string
 }
 
+export interface RegistroManualRequest {
+  nombre: string
+  municipio?: string
+  categoria_principal?: string
+  tipo?: string
+  barrio?: string
+  descripcion_corta?: string
+  instagram_handle?: string
+  sitio_web?: string
+  acepta_politica_datos: boolean
+}
+
+export interface RegistroManualResponse {
+  ok: boolean
+  lugar_id: string
+  slug: string
+  mensaje: string
+}
+
 export async function registrarPorURL(url: string, acepta_politica_datos: boolean): Promise<RegistroURLResponse> {
   return apiPost<RegistroURLResponse>('/registro/', { url, acepta_politica_datos })
 }
 
 export async function consultarEstadoRegistro(solicitudId: number): Promise<RegistroEstadoResponse> {
   return apiGet<RegistroEstadoResponse>(`/registro/${solicitudId}`)
+}
+
+export async function registrarPerfilManual(data: RegistroManualRequest): Promise<RegistroManualResponse> {
+  return apiPost<RegistroManualResponse>('/registro/manual', data)
 }
 
 // ---------- Publicar evento (colectivos/público) ----------

@@ -1,11 +1,12 @@
 import { Helmet } from 'react-helmet-async'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import {
   registrarPorURL,
   consultarEstadoRegistro,
   getEspacio,
+  registrarPerfilManual,
   type RegistroURLResponse,
   type RegistroEstadoResponse,
 } from '../lib/api'
@@ -13,6 +14,7 @@ import {
 type Fase = 'formulario' | 'procesando' | 'resultado'
 
 export default function Registrar() {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [url, setUrl] = useState('')
   const [fase, setFase] = useState<Fase>('formulario')
@@ -21,6 +23,19 @@ export default function Registrar() {
   const [perfilRef, setPerfilRef] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [aceptaDatos, setAceptaDatos] = useState(false)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualLoading, setManualLoading] = useState(false)
+  const [manualError, setManualError] = useState<string | null>(null)
+  const [manualForm, setManualForm] = useState({
+    nombre: '',
+    municipio: 'medellin',
+    categoria_principal: 'otro',
+    tipo: 'colectivo',
+    barrio: '',
+    descripcion_corta: '',
+    instagram_handle: '',
+    sitio_web: '',
+  })
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const limpiarPolling = useCallback(() => {
@@ -77,6 +92,29 @@ export default function Registrar() {
     setEstado(null)
     setPerfilRef(null)
     setError(null)
+  }
+
+  const enviarManual = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user) return
+    setManualError(null)
+    setManualLoading(true)
+    try {
+      const resp = await registrarPerfilManual({
+        ...manualForm,
+        barrio: manualForm.barrio || undefined,
+        descripcion_corta: manualForm.descripcion_corta || undefined,
+        instagram_handle: manualForm.instagram_handle || undefined,
+        sitio_web: manualForm.sitio_web || undefined,
+        acepta_politica_datos: aceptaDatos,
+      })
+      const ref = (resp.slug || resp.lugar_id).trim()
+      navigate(`/espacio/${encodeURIComponent(ref)}`)
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : 'No se pudo crear manualmente')
+    } finally {
+      setManualLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -227,6 +265,80 @@ export default function Registrar() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <div className="mt-8 border-2 border-black p-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <p className="text-xs font-mono uppercase tracking-wider font-bold">Si no funciona el registro automático</p>
+                <button
+                  type="button"
+                  onClick={() => setManualOpen(v => !v)}
+                  className="text-xs font-mono border-2 border-black px-3 py-1 hover:bg-black hover:text-white"
+                >
+                  {manualOpen ? 'Cerrar manual' : 'Crear manual'}
+                </button>
+              </div>
+              {manualOpen && (
+                <form onSubmit={enviarManual} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    required
+                    placeholder="Nombre del colectivo/espacio"
+                    value={manualForm.nombre}
+                    onChange={e => setManualForm({ ...manualForm, nombre: e.target.value })}
+                    className="sm:col-span-2 border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  <input
+                    placeholder="Municipio"
+                    value={manualForm.municipio}
+                    onChange={e => setManualForm({ ...manualForm, municipio: e.target.value })}
+                    className="border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  <input
+                    placeholder="Barrio"
+                    value={manualForm.barrio}
+                    onChange={e => setManualForm({ ...manualForm, barrio: e.target.value })}
+                    className="border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  <input
+                    placeholder="Categoría principal"
+                    value={manualForm.categoria_principal}
+                    onChange={e => setManualForm({ ...manualForm, categoria_principal: e.target.value })}
+                    className="border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  <input
+                    placeholder="Tipo (colectivo/espacio_fisico)"
+                    value={manualForm.tipo}
+                    onChange={e => setManualForm({ ...manualForm, tipo: e.target.value })}
+                    className="border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  <input
+                    placeholder="Instagram (opcional)"
+                    value={manualForm.instagram_handle}
+                    onChange={e => setManualForm({ ...manualForm, instagram_handle: e.target.value })}
+                    className="border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  <input
+                    placeholder="Sitio web (opcional)"
+                    value={manualForm.sitio_web}
+                    onChange={e => setManualForm({ ...manualForm, sitio_web: e.target.value })}
+                    className="border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  <input
+                    placeholder="Descripción corta (opcional)"
+                    value={manualForm.descripcion_corta}
+                    onChange={e => setManualForm({ ...manualForm, descripcion_corta: e.target.value })}
+                    className="sm:col-span-2 border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  {manualError && <p className="sm:col-span-2 text-xs text-red-600 font-mono">{manualError}</p>}
+                  <button
+                    type="submit"
+                    disabled={!aceptaDatos || manualLoading || !user}
+                    className="sm:col-span-2 bg-black text-white border-2 border-black px-4 py-2 text-xs font-mono uppercase tracking-wider disabled:opacity-50"
+                  >
+                    {manualLoading ? 'Creando...' : 'Crear perfil manual y ver perfil'}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         )}
@@ -399,6 +511,7 @@ function ResultadoError({ estado }: Readonly<{ estado: RegistroEstadoResponse }>
         <h2 className="text-xl font-mono font-bold">ERROR</h2>
       </div>
       <p className="text-sm font-mono">{estado.mensaje ?? 'No fue posible procesar la URL.'}</p>
+      <p className="text-xs font-mono mt-2 opacity-70">Puedes usar "Crear manual" arriba para no detenerte y apoyar el sistema.</p>
     </div>
   )
 }

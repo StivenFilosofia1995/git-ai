@@ -63,6 +63,40 @@ class RegistroEstadoResponse(BaseModel):
         from_attributes = True
 
 
+class RegistroManualRequest(BaseModel):
+    nombre: str
+    municipio: str = "medellin"
+    categoria_principal: str = "otro"
+    tipo: str = "colectivo"
+    barrio: Optional[str] = None
+    descripcion_corta: Optional[str] = None
+    instagram_handle: Optional[str] = None
+    sitio_web: Optional[str] = None
+    acepta_politica_datos: bool
+
+    @field_validator("nombre")
+    @classmethod
+    def validar_nombre(cls, v: str) -> str:
+        txt = (v or "").strip()
+        if len(txt) < 3:
+            raise ValueError("Nombre demasiado corto")
+        return txt[:150]
+
+    @field_validator("acepta_politica_datos")
+    @classmethod
+    def validar_consentimiento_manual(cls, v: bool) -> bool:
+        if v is not True:
+            raise ValueError("Debes aceptar la política de datos")
+        return v
+
+
+class RegistroManualResponse(BaseModel):
+    ok: bool
+    lugar_id: str
+    slug: str
+    mensaje: str
+
+
 def detectar_tipo_url(url: str) -> str:
     """Detecta el tipo de URL para dirigir al scraper adecuado."""
     parsed = urlparse(url)

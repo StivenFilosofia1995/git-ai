@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode
 import EventCard from '../components/agenda/EventCard'
 import BuscarConAI from '../components/ui/BuscarConAI'
 import HomeChatSection from '../components/chat/HomeChatSection'
-import { commitEventosDescubiertos, discoverEventosAI, getEventos, getEventosHoy, getEventosSemana, getEventosProximasSemanas, getZonas, getStats, type Evento, type Zona } from '../lib/api'
+import { commitEventosDescubiertos, discoverEventosAI, getEventosHoy, getEventosSemana, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
@@ -67,7 +67,7 @@ const TIME_DAYS_AHEAD: Record<TimeFilter, number> = {
   hoy: 0,
   semana: 14,
   proximas: 21,
-  todos: 60,
+  todos: 3650,
 }
 
 const CAT_OPTIONS = [
@@ -182,10 +182,9 @@ export default function Agenda() {
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana(temporalFilters))
         } else if (timeFilter === 'proximas') {
-          setEventos(await getEventosProximasSemanas(21, temporalFilters))
+          setEventos(await getEventosProximasSemanas(21, temporalFilters, 8))
         } else {
-          setEventos(await getEventos({
-            limit: 2000,
+          setEventos(await getEventosTodos({
             municipio: municipioParam,
             categoria: categoriaParam,
             es_gratuito: esGratuitoParam,
@@ -219,10 +218,9 @@ export default function Agenda() {
         } else if (timeFilter === 'semana') {
           setEventos(await getEventosSemana(temporalFilters))
         } else if (timeFilter === 'proximas') {
-          setEventos(await getEventosProximasSemanas(21, temporalFilters))
+          setEventos(await getEventosProximasSemanas(21, temporalFilters, 8))
         } else {
-          setEventos(await getEventos({
-            limit: 2000,
+          setEventos(await getEventosTodos({
             municipio: municipioParam,
             categoria: categoriaParam,
             es_gratuito: esGratuitoParam,

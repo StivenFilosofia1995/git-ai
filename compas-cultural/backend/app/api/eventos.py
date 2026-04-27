@@ -23,7 +23,7 @@ def get_eventos(
     es_gratuito: Optional[bool] = None,
     colectivo_slug: Optional[str] = None,
     texto: Optional[str] = None,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    limit: Annotated[int, Query(ge=1, le=5000)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Listar eventos con filtros robustos."""
@@ -175,13 +175,15 @@ def get_eventos_semana(
 @router.get("/proximas-semanas")
 def get_eventos_proximas_semanas(
     dias: Annotated[int, Query(ge=7, le=90)] = 21,
+    desde_dias: Annotated[int, Query(ge=1, le=60)] = 1,
     municipio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ):
-    """Eventos de los próximos N días (default 21)."""
+    """Eventos en ventana [desde_dias, dias] desde mañana (default 1..21)."""
     return evento_service.get_eventos_proximas_semanas(
-        dias,
+        dias=dias,
+        desde_dias=desde_dias,
         municipio=municipio,
         categoria=categoria,
         es_gratuito=es_gratuito,
