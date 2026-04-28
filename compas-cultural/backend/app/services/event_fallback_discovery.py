@@ -183,95 +183,15 @@ def _build_google_queries(
 
 
 async def _google_search_urls(query: str, max_results: int = 8) -> list[str]:
-    headers = {
-        "User-Agent": UA,
-        "Accept-Language": ACCEPT_LANG,
-    }
-    params = {
-        "q": query,
-        "hl": "es",
-        "gl": "co",
-        "num": min(max_results, 10),
-    }
-
-    urls: list[str] = []
-    try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-            resp = await client.get("https://www.google.com/search", params=params, headers=headers)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "lxml")
-            for a in soup.select("a[href]"):
-                href = a.get("href", "")
-                if href.startswith("/url?q="):
-                    href = href.split("/url?q=", 1)[1].split("&", 1)[0]
-                if not href.startswith("http"):
-                    continue
-                if any(skip in href for skip in ["google.com", "webcache", "accounts.google"]):
-                    continue
-                if href not in urls:
-                    urls.append(href)
-                if len(urls) >= max_results:
-                    break
-    except Exception:
-        pass
-
-    # Fallback: DuckDuckGo HTML (más estable cuando Google bloquea scraping).
-    if len(urls) < max_results:
-        ddg_params = {"q": query}
+    import asyncio
+    def _search():
         try:
-            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-                ddg = await client.get("https://duckduckgo.com/html/", params=ddg_params, headers=headers)
-                ddg.raise_for_status()
-                soup = BeautifulSoup(ddg.text, "lxml")
-                for a in soup.select("a.result__a[href]"):
-                    href = a.get("href", "")
-                    if not href.startswith("http"):
-                        continue
-                    if href not in urls:
-                        urls.append(href)
-                    if len(urls) >= max_results:
-                        break
-        except Exception:
-            pass
-
-    # Fallback 2: Bing HTML.
-    if len(urls) < max_results:
-        bing_params = {
-            "q": query,
-            "setlang": "es-CO",
-            "cc": "CO",
-            "count": min(max_results, 10),
-        }
-        try:
-            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-                bing = await client.get("https://www.bing.com/search", params=bing_params, headers=headers)
-                bing.raise_for_status()
-                soup = BeautifulSoup(bing.text, "lxml")
-                for a in soup.select("li.b_algo h2 a[href], a[href]"):
-                    href = a.get("href", "")
-                    if not href.startswith("http"):
-                        continue
-                    if any(skip in href for skip in ["bing.com", "microsoft.com"]):
-                        continue
-                    if href not in urls:
-                        urls.append(href)
-                    if len(urls) >= max_results:
-                        break
-        except Exception:
-            pass
-
-    # Fallback 3: browser search (Chromium/Playwright) for anti-bot pages.
-    if len(urls) < max_results:
-        try:
-            browser_urls = await _search_urls_with_browser(query, max_results=max_results)
-            for href in browser_urls:
-                if href not in urls:
-                    urls.append(href)
-                if len(urls) >= max_results:
-                    break
-        except Exception:
-            pass
-    return urls
+            from ddgs import DDGS
+            results = DDGS().text(query, max_results=max_results)
+            return [x['href'] for x in results] if results else []
+        except Exception as e:
+            return []
+    return await asyncio.to_thread(_search)
 
 
 VALLE_ABURRA_MUNICIPIOS = [
@@ -898,6 +818,7 @@ async def discover_events_for_filters(
     for query in queries:
         stats["consultas"].append(query)
         urls = await _google_search_urls(query, max_results=max_results_per_query)
+        await asyncio.sleep(2)  # Avoid rate limiting from search engines
         for url in urls:
             if url in seen_urls:
                 continue
