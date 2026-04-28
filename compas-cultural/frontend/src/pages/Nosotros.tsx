@@ -18,13 +18,7 @@ export default function Nosotros() {
 
       {/* HERO */}
       <section className="relative border-b-2 border-black bg-white overflow-hidden">
-        <img
-          src="/medellin-ilustracion.png"
-          alt=""
-          aria-hidden="true"
-          className="absolute right-0 bottom-0 h-full w-auto max-w-[85%] sm:max-w-[55%] object-contain object-right-bottom pointer-events-none select-none"
-          style={{ opacity: 0.22 }}
-        />
+        <img src="/medellin-ilustracion.png" alt="" aria-hidden="true" className="absolute inset-0 w-[200%] sm:w-full h-full object-contain sm:object-cover object-center pointer-events-none select-none opacity-[0.25] mix-blend-multiply sm:opacity-30 left-1/2 -translate-x-1/2" />
         <div
           className="absolute inset-0 pointer-events-none"
           style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.97) 38%, rgba(255,255,255,0.66) 58%, rgba(255,255,255,0.05) 78%)' }}
