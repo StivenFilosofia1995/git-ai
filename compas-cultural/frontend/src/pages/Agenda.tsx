@@ -332,8 +332,8 @@ export default function Agenda() {
           src="/medellin-ilustracion.png"
           alt=""
           aria-hidden="true"
-          className="absolute right-0 bottom-0 h-full w-auto max-w-[85%] sm:max-w-[55%] object-contain object-right-bottom pointer-events-none select-none"
-          style={{ opacity: 0.32 }}
+          className="absolute right-0 bottom-0 h-[115%] sm:h-full w-auto max-w-[125%] sm:max-w-[65%] object-contain object-right-bottom pointer-events-none select-none origin-bottom-right translate-x-[10%] sm:translate-x-0"
+          style={{ opacity: 0.45 }}
         />
         {/* Gradiente izquierdo suave — solo para legibilidad del texto */}
         <div

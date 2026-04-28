@@ -340,6 +340,7 @@ async def _scrape_known_sites(
     *,
     municipio: Optional[str],
     categoria: Optional[str],
+    texto: Optional[str] = None,
     max_sites: int = 6,
 ) -> list[dict]:
     """Directly scrape known Medellín cultural sites using code-based parsers.
@@ -355,10 +356,19 @@ async def _scrape_known_sites(
             site_cats = [c.replace("_", " ").lower() for c in site["categorias"]]
             if not any(cat_norm in sc or sc in cat_norm for sc in site_cats):
                 return False
+        if texto:
+            t = texto.lower()
+            sn = site.get("nombre", "").lower()
+            su = site.get("url", "").lower()
+            sm = site.get("municipio", "").lower()
+            # Si el texto de busqueda no esta en el nombre, URL o municipio (y la busqueda no es un simple check por muni)
+            # Solo scrapeamos este sitio si hace match.
+            if t not in sn and t not in su and t not in sm and sm not in t:
+                return False
         return True
 
     matching_sites = [s for s in KNOWN_CULTURAL_SITES if _matches(s)]
-    if not matching_sites:
+    if not matching_sites and not texto:
         matching_sites = list(KNOWN_CULTURAL_SITES)
 
     async def _fetch_site(site: dict) -> list[dict]:
@@ -729,6 +739,7 @@ async def discover_events_for_filters(
     known_events = await _scrape_known_sites(
         municipio=municipio,
         categoria=categoria,
+        texto=texto,
         max_sites=10,
     )
     known_source = "conocido_directo"
@@ -932,3 +943,4 @@ def commit_discovered_events(candidatos: list[dict]) -> dict:
         except Exception:
             result["errores"] += 1
     return result
+
