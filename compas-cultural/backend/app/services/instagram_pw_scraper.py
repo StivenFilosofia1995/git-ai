@@ -232,7 +232,7 @@ async def fetch_ig_profile(handle: str, timeout_ms: int = 28_000) -> Optional[di
 
 def _parse_api_response(data: dict) -> Optional[dict]:
     """Parse Instagram's web_profile_info API JSON response."""
-    result = {"external_url": None, "biography": "", "captions": [], "image_urls": [], "permalink_urls": []}
+    result = {"external_url": None, "biography": "", "captions": [], "image_urls": [], "permalink_urls": [], "timestamps": []}
     try:
         user = (
             data.get("data", {}).get("user")
@@ -254,15 +254,23 @@ def _parse_api_response(data: dict) -> Optional[dict]:
         for edge in edges[:15]:
             node = edge.get("node", {})
             # Caption
+            text = ""
             cap_edges = node.get("edge_media_to_caption", {}).get("edges", [])
             if cap_edges:
                 text = cap_edges[0].get("node", {}).get("text", "")
-                if text and len(text) > 10:
-                    result["captions"].append(text)
+            
+            if not text or len(text) <= 10:
+                continue
+                
+            result["captions"].append(text)
+            
+            # Timestamp
+            result["timestamps"].append(node.get("taken_at_timestamp") or 0)
+
             # Image
-            img = node.get("display_url") or node.get("thumbnail_src")
-            if img:
-                result["image_urls"].append(img)
+            img = node.get("display_url") or node.get("thumbnail_src") or ""
+            result["image_urls"].append(img)
+            
             # Permalink
             shortcode = node.get("shortcode") or node.get("code") or ""
             permalink = f"https://www.instagram.com/p/{shortcode}/" if shortcode else ""
@@ -286,6 +294,7 @@ def _parse_ig_html(html: str, handle: str) -> Optional[dict]:
         "captions": [],
         "image_urls": [],
         "permalink_urls": [],
+        "timestamps": [],
     }
 
     # ── Strategy 1: JSON embedded in <script data-sjs> tags ───────────────

@@ -412,11 +412,24 @@ def extract_events_from_ig_profile(
     captions: list[str] = profile.get("captions") or []
     image_urls: list[str] = profile.get("image_urls") or []
     permalink_urls: list[str] = profile.get("permalink_urls") or []
+    timestamps: list[int] = profile.get("timestamps") or []
 
     for i, caption in enumerate(captions):
+        post_time = now
+        if i < len(timestamps) and timestamps[i]:
+            try:
+                post_time = datetime.fromtimestamp(timestamps[i], tz=CO_TZ)
+                # Ignore posts older than 60 days
+                if (now - post_time).days > 60:
+                    continue
+            except (ValueError, TypeError):
+                pass
+                
         img = image_urls[i] if i < len(image_urls) else None
         permalink = permalink_urls[i] if i < len(permalink_urls) else None
-        ev = _caption_to_event(caption, img, nombre_lugar, categoria, municipio, now)
+        
+        # Use post_time instead of now for context
+        ev = _caption_to_event(caption, img, nombre_lugar, categoria, municipio, post_time)
         if ev:
             title_key = ev["titulo"].lower()[:50]
             if title_key not in seen_titles:
