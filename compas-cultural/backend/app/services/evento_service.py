@@ -239,12 +239,17 @@ def get_eventos(
     texto: Optional[str] = None,
 ) -> List[dict]:
     """
-    Listar eventos con filtros robustos. Sin fecha_desde devuelve TODOS (no solo futuros).
+    Listar eventos con filtros robustos.
     """
     query = supabase.table("eventos").select("*")
 
     if fecha_desde:
-        query = query.gte("fecha_inicio", fecha_desde.isoformat())
+        query = query.or_(f"fecha_inicio.gte.{fecha_desde.isoformat()},fecha_fin.gte.{fecha_desde.isoformat()}")
+    else:
+        # Si no se pasa fecha_desde (ej: pestaña Todos), mostrar solo futuros o en curso
+        hoy = _today_iso()
+        query = query.or_(f"fecha_inicio.gte.{hoy},fecha_fin.gte.{hoy}")
+
     if fecha_hasta:
         query = query.lte("fecha_inicio", fecha_hasta.isoformat())
 
