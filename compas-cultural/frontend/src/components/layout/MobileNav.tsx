@@ -21,7 +21,7 @@ export default function MobileNav() {
             <Link
               key={to}
               to={to}
-              className={lex-1 flex flex-col items-center justify-center gap-0.5 pt-2 pb-1.5 text-[8px] sm:text-[9px] font-mono font-bold uppercase tracking-wider transition-all duration-200  + (active ? 'text-white bg-black' : 'text-black')}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 pt-2 pb-1.5 text-[8px] sm:text-[9px] font-mono font-bold uppercase tracking-wider transition-all duration-200 ${active ? 'text-white bg-black' : 'text-black'}`}
             >
               <span className="text-sm">{icon}</span>
               {label}
