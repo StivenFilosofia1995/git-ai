@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaf
 import MarkerClusterGroup from '@changey/react-leaflet-markercluster'
 import 'leaflet/dist/leaflet.css'
 import '@changey/react-leaflet-markercluster/dist/styles.min.css'
-import { getEspacios, type Espacio } from '../../lib/api'
+import { getEspacios, getEventosTodos, type Espacio, type Evento } from '../../lib/api'
 
 const CAT_MARKER_COLORS: Record<string, string> = {
   teatro: '#DC2626',
@@ -78,12 +78,22 @@ function FitBounds({ coords }: { coords: [number, number][] }) {
 
 export default function CulturalMap() {
   const [espacios, setEspacios] = useState<Espacio[]>([])
+  const [eventos, setEventos] = useState<Evento[]>([])
   const [activeCats, setActiveCats] = useState<Set<string>>(new Set(ALL_CATS))
   const [showAllCats, setShowAllCats] = useState(false)
   const [showEquipamientos, setShowEquipamientos] = useState(true)
+  const [showEventos, setShowEventos] = useState(true)
 
   useEffect(() => {
     getEspacios({ limit: 1000 }).then(setEspacios).catch(console.error)
+    // Load events with coordinates (today + next 7 days)
+    getEventosTodos({ maxRows: 500 })
+      .then(evs => {
+        const hoy = new Date().toISOString().slice(0, 10)
+        const cutoff = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        setEventos(evs.filter(e => e.lat != null && e.lng != null && e.fecha_inicio >= hoy && e.fecha_inicio <= cutoff))
+      })
+      .catch(() => {})
   }, [])
 
   const filtered = useMemo(() =>
@@ -178,6 +188,55 @@ export default function CulturalMap() {
           )
         })}
         </MarkerClusterGroup>
+
+        {/* Events layer — upcoming events with coordinates */}
+        {showEventos && (
+          <MarkerClusterGroup chunkedLoading>
+            {eventos.map(ev => {
+              const lat = ev.lat ?? 0
+              const lng = ev.lng ?? 0
+              const fecha = ev.fecha_inicio?.slice(0, 10) ?? ''
+              const esHoy = fecha === new Date().toISOString().slice(0, 10)
+              return (
+                <CircleMarker
+                  key={ev.id}
+                  center={[lat, lng]}
+                  radius={esHoy ? 9 : 6}
+                  pathOptions={{
+                    fillColor: esHoy ? '#EF4444' : '#F97316',
+                    fillOpacity: 0.9,
+                    color: '#fff',
+                    weight: esHoy ? 2 : 1.5,
+                  }}
+                >
+                  <Popup>
+                    <a
+                      href={`/evento/${ev.slug}`}
+                      style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'Space Mono', monospace", maxWidth: 200 }}
+                    >
+                      {esHoy && (
+                        <div style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', marginBottom: 2 }}>
+                          ● HOY
+                        </div>
+                      )}
+                      <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2, lineHeight: 1.3 }}>{ev.titulo}</div>
+                      <div style={{ fontSize: 10, color: '#666' }}>{fecha}</div>
+                      {ev.nombre_lugar && (
+                        <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>◉ {ev.nombre_lugar}</div>
+                      )}
+                      {ev.es_gratuito && (
+                        <div style={{ fontSize: 9, fontWeight: 700, color: '#10B981', marginTop: 2 }}>GRATIS</div>
+                      )}
+                      <div style={{ fontSize: 9, color: '#000', marginTop: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                        Ver evento →
+                      </div>
+                    </a>
+                  </Popup>
+                </CircleMarker>
+              )
+            })}
+          </MarkerClusterGroup>
+        )}
       </MapContainer>
 
       {/* FILTERS panel */}
@@ -235,6 +294,24 @@ export default function CulturalMap() {
             <span className="font-bold">★ Equipamientos Públicos</span>
           </label>
           <p className="text-[9px] font-mono opacity-50 mt-1">UVAs · Bibliotecas · Teatros oficiales</p>
+        </div>
+        <div className="border-t border-black/20 mt-3 pt-3">
+          <label className="flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded"
+              checked={showEventos}
+              onChange={() => setShowEventos(v => !v)}
+            />
+            <span className="inline-flex items-center gap-1.5 font-bold">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
+              Eventos próximos
+            </span>
+          </label>
+          <p className="text-[9px] font-mono opacity-50 mt-1">Hoy y los próximos 7 días</p>
+          {showEventos && eventos.length > 0 && (
+            <p className="text-[9px] font-mono font-bold mt-0.5">{eventos.length} eventos en el mapa</p>
+          )}
         </div>
         <p className="text-[10px] font-mono font-bold mt-2 uppercase tracking-wider">
           {espaciosConCoords} lugares
