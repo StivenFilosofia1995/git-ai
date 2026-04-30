@@ -58,6 +58,14 @@ export default function Home() {
 
       {/* HERO */}
       <section className="relative bg-white border-b-2 border-black overflow-hidden">
+        {/* Background illustration */}
+        <img
+          src="/medellin-ilustracion.png"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none select-none opacity-[0.12] mix-blend-multiply"
+          style={{ imageRendering: 'auto' }}
+        />
         <div className="relative max-w-7xl mx-auto px-6 pt-24 pb-16 lg:pt-32 lg:pb-24">
           <div className="flex items-start justify-between gap-12">
             <div className="max-w-2xl">

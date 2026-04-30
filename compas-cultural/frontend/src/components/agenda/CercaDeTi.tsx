@@ -1,14 +1,8 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import EventCard from './EventCard'
 import {
-  getEspacios,
   getEventosTodos,
-  discoverEventosAI,
-  commitEventosDescubiertos,
   type Evento,
-  type Espacio,
-  type DescubiertoEvento,
 } from '../../lib/api'
 
 // ─── Haversine (km) ──────────────────────────────────────────────────────────
@@ -33,73 +27,35 @@ export default function CercaDeTi() {
   const [lng, setLng] = useState<number | null>(null)
   const [radioKm, setRadioKm] = useState(5)
   const [eventosProximos, setEventosProximos] = useState<(Evento & { distKm: number })[]>([])
-  const [espaciosProximos, setEspaciosProximos] = useState<(Espacio & { distKm: number })[]>([])
-  const [webCandidatos, setWebCandidatos] = useState<DescubiertoEvento[]>([])
-  const [webMsg, setWebMsg] = useState<string | null>(null)
-  const [committing, setCommitting] = useState(false)
-  const [commitMsg, setCommitMsg] = useState<string | null>(null)
 
   const buscarCerca = async (userLat: number, userLng: number, radio: number) => {
     setGeoState('loading')
     setEventosProximos([])
-    setEspaciosProximos([])
-    setWebCandidatos([])
-    setWebMsg(null)
-    setCommitMsg(null)
 
     try {
-      const [espaciosData, eventosData, webRes] = await Promise.allSettled([
-        getEspacios({ limit: 500 }),
-        getEventosTodos({ municipio: undefined, maxRows: 200 }),
-        discoverEventosAI({
-          texto: 'eventos culturales cerca barrio Medellín',
-          municipio: 'Medellín',
-          max_queries: 3,
-          max_results_per_query: 6,
-          days_from: 0,
-          days_ahead: 60,
-          auto_insert: false,
-        }),
-      ])
+      const eventosData = await getEventosTodos({ municipio: undefined, maxRows: 300 })
 
-      if (espaciosData.status === 'fulfilled') {
-        const conCoordenadas = espaciosData.value
-          .filter(e => e.lat != null && e.lng != null)
-          .map(e => ({
-            ...e,
-            distKm: haversineKm(userLat, userLng, e.lat!, e.lng!),
-          }))
-          .filter(e => e.distKm <= radio)
-          .sort((a, b) => a.distKm - b.distKm)
-          .slice(0, 10)
-        setEspaciosProximos(conCoordenadas)
-      }
+      const hoy = new Date()
+      const hoyStr = hoy.toISOString().slice(0, 10) // YYYY-MM-DD
 
-      if (eventosData.status === 'fulfilled') {
-        const hoyIso = new Date().toISOString()
-        const conCoordenadas = eventosData.value
-          .filter(e => e.lat != null && e.lng != null && e.fecha_inicio >= hoyIso)
-          .map(e => ({
-            ...e,
-            distKm: haversineKm(userLat, userLng, e.lat!, e.lng!),
-          }))
-          .filter(e => e.distKm <= radio)
-          .sort((a, b) => a.distKm - b.distKm)
-          .slice(0, 8)
-        setEventosProximos(conCoordenadas)
-      }
+      const conCoordenadas = eventosData
+        .filter(e => {
+          if (e.lat == null || e.lng == null) return false
+          const fechaEvento = e.fecha_inicio?.slice(0, 10)
+          return fechaEvento === hoyStr
+        })
+        .map(e => ({
+          ...e,
+          distKm: haversineKm(userLat, userLng, e.lat!, e.lng!),
+        }))
+        .filter(e => e.distKm <= radio)
+        .sort((a, b) => a.distKm - b.distKm)
+        .slice(0, 12)
 
-      if (webRes.status === 'fulfilled') {
-        const found = webRes.value.result?.candidatos ?? []
-        if (found.length > 0) {
-          setWebCandidatos(found)
-          setWebMsg(`La IA encontró ${found.length} evento(s) en la web cerca de tu zona`)
-        }
-      }
-
+      setEventosProximos(conCoordenadas)
       setGeoState('done')
     } catch {
-      setGeoError('No fue posible cargar datos de tu zona.')
+      setGeoError('No fue posible cargar eventos de tu zona.')
       setGeoState('error')
     }
   }
@@ -131,22 +87,8 @@ export default function CercaDeTi() {
     )
   }
 
-  const handleCommit = async () => {
-    if (webCandidatos.length === 0 || committing) return
-    setCommitting(true)
-    setCommitMsg(null)
-    try {
-      const res = await commitEventosDescubiertos(webCandidatos)
-      setCommitMsg(res.message)
-      setWebCandidatos([])
-    } catch {
-      setCommitMsg('Error al guardar. Intentá de nuevo.')
-    } finally {
-      setCommitting(false)
-    }
-  }
 
-  const hayResultados = eventosProximos.length > 0 || espaciosProximos.length > 0
+  const hayResultados = eventosProximos.length > 0
 
   return (
     <section id="cerca-de-ti" className="border-2 border-black mb-10 scroll-mt-24">
@@ -156,7 +98,7 @@ export default function CercaDeTi() {
           <span className="w-4 h-4 bg-black rounded-full animate-pulse" />
           <h2 className="text-lg font-heading font-black uppercase tracking-wider">CERCA DE TI</h2>
           <span className="text-[9px] font-mono font-bold opacity-50 uppercase tracking-wider">
-            Eventos y espacios en tu zona
+            Eventos de hoy en tu zona
           </span>
         </div>
 
@@ -213,7 +155,7 @@ export default function CercaDeTi() {
         <div className="px-5 py-12 text-center">
           <div className="text-4xl mb-3">📍</div>
           <p className="text-sm font-mono opacity-60 max-w-sm mx-auto">
-            Compartí tu ubicación y te mostramos eventos, teatros, galerías y espacios culturales a menos de {radioKm} km de vos.
+            Compartí tu ubicación y te mostramos los eventos culturales de hoy a menos de {radioKm} km de vos.
           </p>
         </div>
       )}
@@ -232,7 +174,7 @@ export default function CercaDeTi() {
         <div className="px-5 py-6">
           {!hayResultados && (
             <p className="text-sm font-mono opacity-60 text-center py-8">
-              No encontramos eventos con coordenadas a {radioKm} km de tu ubicación. Probá aumentar el radio.
+              No encontramos eventos de hoy con coordenadas a {radioKm} km de tu ubicación. Probá aumentar el radio.
             </p>
           )}
 
@@ -242,7 +184,7 @@ export default function CercaDeTi() {
               <div className="flex items-center gap-3 mb-4">
                 <span className="w-3 h-3 bg-red-500 animate-pulse" />
                 <h3 className="text-sm font-heading font-black uppercase tracking-wider">
-                  Eventos cercanos
+                  Eventos de hoy cerca de ti
                 </h3>
                 <span className="text-[9px] font-mono font-bold opacity-50">
                   {eventosProximos.length} a menos de {radioKm} km
@@ -260,81 +202,6 @@ export default function CercaDeTi() {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Espacios cercanos */}
-          {espaciosProximos.length > 0 && (
-            <div className="mb-6">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="w-3 h-3 bg-black" />
-                <h3 className="text-sm font-heading font-black uppercase tracking-wider">
-                  Espacios culturales cercanos
-                </h3>
-                <span className="text-[9px] font-mono font-bold opacity-50">
-                  {espaciosProximos.length} a menos de {radioKm} km
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0 border-2 border-black">
-                {espaciosProximos.map((esp, i) => (
-                  <div
-                    key={esp.id}
-                    className="group border-b border-r border-black p-4 hover:bg-black hover:text-white transition-all relative"
-                  >
-                    <Link to={`/espacio/${esp.slug}`} className="absolute inset-0 z-10" />
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-[9px] font-mono font-bold opacity-30 group-hover:opacity-100">
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
-                      <span className="text-[9px] font-mono font-bold bg-black text-white group-hover:bg-white group-hover:text-black px-1.5 py-0.5">
-                        {esp.distKm < 1
-                          ? `${Math.round(esp.distKm * 1000)} m`
-                          : `${esp.distKm.toFixed(1)} km`}
-                      </span>
-                    </div>
-                    <h4 className="font-heading font-black text-sm uppercase tracking-wide leading-tight mb-1">
-                      {esp.nombre}
-                    </h4>
-                    {esp.descripcion_corta && (
-                      <p className="text-[10px] font-mono opacity-50 group-hover:opacity-80 line-clamp-2 mb-2">
-                        {esp.descripcion_corta}
-                      </p>
-                    )}
-                    <div className="text-[9px] font-mono opacity-50 group-hover:opacity-100">
-                      {esp.barrio && <span>◉ {esp.barrio} · </span>}
-                      <span>{esp.municipio}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Web candidates */}
-          {webMsg && (
-            <div className="border border-black/30 p-4 bg-neutral-50 mt-4">
-              <p className="text-[11px] font-mono mb-3">{webMsg}</p>
-              {webCandidatos.length > 0 && (
-                <>
-                  <ul className="space-y-1 mb-3">
-                    {webCandidatos.slice(0, 5).map((c, i) => (
-                      <li key={i} className="text-[10px] font-mono">
-                        <span className="font-bold">·</span> {c.titulo} — {c.fecha_inicio?.slice(0, 10) ?? 'fecha por confirmar'}
-                      </li>
-                    ))}
-                  </ul>
-                  <button
-                    onClick={() => void handleCommit()}
-                    disabled={committing}
-                    className="px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-black text-white hover:bg-neutral-800 transition-all disabled:opacity-40"
-                  >
-                    {committing ? 'Guardando...' : `Agregar ${webCandidatos.length} evento(s) a la agenda`}
-                  </button>
-                </>
-              )}
-              {commitMsg && (
-                <p className="text-[10px] font-mono mt-2 text-green-700 font-bold">{commitMsg}</p>
-              )}
             </div>
           )}
         </div>
