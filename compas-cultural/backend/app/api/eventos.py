@@ -179,8 +179,8 @@ def get_eventos_semana(
 
 @router.get("/proximas-semanas")
 def get_eventos_proximas_semanas(
-    dias: Annotated[int, Query(ge=7, le=90)] = 21,
-    desde_dias: Annotated[int, Query(ge=1, le=60)] = 1,
+    dias: Annotated[int, Query(ge=1, le=90)] = 21,
+    desde_dias: Annotated[int, Query(ge=0, le=60)] = 0,
     municipio: Optional[str] = None,
     barrio: Optional[str] = None,
     categoria: Optional[str] = None,

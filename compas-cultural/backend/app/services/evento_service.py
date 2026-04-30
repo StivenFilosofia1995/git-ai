@@ -417,14 +417,14 @@ def get_eventos_proximas_semanas(
         dias = 21
     if dias > 90:
         dias = 90
-    if desde_dias < 1:
-        desde_dias = 7
+    if desde_dias < 0:
+        desde_dias = 0
     if desde_dias > dias:
         desde_dias = dias
 
-    manana_inicio = _tomorrow_start_co()
-    inicio = manana_inicio + timedelta(days=desde_dias - 1)
-    fin = manana_inicio + timedelta(days=dias)
+    hoy_inicio = _tomorrow_start_co() - timedelta(days=1)
+    inicio = hoy_inicio + timedelta(days=desde_dias)
+    fin = hoy_inicio + timedelta(days=dias)
     return get_eventos(
         fecha_desde=inicio,
         fecha_hasta=fin,
