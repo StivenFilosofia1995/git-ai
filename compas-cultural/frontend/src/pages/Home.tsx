@@ -63,7 +63,7 @@ export default function Home() {
           src="/medellin-ilustracion.png"
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none select-none opacity-[0.12] mix-blend-multiply"
+          className="absolute right-0 top-0 h-full w-auto max-w-[55%] object-contain object-right pointer-events-none select-none opacity-[0.18] mix-blend-multiply"
           style={{ imageRendering: 'auto' }}
         />
         <div className="relative max-w-7xl mx-auto px-6 pt-24 pb-16 lg:pt-32 lg:pb-24">
