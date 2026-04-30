@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.database import supabase
-from app.services.groq_client import groq_chat, MODEL_FAST, MODEL_SMART
+from app.services.ollama_client import ollama_chat
 import httpx
 from bs4 import BeautifulSoup
 
@@ -29,17 +29,9 @@ HEADERS = {
 
 # ── Venues clave con sus URLs ─────────────────────────────────────────────
 TARGET_VENUES = [
-    {"nombre": "Teatro Pablo Tobón Uribe",     "url": "https://teatropablotobon.com/eventos/",                         "categoria": "teatro",        "municipio": "medellin"},
-    {"nombre": "Teatro Matacandelas",           "url": "https://www.matacandelas.com/index.html",                       "categoria": "teatro",        "municipio": "medellin"},
-    {"nombre": "Teatro El Perpetuo Socorro",    "url": "https://www.elperpetuosocorro.org/",                            "categoria": "teatro",        "municipio": "medellin"},
-    {"nombre": "Biblioteca Pública Piloto",     "url": "https://bibliotecapiloto.gov.co/agenda",                        "categoria": "casa_cultura",  "municipio": "medellin"},
-    {"nombre": "Comfenalco Antioquia",          "url": "https://www.comfenalcoantioquia.com.co/personas/eventos",       "categoria": "centro_cultural","municipio": "medellin"},
-    {"nombre": "Fundación EPM",                 "url": "https://www.fundacionepm.org.co/",                              "categoria": "centro_cultural","municipio": "medellin"},
-    {"nombre": "Librería Café Exlibris",        "url": "https://www.exlibris.com.co/",                                  "categoria": "libreria",      "municipio": "medellin"},
-    {"nombre": "Distrito San Ignacio",          "url": "http://agendacultural.distritosanignacio.com/",                 "categoria": "centro_cultural","municipio": "medellin"},
-    {"nombre": "Vivir en el Poblado",           "url": "https://vivirenelpoblado.com/agenda-cultural/",                 "categoria": "festival",      "municipio": "medellin"},
-    {"nombre": "Comfama – Agenda",              "url": "https://www.comfama.com/contenidos/entretenimiento/",           "categoria": "centro_cultural","municipio": "medellin"},
-    {"nombre": "Plan B Medellín",               "url": "https://planbmedellin.com/",                                    "categoria": "musica_en_vivo","municipio": "medellin"},
+    {"nombre": "Biblioteca Pública Piloto",     "url": "https://bibliotecapiloto.gov.co/agenda/embed",                        "categoria": "casa_cultura",  "municipio": "medellin"},
+    {"nombre": "Fundación EPM",                 "url": "https://www.grupo-epm.com/site/fundacionepm/programacion/",                              "categoria": "centro_cultural","municipio": "medellin"},
+    {"nombre": "Sistema de Bibliotecas Públicas de Medellín", "url": "https://bibliotecasmedellin.gov.co/", "categoria": "casa_cultura", "municipio": "medellin"},
 ]
 
 PROMPT = """Eres experto en cultura urbana de Medellín, Colombia.
@@ -103,8 +95,13 @@ async def fetch(url):
 
 
 def extract(prompt_text):
-    # Usar MODEL_FAST (8b) — MODEL_SMART (70b) agotó cuota diaria
-    raw = groq_chat(prompt_text, model=MODEL_FAST, max_tokens=4096, temperature=0)
+    # Usar local Ollama instead of groq
+    raw = ollama_chat(
+        system_prompt="Eres experto en extracción. Responde solo con JSON.",
+        messages=[{"role": "user", "content": prompt_text}],
+        max_tokens=4096, 
+        temperature=0.1
+    )
     if not raw:
         return []
     raw = raw.strip()
