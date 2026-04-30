@@ -422,19 +422,26 @@ def get_eventos_proximas_semanas(
     if desde_dias > dias:
         desde_dias = dias
 
-    hoy_inicio = _tomorrow_start_co() - timedelta(days=1)
-    inicio = hoy_inicio + timedelta(days=desde_dias)
-    fin = hoy_inicio + timedelta(days=dias)
-    return get_eventos(
-        fecha_desde=inicio,
-        fecha_hasta=fin,
-        municipio=municipio,
-        barrio=barrio,
-        categoria=categoria,
-        es_gratuito=es_gratuito,
-        limit=500,
-        offset=0,
-    )
+    hoy = _now_co().replace(hour=0, minute=0, second=0, microsecond=0)
+    inicio = hoy + timedelta(days=desde_dias)
+    fin = hoy + timedelta(days=dias)
+    # Use plain date strings to avoid timezone mismatch with Supabase date columns
+    inicio_str = inicio.strftime('%Y-%m-%d')
+    fin_str = fin.strftime('%Y-%m-%d')
+    from app.database import supabase as sb
+    q = sb.table('eventos').select('*')
+    q = q.gte('fecha_inicio', inicio_str)
+    q = q.lte('fecha_inicio', fin_str)
+    if municipio:
+        q = q.or_(f'municipio.eq.{municipio},nombre_lugar.ilike.%{municipio}%,barrio.ilike.%{municipio}%')
+    if barrio:
+        q = q.ilike('barrio', f'%{barrio}%')
+    if categoria:
+        q = q.or_(f'categoria_principal.eq.{categoria},categorias.cs.{{{categoria}}}')
+    if es_gratuito is not None:
+        q = q.eq('es_gratuito', es_gratuito)
+    q = q.order('fecha_inicio').limit(500)
+    return q.execute().data or []
 
 
 # ══════════════════════════════════════════════════════════════
