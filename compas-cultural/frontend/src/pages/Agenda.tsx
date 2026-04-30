@@ -309,14 +309,29 @@ export default function Agenda() {
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE)
 
   // Group events by date — force Colombia timezone
+  // Events that started in the past but are still ongoing → group under today's date
+  const todayStr = new Date().toISOString().slice(0, 10)
   const grouped = paged.reduce<Record<string, Evento[]>>((acc, ev) => {
-    const dateKey = formatEventDate(ev.fecha_inicio, {
+    const fechaInicioStr = ev.fecha_inicio?.slice(0, 10) ?? ''
+    const fechaFinStr = ev.fecha_fin?.slice(0, 10) ?? ''
+    const isOngoing = fechaInicioStr < todayStr && (fechaFinStr >= todayStr || !fechaFinStr)
+    const effectiveDate = isOngoing ? todayStr + 'T00:00:00' : ev.fecha_inicio
+    const dateKey = formatEventDate(effectiveDate, {
       weekday: 'long', day: 'numeric', month: 'long'
     })
     if (!acc[dateKey]) acc[dateKey] = []
     acc[dateKey].push(ev)
     return acc
   }, {})
+
+  // Sort date keys: today first, then ascending
+  const sortedGroupEntries = Object.entries(grouped).sort(([, aEvs], [, bEvs]) => {
+    const aDate = aEvs[0].fecha_inicio?.slice(0, 10) ?? ''
+    const bDate = bEvs[0].fecha_inicio?.slice(0, 10) ?? ''
+    const aEff = aDate < todayStr ? todayStr : aDate
+    const bEff = bDate < todayStr ? todayStr : bDate
+    return aEff.localeCompare(bEff)
+  })
 
   return (
     <>
@@ -578,11 +593,16 @@ export default function Agenda() {
             ) : (
               /* Semana/Todos: agrupado por fecha */
               <div className="space-y-6">
-                {Object.entries(grouped).map(([dateLabel, dayEvents]) => (
+                {sortedGroupEntries.map(([dateLabel, dayEvents]) => {
+                  const hasOngoing = dayEvents.some(ev => (ev.fecha_inicio?.slice(0, 10) ?? '') < todayStr)
+                  return (
                   <div key={dateLabel}>
                     <div className="flex items-center gap-3 mb-3">
                       <span className="w-2.5 h-2.5 bg-black" />
                       <h3 className="text-xs font-mono font-bold uppercase tracking-wider">{dateLabel}</h3>
+                      {hasOngoing && (
+                        <span className="text-[9px] font-mono font-bold uppercase tracking-wider bg-black text-white px-1.5 py-0.5">EN CURSO</span>
+                      )}
                       <span className="text-[11px] font-mono opacity-60">{dayEvents.length} evento{dayEvents.length > 1 ? 's' : ''}</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -592,7 +612,8 @@ export default function Agenda() {
                     </div>
                     <div className="border-t border-black/20 mt-5" />
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
 
