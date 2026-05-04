@@ -171,17 +171,26 @@ export default function EspacioDetalle() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-mono font-bold uppercase tracking-wider text-xs">PRÓXIMOS EVENTOS</h3>
               <BuscarConAI
-                label="Ayudanos a buscar eventos en este perfil o lugar"
-                onSearch={async () => {
+                label="Web search"
+                allowTextInput
+                searchPlaceholder={`Busca eventos para ${espacio.nombre}`}
+                helperText="Puedes buscar por tema o por barrio. Ejemplos: rock, metal, hip hop, poesía, literatura, Aranjuez, Laureles."
+                suggestions={[
+                  `${espacio.nombre} agenda`,
+                  `${espacio.categoria_principal.replaceAll('_', ' ')} ${espacio.municipio}`,
+                  `${espacio.barrio || espacio.municipio} cultura`,
+                ]}
+                initialQuery={espacio.nombre}
+                onSearch={async (query) => {
                   const res = await discoverEventosAI({
                     colectivo_slug: espacio.slug,
                     municipio: espacio.municipio,
                     categoria: espacio.categoria_principal,
-                    texto: espacio.nombre,
+                    texto: query || espacio.nombre,
                     max_queries: 4,
                     max_results_per_query: 8,
                     days_ahead: 21,
-                    auto_insert: true,
+                    auto_insert: false,
                   })
                   return {
                     message: res.message,

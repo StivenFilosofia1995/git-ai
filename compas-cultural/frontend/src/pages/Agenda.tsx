@@ -2,7 +2,8 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode } from 'react'
 import EventCard from '../components/agenda/EventCard'
 import HomeChatSection from '../components/chat/HomeChatSection'
-import { getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
+import BuscarConAI from '../components/ui/BuscarConAI'
+import { commitEventosDescubiertos, discoverEventosConBarrio, getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
@@ -154,6 +155,7 @@ export default function Agenda() {
   const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('')
   const [page, setPage] = useState(1)
   const fechaActual = useColombiaClock()
+  const zonaActiva = useMemo(() => zonas.find(z => z.slug === zonaFilter) ?? null, [zonas, zonaFilter])
 
   useEffect(() => {
     getZonas().then(setZonas).catch(console.error)
@@ -413,6 +415,57 @@ export default function Agenda() {
               </button>
             )}
           </div>
+        </div>
+
+        <div className="mb-6 border-2 border-black p-4 bg-white">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-2.5 h-2.5 bg-black" />
+            <span className="text-[10px] font-mono font-bold uppercase tracking-[0.25em]">Ayúdanos a buscar eventos</span>
+          </div>
+          <p className="text-xs font-mono opacity-70 mb-4">
+            Si no aparece lo que buscas, escribe un tema, barrio o colectivo. El web search rastrea la web, crea tarjetas candidatas y te pregunta si deseas guardarlas en el sistema.
+          </p>
+          <BuscarConAI
+            label="Web search"
+            allowTextInput
+            searchPlaceholder={zonaActiva
+              ? `Ej: rock, metal, hip hop, poesía en ${zonaActiva.nombre}`
+              : 'Ej: rock metal medellín, hip hop aranjuez, literatura laureles'}
+            helperText="Funciona por tema, barrio, municipio o nombre de colectivo."
+            suggestions={[
+              zonaActiva ? `eventos en ${zonaActiva.nombre}` : 'eventos en aranjuez',
+              catFilter ? `${catFilter.replaceAll('_', ' ')} ${municipioFilter || 'medellin'}` : 'rock metal medellin',
+              'hip hop freestyle',
+              'literatura laureles',
+            ]}
+            onSearch={async (query) => {
+              const res = await discoverEventosConBarrio({
+                municipio: municipioFilter || zonaActiva?.municipio || undefined,
+                barrio: zonaActiva?.nombre || undefined,
+                categoria: catFilter || undefined,
+                es_gratuito: priceFilterToBool(precioFilter),
+                texto: query || [catFilter, zonaActiva?.nombre, municipioFilter].filter(Boolean).join(' ') || 'eventos culturales medellin',
+                max_queries: 4,
+                max_results_per_query: 8,
+                days_ahead: timeFilter === 'hoy' ? 7 : 21,
+                strict_categoria: Boolean(catFilter),
+                auto_insert: false,
+              })
+              return {
+                message: res.message,
+                candidatos: res.result.candidatos ?? [],
+                variables: {
+                  tipo_evento: catFilter || 'cultural',
+                  zona: zonaActiva?.nombre || municipioFilter || 'valle de aburra',
+                  fecha_actual: new Date().toISOString().slice(0, 10),
+                },
+              }
+            }}
+            onCommit={async candidatos => {
+              const saved = await commitEventosDescubiertos(candidatos)
+              return saved.message
+            }}
+          />
         </div>
 
         {/* Filtros — Fila 1: Tiempo + Precio + Municipio */}

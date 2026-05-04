@@ -76,14 +76,23 @@ export default function ZonaDetalle() {
               )}
               <div className="mt-6">
                 <BuscarConAI
-                  label="Buscar eventos en esta zona"
-                  onSearch={async () => {
+                  label="Web search"
+                  allowTextInput
+                  searchPlaceholder={`Busca eventos en ${zona.nombre}`}
+                  helperText="Prueba por tema o barrio: rock, metal, hip hop, literatura, gratis, hoy, este fin de semana."
+                  suggestions={[
+                    `eventos en ${zona.nombre}`,
+                    `rock ${zona.nombre}`,
+                    `hip hop ${zona.nombre}`,
+                  ]}
+                  initialQuery={zona.nombre}
+                  onSearch={async (query) => {
                     const res = await discoverEventosAI({
                       municipio: zona.municipio,
-                      texto: zona.nombre,
+                      texto: query || zona.nombre,
                       max_queries: 2,
                       max_results_per_query: 4,
-                      auto_insert: true,
+                      auto_insert: false,
                     })
                     return {
                       message: res.message,
@@ -212,14 +221,22 @@ export default function ZonaDetalle() {
                 </p>
                 <div className="flex justify-center">
                   <BuscarConAI
-                    label="Buscar eventos con AI"
-                    onSearch={async () => {
+                    label="Web search"
+                    allowTextInput
+                    searchPlaceholder={`Busca eventos en ${zona.nombre}`}
+                    suggestions={[
+                      `eventos en ${zona.nombre}`,
+                      `poesia ${zona.nombre}`,
+                      `teatro ${zona.nombre}`,
+                    ]}
+                    initialQuery={zona.nombre}
+                    onSearch={async (query) => {
                       const res = await discoverEventosAI({
                         municipio: zona.municipio,
-                        texto: zona.nombre,
+                        texto: query || zona.nombre,
                         max_queries: 2,
                         max_results_per_query: 5,
-                        auto_insert: true,
+                        auto_insert: false,
                       })
                       return {
                         message: res.message,

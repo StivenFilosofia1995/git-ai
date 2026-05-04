@@ -579,6 +579,7 @@ export interface RegistroManualRequest {
   tipo?: string
   barrio?: string
   descripcion_corta?: string
+  email?: string
   instagram_handle?: string
   sitio_web?: string
   acepta_politica_datos: boolean

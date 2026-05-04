@@ -98,17 +98,32 @@ export default function Colectivos() {
             </div>
             <div className="mt-6">
               <BuscarConAI
-                label="Ayudanos a buscar eventos en este perfil o lugar"
-                onSearch={async () => {
+                label="Web search"
+                allowTextInput
+                searchPlaceholder="Busca por tema, barrio o colectivo: rock, metal, hip hop, literatura, Aranjuez..."
+                helperText="Escribe lo que estás buscando y ETÉREA rastrea la web, genera tarjetas candidatas y luego te pregunta si deseas guardarlas en el sistema."
+                suggestions={filtro
+                  ? [
+                      `${filtro.replaceAll('_', ' ')} medellin`,
+                      `${filtro.replaceAll('_', ' ')} envigado`,
+                      `${filtro.replaceAll('_', ' ')} esta semana`,
+                    ]
+                  : [
+                      'rock metal medellin',
+                      'hip hop freestyle aranjuez',
+                      'literatura laureles',
+                      'poesia envigado',
+                    ]}
+                onSearch={async (query) => {
                   const res = await discoverEventosAI({
                     categoria: filtro || undefined,
-                    texto: filtro
+                    texto: query || (filtro
                       ? `eventos culturales ${filtro.replaceAll('_', ' ')} en medellin y valle de aburra`
-                      : 'colectivos culturales valle de aburra eventos medellin',
+                      : 'colectivos culturales valle de aburra eventos medellin'),
                     max_queries: 4,
                     max_results_per_query: 8,
                     days_ahead: 21,
-                    auto_insert: true,
+                    auto_insert: false,
                   })
                   return {
                     message: res.message,

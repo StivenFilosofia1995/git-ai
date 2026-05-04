@@ -67,6 +67,22 @@ async def _run_agenda_alternativa():
         print(f"❌ Agenda alternativa error: {e}")
 
 
+def _run_weekly_digest():
+    """Weekly digest email job for registered users and colectivos."""
+    from app.services.email_service import send_weekly_digest_campaign
+    try:
+        stats = send_weekly_digest_campaign()
+        print(
+            "📬 Weekly digest: "
+            f"destinatarios={stats.get('recipients', 0)} | "
+            f"sent={stats.get('sent', 0)} | "
+            f"skipped={stats.get('skipped', 0)} | "
+            f"failed={stats.get('failed', 0)}"
+        )
+    except Exception as e:
+        print(f"❌ Weekly digest error: {e}")
+
+
 def _run_privacy_cleanup():
     """Job wrapper for automatic privacy/data retention cleanup."""
     from app.services.privacy_cleanup import run_privacy_cleanup
@@ -128,6 +144,14 @@ def start_scheduler():
         trigger=CronTrigger(hour="7,11,16,21", minute=40, timezone=CO_TZ),
         id="agenda_alternativa",
         name="Agenda alternativa — medios independientes (4x día)",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        _run_weekly_digest,
+        trigger=CronTrigger(day_of_week="mon", hour=8, minute=35, timezone=CO_TZ),
+        id="weekly_digest",
+        name="Boletín semanal de eventos",
         replace_existing=True,
     )
 
@@ -208,6 +232,7 @@ def start_scheduler():
     print("   • Discovery: 08:10 y 20:10")
     print("   • Imágenes: 10:20 y 22:20")
     print("   • Agenda alternativa: 07:40, 11:40, 16:40, 21:40")
+    print("   • Boletín semanal: lunes a las 08:35")
     print("   • Limpieza de privacidad: diaria a las 3:30am")
     print("   • Limpieza eventos pasados: diaria a las 1:00am")
 

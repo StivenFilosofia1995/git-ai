@@ -65,6 +65,7 @@ def registrar_manual(
         "municipio": (body.municipio or "medellin").lower(),
         "barrio": body.barrio,
         "descripcion_corta": body.descripcion_corta,
+        "email": body.email,
         "instagram_handle": ig or None,
         "sitio_web": (body.sitio_web or None),
         "fuente_datos": "registro_manual",

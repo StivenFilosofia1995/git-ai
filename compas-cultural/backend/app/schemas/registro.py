@@ -70,6 +70,7 @@ class RegistroManualRequest(BaseModel):
     tipo: str = "colectivo"
     barrio: Optional[str] = None
     descripcion_corta: Optional[str] = None
+    email: Optional[str] = None
     instagram_handle: Optional[str] = None
     sitio_web: Optional[str] = None
     acepta_politica_datos: bool
@@ -81,6 +82,18 @@ class RegistroManualRequest(BaseModel):
         if len(txt) < 3:
             raise ValueError("Nombre demasiado corto")
         return txt[:150]
+
+    @field_validator("email")
+    @classmethod
+    def validar_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        txt = v.strip()
+        if not txt:
+            return None
+        if "@" not in txt or "." not in txt.split("@")[-1]:
+            raise ValueError("Email no válido")
+        return txt[:180]
 
     @field_validator("acepta_politica_datos")
     @classmethod

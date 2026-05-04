@@ -1,11 +1,17 @@
 import smtplib
 import logging
 import httpx
+from datetime import datetime, timedelta
+from html import escape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.config import settings
+from app.database import supabase
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+CO_TZ = ZoneInfo("America/Bogota")
+VALLE_LABEL = "Valle de Aburrá"
 
 
 def _build_welcome_html(user_email: str, user_name: str | None = None) -> str:
@@ -125,62 +131,68 @@ def _build_welcome_html(user_email: str, user_name: str | None = None) -> str:
 
 
 def send_welcome_email(to_email: str, user_name: str | None = None) -> bool:
-    # Try Resend first (simpler setup, no SMTP needed)
-    if settings.resend_api_key:
-        return _send_via_resend(to_email, user_name)
+  text = (
+    "¡Bienvenido a Cultura ETÉREA!\n\n"
+    "Tu registro fue exitoso. Ahora eres parte de la red cultural del Valle de Aburrá.\n\n"
+    f"Explora: {settings.frontend_url}/explorar\n"
+  )
+  return _send_email(
+    to_email=to_email,
+    subject="Bienvenido a Cultura ETÉREA — Medellín",
+    html=_build_welcome_html(to_email, user_name),
+    text=text,
+  )
 
-    # Fall back to SMTP
-    if not settings.smtp_password:
-        logger.warning(
-            "Email not configured. Set RESEND_API_KEY (recommended) or "
-            "SMTP_PASSWORD + SMTP_USER + SMTP_FROM_EMAIL to enable welcome emails."
-        )
-        return False
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Bienvenido a Cultura ETÉREA — Medellín"
-    msg["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
-    msg["To"] = to_email
-
-    text_part = MIMEText(
-        f"¡Bienvenido a Cultura ETÉREA!\n\n"
-        f"Tu registro fue exitoso. Ahora eres parte de la red cultural del Valle de Aburrá.\n\n"
-        f"Explora: {settings.frontend_url}/explorar\n",
-        "plain",
-        "utf-8",
+def _deliver_via_smtp(to_email: str, subject: str, html: str, text: str) -> bool:
+  if not settings.smtp_password:
+    logger.warning(
+      "Email not configured. Set RESEND_API_KEY (recommended) or "
+      "SMTP_PASSWORD + SMTP_USER + SMTP_FROM_EMAIL to enable emails."
     )
-    html_part = MIMEText(_build_welcome_html(to_email, user_name), "html", "utf-8")
+    return False
 
-    msg.attach(text_part)
-    msg.attach(html_part)
+  from_email = settings.smtp_from_email or settings.smtp_user
+  msg = MIMEMultipart("alternative")
+  msg["Subject"] = subject
+  msg["From"] = f"{settings.smtp_from_name} <{from_email}>"
+  msg["To"] = to_email
+  msg.attach(MIMEText(text, "plain", "utf-8"))
+  msg.attach(MIMEText(html, "html", "utf-8"))
 
+  try:
+    logger.info(
+      "Attempting SMTP connection: host=%s, port=%s, user=%s, from=%s, to=%s",
+      settings.smtp_host, settings.smtp_port, settings.smtp_user,
+      from_email, to_email,
+    )
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
+      server.starttls()
+      server.login(settings.smtp_user, settings.smtp_password)
+      server.send_message(msg)
+    logger.info("Email sent to %s via SMTP", to_email)
+    return True
+  except smtplib.SMTPAuthenticationError as e:
+    logger.error("SMTP auth failed for %s: %s (check App Password)", settings.smtp_user, e)
+    return False
+  except smtplib.SMTPConnectError as e:
+    logger.error("SMTP connection failed to %s:%s: %s", settings.smtp_host, settings.smtp_port, e)
+    return False
+  except Exception as e:
+    logger.error("Failed to send email to %s via SMTP: %s (%s)", to_email, type(e).__name__, e)
+    return False
+
+
+def _send_email(to_email: str, subject: str, html: str, text: str) -> bool:
+  if settings.resend_api_key:
+    return _send_via_resend(to_email, subject, html)
+  return _deliver_via_smtp(to_email, subject, html, text)
+
+
+def _send_via_resend(to_email: str, subject: str, html: str) -> bool:
+    """Send email using Resend HTTP API (https://resend.com)."""
     try:
-        logger.info(
-            "Attempting SMTP connection: host=%s, port=%s, user=%s, from=%s, to=%s",
-            settings.smtp_host, settings.smtp_port, settings.smtp_user,
-            settings.smtp_from_email, to_email,
-        )
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.send_message(msg)
-        logger.info("Welcome email sent to %s via SMTP", to_email)
-        return True
-    except smtplib.SMTPAuthenticationError as e:
-        logger.error("SMTP auth failed for %s: %s (check App Password)", settings.smtp_user, e)
-        return False
-    except smtplib.SMTPConnectError as e:
-        logger.error("SMTP connection failed to %s:%s: %s", settings.smtp_host, settings.smtp_port, e)
-        return False
-    except Exception as e:
-        logger.error("Failed to send email to %s via SMTP: %s (%s)", to_email, type(e).__name__, e)
-        return False
-
-
-def _send_via_resend(to_email: str, user_name: str | None = None) -> bool:
-    """Send welcome email using Resend HTTP API (https://resend.com)."""
-    try:
-        from_addr = settings.smtp_from_email or "noreply@culturaeterea.com"
+        from_addr = settings.smtp_from_email or settings.smtp_user or "noreply@culturaeterea.com"
         resp = httpx.post(
             "https://api.resend.com/emails",
             headers={
@@ -190,19 +202,214 @@ def _send_via_resend(to_email: str, user_name: str | None = None) -> bool:
             json={
                 "from": f"{settings.smtp_from_name} <{from_addr}>",
                 "to": [to_email],
-                "subject": "Bienvenido a Cultura ETÉREA — Medellín",
-                "html": _build_welcome_html(to_email, user_name),
+                "subject": subject,
+                "html": html,
             },
             timeout=10,
         )
         if resp.status_code in (200, 201):
-            logger.info("Welcome email sent to %s via Resend", to_email)
+            logger.info("Email sent to %s via Resend", to_email)
             return True
         logger.error("Resend API error (%s): %s", resp.status_code, resp.text)
         return False
     except Exception as e:
         logger.error("Failed to send email to %s via Resend: %s", to_email, e)
         return False
+
+
+def _build_weekly_digest_html(nombre: str, context_label: str, eventos: list[dict]) -> str:
+    frontend_url = settings.frontend_url.rstrip("/")
+    cards = []
+    for evento in eventos:
+        fecha = escape(str(evento.get("fecha_inicio") or "")[:10])
+        titulo = escape(evento.get("titulo") or "Evento cultural")
+        categoria = escape((evento.get("categoria_principal") or "cultural").replace("_", " "))
+        lugar = escape(evento.get("nombre_lugar") or evento.get("barrio") or evento.get("municipio") or VALLE_LABEL)
+        slug = escape(evento.get("slug") or "")
+        cards.append(
+            f"""
+            <tr>
+              <td style="padding:16px;border:1px solid #e5e5e5;vertical-align:top;">
+                <div style="font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#666;margin-bottom:8px;">{categoria}</div>
+                <div style="font-size:17px;font-weight:700;color:#0a0a0a;line-height:1.3;margin-bottom:8px;">{titulo}</div>
+                <div style="font-family:'Courier New',monospace;font-size:11px;color:#444;margin-bottom:4px;">{fecha}</div>
+                <div style="font-family:'Courier New',monospace;font-size:11px;color:#444;margin-bottom:12px;">{lugar}</div>
+                <a href=\"{frontend_url}/evento/{slug}\" style="display:inline-block;background:#0a0a0a;color:#fff;text-decoration:none;padding:10px 16px;font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Ver tarjeta</a>
+              </td>
+            </tr>
+            """
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Agenda semanal</title></head>
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:'Helvetica Neue',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f5;padding:40px 0;">
+<tr><td align="center">
+<table width="640" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border:1px solid #e5e5e5;">
+  <tr>
+    <td style="background-color:#0a0a0a;padding:32px 40px;text-align:center;">
+      <h1 style="margin:0;font-family:'Courier New',monospace;font-size:24px;font-weight:700;color:#ffffff;letter-spacing:2px;">CULTURA ETÉREA</h1>
+      <p style="margin:6px 0 0;font-family:'Courier New',monospace;font-size:11px;color:#999;letter-spacing:1px;">AGENDA SEMANAL · {escape(context_label.upper())}</p>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:32px 40px;">
+      <h2 style="margin:0 0 12px;font-family:'Courier New',monospace;font-size:18px;font-weight:700;color:#0a0a0a;text-transform:uppercase;letter-spacing:1px;">Hola, {escape(nombre)}</h2>
+      <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333;">Estos son algunos eventos de la próxima semana que ETÉREA encontró para <strong>{escape(context_label)}</strong>.</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+        {''.join(cards)}
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:28px;">
+        <tr><td align="center"><a href=\"{frontend_url}/agenda\" style="display:inline-block;background:#0a0a0a;color:#fff;text-decoration:none;padding:14px 28px;font-family:'Courier New',monospace;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">Abrir agenda completa</a></td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
+def _build_weekly_digest_text(nombre: str, context_label: str, eventos: list[dict]) -> str:
+    lines = [
+        f"Hola, {nombre}.",
+        "",
+        f"Estos son algunos eventos de la próxima semana para {context_label}:",
+        "",
+    ]
+    for evento in eventos:
+        lines.append(
+            f"- {evento.get('titulo', 'Evento')} | {str(evento.get('fecha_inicio') or '')[:10]} | "
+          f"{evento.get('nombre_lugar') or evento.get('barrio') or evento.get('municipio') or VALLE_LABEL}"
+        )
+    lines.extend(["", f"Agenda completa: {settings.frontend_url.rstrip('/')}/agenda"])
+    return "\n".join(lines)
+
+
+def _fetch_weekly_events(municipio: str | None, categoria: str | None = None, limit: int = 8) -> list[dict]:
+    hoy = datetime.now(CO_TZ).date().isoformat()
+    en_7d = (datetime.now(CO_TZ).date() + timedelta(days=7)).isoformat()
+    query = (
+        supabase.table("eventos")
+        .select("titulo,slug,fecha_inicio,categoria_principal,nombre_lugar,barrio,municipio")
+        .gte("fecha_inicio", hoy)
+        .lte("fecha_inicio", en_7d)
+        .order("fecha_inicio")
+        .limit(limit)
+    )
+    if municipio:
+        query = query.ilike("municipio", f"%{municipio}%")
+    if categoria and categoria != "otro":
+        query = query.eq("categoria_principal", categoria)
+
+    data = query.execute().data or []
+    if not data and categoria and municipio:
+        data = (
+            supabase.table("eventos")
+            .select("titulo,slug,fecha_inicio,categoria_principal,nombre_lugar,barrio,municipio")
+            .gte("fecha_inicio", hoy)
+            .lte("fecha_inicio", en_7d)
+            .order("fecha_inicio")
+            .limit(limit)
+            .ilike("municipio", f"%{municipio}%")
+            .execute()
+            .data or []
+        )
+    return data
+
+
+def _append_recipient(recipients: list[dict], seen: set[str], recipient: dict) -> None:
+    email = (recipient.get("email") or "").strip().lower()
+    if not email or email in seen:
+        return
+    seen.add(email)
+    recipients.append({**recipient, "email": email})
+
+
+def _load_profile_recipients(limit: int) -> list[dict]:
+    try:
+        perfiles = (
+            supabase.table("perfiles_usuario")
+            .select("email,nombre,municipio,preferencias")
+            .not_.is_("email", "null")
+            .limit(limit)
+            .execute()
+            .data or []
+        )
+    except Exception:
+        return []
+
+    recipients = []
+    for perfil in perfiles:
+        preferencias = perfil.get("preferencias") or []
+        categoria = preferencias[0] if isinstance(preferencias, list) and preferencias else None
+        recipients.append({
+            "email": perfil.get("email"),
+            "nombre": perfil.get("nombre") or str(perfil.get("email") or "usuario").split("@")[0],
+            "municipio": perfil.get("municipio") or "medellin",
+            "categoria": categoria,
+            "context_label": perfil.get("municipio") or VALLE_LABEL,
+        })
+    return recipients
+
+
+def _load_place_recipients(limit: int) -> list[dict]:
+    try:
+        lugares = (
+            supabase.table("lugares")
+            .select("email,nombre,municipio,categoria_principal,tipo,nivel_actividad")
+            .not_.is_("email", "null")
+            .neq("nivel_actividad", "cerrado")
+            .limit(limit)
+            .execute()
+            .data or []
+        )
+    except Exception:
+        return []
+
+    return [
+        {
+            "email": lugar.get("email"),
+            "nombre": lugar.get("nombre") or str(lugar.get("email") or "espacio").split("@")[0],
+            "municipio": lugar.get("municipio") or "medellin",
+            "categoria": lugar.get("categoria_principal"),
+            "context_label": lugar.get("nombre") or lugar.get("municipio") or VALLE_LABEL,
+        }
+        for lugar in lugares
+    ]
+
+
+def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict:
+    recipients: list[dict] = []
+    seen: set[str] = set()
+
+    for recipient in _load_profile_recipients(limit):
+        _append_recipient(recipients, seen, recipient)
+
+    for recipient in _load_place_recipients(limit):
+        _append_recipient(recipients, seen, recipient)
+
+    stats = {"recipients": len(recipients), "sent": 0, "skipped": 0, "failed": 0}
+    for recipient in recipients[:limit]:
+        eventos = _fetch_weekly_events(recipient.get("municipio"), recipient.get("categoria"))
+        if not eventos:
+            stats["skipped"] += 1
+            continue
+
+        if dry_run:
+            stats["sent"] += 1
+            continue
+
+        subject = f"Tu semana cultural en {recipient.get('municipio') or 'el Valle de Aburrá'}"
+        html = _build_weekly_digest_html(recipient["nombre"], recipient["context_label"], eventos)
+        text = _build_weekly_digest_text(recipient["nombre"], recipient["context_label"], eventos)
+        if _send_email(recipient["email"], subject, html, text):
+            stats["sent"] += 1
+        else:
+            stats["failed"] += 1
+    return stats
 
 
 # ─── Scraper alert emails ──────────────────────────────────────────────────────

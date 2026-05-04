@@ -33,6 +33,7 @@ export default function Registrar() {
     tipo: 'colectivo',
     barrio: '',
     descripcion_corta: '',
+    email: user?.email ?? '',
     instagram_handle: '',
     sitio_web: '',
   })
@@ -48,6 +49,12 @@ export default function Registrar() {
   useEffect(() => {
     return () => limpiarPolling()
   }, [limpiarPolling])
+
+  useEffect(() => {
+    if (user?.email) {
+      setManualForm(prev => ({ ...prev, email: prev.email || user.email || '' }))
+    }
+  }, [user?.email])
 
   const enviarURL = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -104,6 +111,7 @@ export default function Registrar() {
         ...manualForm,
         barrio: manualForm.barrio || undefined,
         descripcion_corta: manualForm.descripcion_corta || undefined,
+        email: manualForm.email || undefined,
         instagram_handle: manualForm.instagram_handle || undefined,
         sitio_web: manualForm.sitio_web || undefined,
         acepta_politica_datos: aceptaDatos,
@@ -309,6 +317,13 @@ export default function Registrar() {
                     placeholder="Tipo (colectivo/espacio_fisico)"
                     value={manualForm.tipo}
                     onChange={e => setManualForm({ ...manualForm, tipo: e.target.value })}
+                    className="border-2 border-black px-3 py-2 text-sm font-mono"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email de contacto / boletín (opcional)"
+                    value={manualForm.email}
+                    onChange={e => setManualForm({ ...manualForm, email: e.target.value })}
                     className="border-2 border-black px-3 py-2 text-sm font-mono"
                   />
                   <input
