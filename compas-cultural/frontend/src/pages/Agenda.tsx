@@ -262,7 +262,7 @@ export default function Agenda() {
       {/* ─── HERO ─────────────────────────────────────────────────────────────── */}
       <section className="relative bg-white border-b-2 border-black overflow-hidden min-h-[260px]">
         {/* Ilustración Medellín — img real para garantizar carga */}
-        <img src="/medellin-ilustracion.png" alt="" aria-hidden="true" className="absolute right-0 bottom-0 w-[55%] sm:w-[38%] lg:w-[28%] max-h-[85%] h-auto object-contain object-bottom pointer-events-none select-none opacity-[0.15] mix-blend-multiply" />
+        <img src="/medellin-ilustracion.png" alt="" aria-hidden="true" className="absolute right-0 bottom-0 w-[55%] sm:w-[38%] lg:w-[28%] max-h-[85%] h-auto object-contain object-bottom pointer-events-none select-none opacity-[0.45] mix-blend-multiply" />
         {/* Gradiente izquierdo suave — solo para legibilidad del texto */}
         <div
           className="absolute inset-0 pointer-events-none"

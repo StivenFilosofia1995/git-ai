@@ -18,7 +18,23 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-type GeoState = 'idle' | 'loading' | 'done' | 'error'
+// Coordenadas aproximadas de los municipios del Valle de Aburrá
+const MUNICIPIO_COORDS: Record<string, { lat: number; lng: number }> = {
+  medellin: { lat: 6.2442, lng: -75.5812 },
+  medellín: { lat: 6.2442, lng: -75.5812 },
+  envigado: { lat: 6.1752, lng: -75.5928 },
+  itagui: { lat: 6.1848, lng: -75.5990 },
+  itagüí: { lat: 6.1848, lng: -75.5990 },
+  bello: { lat: 6.3352, lng: -75.5574 },
+  sabaneta: { lat: 6.1514, lng: -75.6165 },
+  la_estrella: { lat: 6.1566, lng: -75.6425 },
+  'la estrella': { lat: 6.1566, lng: -75.6425 },
+  copacabana: { lat: 6.3494, lng: -75.5090 },
+  caldas: { lat: 6.0944, lng: -75.6362 },
+  girardota: { lat: 6.3783, lng: -75.4491 },
+}
+
+
 
 export default function CercaDeTi() {
   const [geoState, setGeoState] = useState<GeoState>('idle')
@@ -33,26 +49,40 @@ export default function CercaDeTi() {
     setEventosProximos([])
 
     try {
-      const eventosData = await getEventosTodos({ municipio: undefined, maxRows: 300 })
+      const eventosData = await getEventosTodos({ municipio: undefined, maxRows: 500 })
 
-      const hoy = new Date()
-      const hoyStr = hoy.toISOString().slice(0, 10) // YYYY-MM-DD
+      // Use Bogotá timezone for today's date
+      const hoyStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+      // Also include next 7 days so we have more events to show
+      const en7dias = new Date()
+      en7dias.setDate(en7dias.getDate() + 7)
+      const en7diasStr = en7dias.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
 
-      const conCoordenadas = eventosData
+      const conDistancia = eventosData
         .filter(e => {
-          if (e.lat == null || e.lng == null) return false
-          const fechaEvento = e.fecha_inicio?.slice(0, 10)
-          return fechaEvento === hoyStr
+          const fechaInicio = e.fecha_inicio?.slice(0, 10) ?? ''
+          const fechaFin = e.fecha_fin?.slice(0, 10) ?? fechaInicio
+          // Eventos de hoy, en curso o próximos 7 días
+          return fechaInicio <= en7diasStr && (fechaFin >= hoyStr || fechaInicio >= hoyStr)
         })
-        .map(e => ({
-          ...e,
-          distKm: haversineKm(userLat, userLng, e.lat!, e.lng!),
-        }))
-        .filter(e => e.distKm <= radio)
+        .map(e => {
+          // Primero intentar coordenadas exactas del evento
+          if (e.lat != null && e.lng != null) {
+            return { ...e, distKm: haversineKm(userLat, userLng, e.lat, e.lng) }
+          }
+          // Fallback: coordenadas aproximadas del municipio
+          const muni = (e.municipio ?? '').toLowerCase().trim()
+          const muniCoords = MUNICIPIO_COORDS[muni]
+          if (muniCoords) {
+            return { ...e, distKm: haversineKm(userLat, userLng, muniCoords.lat, muniCoords.lng) }
+          }
+          return null
+        })
+        .filter((e): e is (typeof eventosData[0] & { distKm: number }) => e !== null && e.distKm <= radio)
         .sort((a, b) => a.distKm - b.distKm)
-        .slice(0, 12)
+        .slice(0, 20)
 
-      setEventosProximos(conCoordenadas)
+      setEventosProximos(conDistancia)
       setGeoState('done')
     } catch {
       setGeoError('No fue posible cargar eventos de tu zona.')
