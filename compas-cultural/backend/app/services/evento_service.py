@@ -244,14 +244,16 @@ def get_eventos(
     query = supabase.table("eventos").select("*")
 
     if fecha_desde:
-        query = query.or_(f"fecha_inicio.gte.{fecha_desde.isoformat()},fecha_fin.gte.{fecha_desde.isoformat()}")
+        # Use date-only format to match DB rows that store date without timezone.
+        fecha_desde_str = fecha_desde.strftime("%Y-%m-%d")
+        query = query.or_(f"fecha_inicio.gte.{fecha_desde_str},fecha_fin.gte.{fecha_desde_str}")
     else:
         # Si no se pasa fecha_desde (ej: pestaña Todos), mostrar solo futuros o en curso
-        hoy = _today_iso()
+        hoy = _now_co().strftime("%Y-%m-%d")
         query = query.or_(f"fecha_inicio.gte.{hoy},fecha_fin.gte.{hoy}")
 
     if fecha_hasta:
-        query = query.lte("fecha_inicio", fecha_hasta.isoformat())
+        query = query.lte("fecha_inicio", fecha_hasta.strftime("%Y-%m-%d"))
 
     if municipio:
         # Fallback robusto: si el evento no tiene municipio pero el nombre del lugar
@@ -334,16 +336,10 @@ def get_eventos_hoy(
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_fin = hoy_inicio + timedelta(days=1)
-    hoy_iso = hoy_inicio.isoformat()
-    manana_iso = hoy_fin.isoformat()
+    hoy_str = hoy_inicio.strftime("%Y-%m-%d")
 
     # Events that START today
-    q_inicio = (
-        supabase.table("eventos")
-        .select("*")
-        .gte("fecha_inicio", hoy_iso)
-        .lt("fecha_inicio", manana_iso)
-    )
+    q_inicio = supabase.table("eventos").select("*").eq("fecha_inicio", hoy_str)
     resp_inicio = q_inicio.order("fecha_inicio").execute()
     eventos = resp_inicio.data or []
 
@@ -351,8 +347,8 @@ def get_eventos_hoy(
     q_en_curso = (
         supabase.table("eventos")
         .select("*")
-        .lt("fecha_inicio", hoy_iso)
-        .gte("fecha_fin", hoy_iso)
+        .lt("fecha_inicio", hoy_str)
+        .gte("fecha_fin", hoy_str)
     )
     resp_en_curso = q_en_curso.order("fecha_inicio").execute()
     seen_ids = {e["id"] for e in eventos}
@@ -406,13 +402,13 @@ def get_eventos_semana(
 
 def get_eventos_proximas_semanas(
     dias: int = 21,
-    desde_dias: int = 7,
+    desde_dias: int = 1,
     municipio: Optional[str] = None,
     barrio: Optional[str] = None,
     categoria: Optional[str] = None,
     es_gratuito: Optional[bool] = None,
 ) -> List[dict]:
-    """Próximas 3 semanas: default desde día 7 hasta día 28 después de hoy."""
+    """Ventana futura configurable: default desde mañana hasta 21 días."""
     if dias < 1:
         dias = 21
     if dias > 90:
@@ -422,26 +418,19 @@ def get_eventos_proximas_semanas(
     if desde_dias > dias:
         desde_dias = dias
 
-    hoy = _now_co().replace(hour=0, minute=0, second=0, microsecond=0)
-    inicio = hoy + timedelta(days=desde_dias)
-    fin = hoy + timedelta(days=dias)
-    # Use plain date strings to avoid timezone mismatch with Supabase date columns
-    inicio_str = inicio.strftime('%Y-%m-%d')
-    fin_str = fin.strftime('%Y-%m-%d')
-    from app.database import supabase as sb
-    q = sb.table('eventos').select('*')
-    q = q.gte('fecha_inicio', inicio_str)
-    q = q.lte('fecha_inicio', fin_str)
-    if municipio:
-        q = q.or_(f'municipio.eq.{municipio},nombre_lugar.ilike.%{municipio}%,barrio.ilike.%{municipio}%')
-    if barrio:
-        q = q.ilike('barrio', f'%{barrio}%')
-    if categoria:
-        q = q.or_(f'categoria_principal.eq.{categoria},categorias.cs.{{{categoria}}}')
-    if es_gratuito is not None:
-        q = q.eq('es_gratuito', es_gratuito)
-    q = q.order('fecha_inicio').limit(500)
-    return q.execute().data or []
+    hoy_inicio = _now_co().replace(hour=0, minute=0, second=0, microsecond=0)
+    inicio = hoy_inicio + timedelta(days=desde_dias)
+    fin = hoy_inicio + timedelta(days=dias)
+    return get_eventos(
+        fecha_desde=inicio,
+        fecha_hasta=fin,
+        municipio=municipio,
+        barrio=barrio,
+        categoria=categoria,
+        es_gratuito=es_gratuito,
+        limit=500,
+        offset=0,
+    )
 
 
 # ══════════════════════════════════════════════════════════════

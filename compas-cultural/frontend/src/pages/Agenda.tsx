@@ -1,10 +1,8 @@
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode } from 'react'
 import EventCard from '../components/agenda/EventCard'
-import EmptyEstadoInteligente from '../components/agenda/EmptyEstadoInteligente'
-import BuscarConAI from '../components/ui/BuscarConAI'
 import HomeChatSection from '../components/chat/HomeChatSection'
-import { commitEventosDescubiertos, discoverEventosAI, getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
+import { getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
@@ -64,20 +62,6 @@ const TIME_LABELS: Record<TimeFilter, string> = {
   todos: 'TODOS',
 }
 
-const TIME_DAYS_AHEAD: Record<TimeFilter, number> = {
-  hoy: 0,
-  semana: 7,
-  proximas: 15,
-  todos: 3650,
-}
-
-const TIME_DAYS_FROM: Record<TimeFilter, number> = {
-  hoy: 0,
-  semana: 0,
-  proximas: 0,
-  todos: 0,
-}
-
 const CAT_OPTIONS = [
   { value: '', label: 'Todas' },
   { value: 'teatro', label: 'Teatro' },
@@ -118,13 +102,6 @@ function buildZonaTokens(zonaNombre: string): string[] {
   return Array.from(new Set([base, noParen, noDash, ...parts].filter(Boolean)))
 }
 
-function inferTimeLabel(timeFilter: TimeFilter): string {
-  if (timeFilter === 'hoy') return 'hoy'
-  if (timeFilter === 'semana') return 'esta semana (7 días)'
-  if (timeFilter === 'proximas') return 'próximas 2 semanas (15 días)'
-  return 'próximamente'
-}
-
 function priceFilterToBool(precio: PrecioFilter): boolean | undefined {
   if (precio === 'gratuito') return true
   if (precio === 'pago') return false
@@ -145,69 +122,6 @@ export default function Agenda() {
   const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('')
   const [page, setPage] = useState(1)
   const fechaActual = useColombiaClock()
-
-  const runZonaScrape = async (limit = 15) => {
-    const municipio = municipioFilter || undefined
-    const zona = zonas.find(z => z.slug === zonaFilter)
-    const tiempo = inferTimeLabel(timeFilter)
-    const daysAhead = Math.min(120, TIME_DAYS_AHEAD[timeFilter])
-    const daysFrom = TIME_DAYS_FROM[timeFilter]
-    const texto = [textFilter, zona?.nombre, tiempo].filter(Boolean).join(' ').trim() || undefined
-    const res = await discoverEventosAI({
-      municipio,
-      categoria: catFilter || undefined,
-      texto,
-      max_queries: 2,
-      max_results_per_query: Math.min(6, Math.max(3, Math.floor(limit / 3))),
-      days_from: daysFrom,
-      days_ahead: daysAhead,
-      strict_categoria: Boolean(catFilter),
-      auto_insert: true,
-    })
-
-    return {
-      message: res.message,
-      candidatos: res.result.candidatos ?? [],
-      variables: {
-        tipo_evento: catFilter || 'cultural',
-        zona: zona?.nombre || municipioFilter || 'valle de aburra',
-        fecha_actual: new Date().toISOString().slice(0, 10),
-      },
-    }
-  }
-
-  const reloadEventos = () => {
-    const cargar = async () => {
-      try {
-        const municipioParam = municipioFilter || undefined
-        const categoriaParam = catFilter || undefined
-        const esGratuitoParam = priceFilterToBool(precioFilter)
-        const zonaObj = zonas.find(z => z.slug === zonaFilter)
-        const barrioParam = zonaObj?.nombre || undefined
-        const temporalFilters = {
-          municipio: municipioParam,
-          barrio: barrioParam,
-          categoria: categoriaParam,
-          es_gratuito: esGratuitoParam,
-        }
-        if (timeFilter === 'hoy') {
-          setEventos(await getEventosHoy(temporalFilters))
-        } else if (timeFilter === 'semana') {
-          setEventos(await getEventosProximasSemanas(7, temporalFilters, 0))
-        } else if (timeFilter === 'proximas') {
-          setEventos(await getEventosProximasSemanas(15, temporalFilters, 0))
-        } else {
-          setEventos(await getEventosTodos({
-            municipio: municipioParam,
-            barrio: barrioParam,
-            categoria: categoriaParam,
-            es_gratuito: esGratuitoParam,
-          }))
-        }
-      } catch { /* silent */ }
-    }
-    void cargar()
-  }
 
   useEffect(() => {
     getZonas().then(setZonas).catch(console.error)
@@ -233,9 +147,11 @@ export default function Agenda() {
         if (timeFilter === 'hoy') {
           setEventos(await getEventosHoy(temporalFilters))
         } else if (timeFilter === 'semana') {
-          setEventos(await getEventosProximasSemanas(7, temporalFilters, 0))
+          // Próxima semana real: día 1 al 7 desde hoy
+          setEventos(await getEventosProximasSemanas(7, temporalFilters, 1))
         } else if (timeFilter === 'proximas') {
-          setEventos(await getEventosProximasSemanas(15, temporalFilters, 0))
+          // Semanas próximas: día 8 al 15 desde hoy
+          setEventos(await getEventosProximasSemanas(15, temporalFilters, 8))
         } else {
           setEventos(await getEventosTodos({
             municipio: municipioParam,
@@ -435,16 +351,6 @@ export default function Agenda() {
               Hoy en el Valle
             </h2>
           </div>
-          <BuscarConAI
-            label="Buscar con AI"
-            onSearch={() => runZonaScrape(15)}
-            autoCommit
-            onCommit={async candidatos => {
-              const saved = await commitEventosDescubiertos(candidatos)
-              return saved.message
-            }}
-            onComplete={reloadEventos}
-          />
         </div>
 
         {/* Buscador de texto */}
@@ -564,14 +470,14 @@ export default function Agenda() {
         )}
 
         {!loading && !error && filtered.length === 0 && (
-          <EmptyEstadoInteligente
-            catFilter={catFilter}
-            zonaFilter={zonaFilter}
-            zonaLabel={zonas.find(z => z.slug === zonaFilter)?.nombre ?? ''}
-            municipioFilter={municipioFilter}
-            timeFilter={timeFilter}
-            onEventosFound={() => reloadEventos()}
-          />
+          <div className="border-2 border-dashed border-black p-8 text-center">
+            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.25em] opacity-50 mb-2">
+              No hay eventos para este filtro
+            </p>
+            <p className="text-sm font-mono opacity-70">
+              Probá otro rango de fechas o cambia municipio/categoría para ver eventos reales cargados en agenda.
+            </p>
+          </div>
         )}
 
         {/* Grid compacto de eventos */}

@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from typing import List, Union
 import json
 import secrets
+import os
 from urllib.parse import urlparse
 
 
@@ -18,8 +19,13 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
 
     # Supabase (required for data, but defaults allow app to start)
-    supabase_url: str = ""
-    supabase_key: str = ""
+    # Accept common variable names used across deployments.
+    supabase_url: str = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL", "")
+    supabase_key: str = (
+        os.getenv("SUPABASE_KEY")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_ANON_KEY", "")
+    )
 
     # Anthropic (Claude) — only used for chat, app works without it
     anthropic_api_key: str = ""
