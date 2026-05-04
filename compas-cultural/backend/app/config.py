@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 60
 
     # Scraper API key (protects /scraper/* endpoints)
-    scraper_api_key: str = secrets.token_urlsafe(32)
+    # Set SCRAPER_API_KEY env var in Railway for a stable key
+    scraper_api_key: str = "cultura-eterea-scraper-2026"
 
     # SMTP
     smtp_host: str = "smtp.gmail.com"

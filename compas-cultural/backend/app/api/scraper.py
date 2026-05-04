@@ -74,6 +74,25 @@ async def trigger_full_scraper(
     }
 
 
+@router.post("/run-now", dependencies=[Depends(_verify_scraper_key)])
+async def trigger_scrape_now(background_tasks: BackgroundTasks):
+    """Limpia eventos pasados y corre scraper + agenda alternativa inmediatamente."""
+    svc = _get_auto_scraper_services()
+
+    async def _cleanup_and_scrape():
+        try:
+            await svc["run_auto_scraper"]()
+        except Exception as e:
+            print(f"❌ run-now scraper error: {e}")
+        try:
+            await svc["scrape_agenda_sources"]()
+        except Exception as e:
+            print(f"❌ run-now agenda sources error: {e}")
+
+    background_tasks.add_task(_cleanup_and_scrape)
+    return {"status": "started", "message": "Limpieza + scrape completo iniciado en background"}
+
+
 @router.post("/lugar/{lugar_id}", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_lugar_scraper(lugar_id: str):
     """Scrape un lugar específico (síncrono, retorna resultados)."""
