@@ -1,6 +1,7 @@
 import smtplib
 import logging
 import httpx
+import hashlib
 from datetime import datetime, timedelta
 from html import escape
 from email.mime.text import MIMEText
@@ -257,6 +258,7 @@ def _build_weekly_digest_html(nombre: str, context_label: str, eventos: list[dic
     <td style="padding:32px 40px;">
       <h2 style="margin:0 0 12px;font-family:'Courier New',monospace;font-size:18px;font-weight:700;color:#0a0a0a;text-transform:uppercase;letter-spacing:1px;">Hola, {escape(nombre)}</h2>
       <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333;">Estos son algunos eventos de la próxima semana que ETÉREA encontró para <strong>{escape(context_label)}</strong>.</p>
+      <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#333;">Entra a la app para descubrir más espacios, mapa cultural y agenda completa en tiempo real.</p>
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
         {''.join(cards)}
       </table>
@@ -284,8 +286,72 @@ def _build_weekly_digest_text(nombre: str, context_label: str, eventos: list[dic
             f"- {evento.get('titulo', 'Evento')} | {str(evento.get('fecha_inicio') or '')[:10]} | "
           f"{evento.get('nombre_lugar') or evento.get('barrio') or evento.get('municipio') or VALLE_LABEL}"
         )
-    lines.extend(["", f"Agenda completa: {settings.frontend_url.rstrip('/')}/agenda"])
+    lines.extend([
+      "",
+      "Entra a la app y mira toda la agenda cultural en vivo:",
+      f"Agenda completa: {settings.frontend_url.rstrip('/')}/agenda",
+    ])
     return "\n".join(lines)
+
+
+def _week_start_iso(now: datetime | None = None) -> str:
+    base = now or datetime.now(CO_TZ)
+    monday = base.date() - timedelta(days=base.weekday())
+    return monday.isoformat()
+
+
+def _kv_get(key: str) -> str | None:
+    try:
+        resp = supabase.table("config_kv").select("value").eq("key", key).single().execute()
+        data = resp.data or {}
+        value = data.get("value")
+        return str(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _kv_upsert(key: str, value: str) -> None:
+    try:
+        supabase.table("config_kv").upsert(
+            {
+                "key": key,
+                "value": value,
+                "updated_at": datetime.now(CO_TZ).isoformat(),
+            },
+            on_conflict="key",
+        ).execute()
+    except Exception:
+        # Nunca bloquea el envio por fallo de estado.
+        logger.warning("Could not persist digest state for key=%s", key)
+
+
+def _digest_marker_key(week_start_iso: str, email: str) -> str:
+    email_hash = hashlib.sha1(email.encode("utf-8")).hexdigest()[:20]
+    return f"weekly_digest_sent:{week_start_iso}:{email_hash}"
+
+
+def _digest_already_sent(week_start_iso: str, email: str) -> bool:
+    return _kv_get(_digest_marker_key(week_start_iso, email)) == "1"
+
+
+def _mark_digest_sent(week_start_iso: str, email: str) -> None:
+    _kv_upsert(_digest_marker_key(week_start_iso, email), "1")
+
+
+def _digest_cursor_key(week_start_iso: str) -> str:
+    return f"weekly_digest_cursor:{week_start_iso}"
+
+
+def _get_digest_cursor(week_start_iso: str) -> int:
+    raw = _kv_get(_digest_cursor_key(week_start_iso))
+    try:
+        return max(int(raw or "0"), 0)
+    except Exception:
+        return 0
+
+
+def _set_digest_cursor(week_start_iso: str, idx: int) -> None:
+    _kv_upsert(_digest_cursor_key(week_start_iso), str(max(idx, 0)))
 
 
 def _fetch_weekly_events(municipio: str | None, categoria: str | None = None, limit: int = 8) -> list[dict]:
@@ -391,24 +457,57 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict
     for recipient in _load_place_recipients(limit):
         _append_recipient(recipients, seen, recipient)
 
-    stats = {"recipients": len(recipients), "sent": 0, "skipped": 0, "failed": 0}
-    for recipient in recipients[:limit]:
-        eventos = _fetch_weekly_events(recipient.get("municipio"), recipient.get("categoria"))
-        if not eventos:
-            stats["skipped"] += 1
-            continue
+    recipients = sorted(recipients[:limit], key=lambda r: r.get("email", ""))
+    stats = {
+      "recipients": len(recipients),
+      "sent": 0,
+      "skipped": 0,
+      "failed": 0,
+      "tick_limit": 1,
+      "target_email": None,
+      "week_start": _week_start_iso(),
+    }
 
-        if dry_run:
-            stats["sent"] += 1
-            continue
+    if not recipients:
+      return stats
 
-        subject = f"Tu semana cultural en {recipient.get('municipio') or 'el Valle de Aburrá'}"
-        html = _build_weekly_digest_html(recipient["nombre"], recipient["context_label"], eventos)
-        text = _build_weekly_digest_text(recipient["nombre"], recipient["context_label"], eventos)
-        if _send_email(recipient["email"], subject, html, text):
-            stats["sent"] += 1
-        else:
-            stats["failed"] += 1
+    week_start = stats["week_start"]
+    start_idx = _get_digest_cursor(week_start)
+
+    for offset in range(len(recipients)):
+      idx = (start_idx + offset) % len(recipients)
+      recipient = recipients[idx]
+      email = recipient.get("email") or ""
+      if not email or _digest_already_sent(week_start, email):
+        stats["skipped"] += 1
+        continue
+
+      eventos = _fetch_weekly_events(recipient.get("municipio"), recipient.get("categoria"))
+      if not eventos:
+        eventos = _fetch_weekly_events(None, None, limit=6)
+      if not eventos:
+        stats["skipped"] += 1
+        _set_digest_cursor(week_start, (idx + 1) % len(recipients))
+        return stats
+
+      stats["target_email"] = email
+      if dry_run:
+        stats["sent"] = 1
+        return stats
+
+      subject = f"Tu semana cultural en {recipient.get('municipio') or 'el Valle de Aburrá'}"
+      html = _build_weekly_digest_html(recipient["nombre"], recipient["context_label"], eventos)
+      text = _build_weekly_digest_text(recipient["nombre"], recipient["context_label"], eventos)
+      if _send_email(email, subject, html, text):
+        _mark_digest_sent(week_start, email)
+        stats["sent"] = 1
+      else:
+        stats["failed"] = 1
+
+      _set_digest_cursor(week_start, (idx + 1) % len(recipients))
+      return stats
+
+    stats["skipped"] = len(recipients)
     return stats
 
 
