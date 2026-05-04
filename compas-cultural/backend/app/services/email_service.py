@@ -354,7 +354,12 @@ def _set_digest_cursor(week_start_iso: str, idx: int) -> None:
     _kv_upsert(_digest_cursor_key(week_start_iso), str(max(idx, 0)))
 
 
-def _fetch_weekly_events(municipio: str | None, categoria: str | None = None, limit: int = 8) -> list[dict]:
+def _fetch_weekly_events(
+  municipio: str | None,
+  categoria: str | None = None,
+  limit: int = 8,
+  barrio: str | None = None,
+) -> list[dict]:
     hoy = datetime.now(CO_TZ).date().isoformat()
     en_7d = (datetime.now(CO_TZ).date() + timedelta(days=7)).isoformat()
     query = (
@@ -365,7 +370,9 @@ def _fetch_weekly_events(municipio: str | None, categoria: str | None = None, li
         .order("fecha_inicio")
         .limit(limit)
     )
-    if municipio:
+    if barrio:
+      query = query.ilike("barrio", f"%{barrio}%")
+    if municipio and not barrio:
         query = query.ilike("municipio", f"%{municipio}%")
     if categoria and categoria != "otro":
         query = query.eq("categoria_principal", categoria)
@@ -383,6 +390,18 @@ def _fetch_weekly_events(municipio: str | None, categoria: str | None = None, li
             .execute()
             .data or []
         )
+        if not data and barrio and municipio:
+          data = (
+            supabase.table("eventos")
+            .select("titulo,slug,fecha_inicio,categoria_principal,nombre_lugar,barrio,municipio")
+            .gte("fecha_inicio", hoy)
+            .lte("fecha_inicio", en_7d)
+            .order("fecha_inicio")
+            .limit(limit)
+            .ilike("municipio", f"%{municipio}%")
+            .execute()
+            .data or []
+          )
     return data
 
 
@@ -415,6 +434,7 @@ def _load_profile_recipients(limit: int) -> list[dict]:
             "email": perfil.get("email"),
             "nombre": perfil.get("nombre") or str(perfil.get("email") or "usuario").split("@")[0],
             "municipio": perfil.get("municipio") or "medellin",
+          "barrio": None,
             "categoria": categoria,
             "context_label": perfil.get("municipio") or VALLE_LABEL,
         })
@@ -425,7 +445,7 @@ def _load_place_recipients(limit: int) -> list[dict]:
     try:
         lugares = (
             supabase.table("lugares")
-            .select("email,nombre,municipio,categoria_principal,tipo,nivel_actividad")
+          .select("email,nombre,municipio,barrio,categoria_principal,tipo,nivel_actividad")
             .not_.is_("email", "null")
             .neq("nivel_actividad", "cerrado")
             .limit(limit)
@@ -440,8 +460,9 @@ def _load_place_recipients(limit: int) -> list[dict]:
             "email": lugar.get("email"),
             "nombre": lugar.get("nombre") or str(lugar.get("email") or "espacio").split("@")[0],
             "municipio": lugar.get("municipio") or "medellin",
+            "barrio": lugar.get("barrio"),
             "categoria": lugar.get("categoria_principal"),
-            "context_label": lugar.get("nombre") or lugar.get("municipio") or VALLE_LABEL,
+            "context_label": lugar.get("barrio") or lugar.get("municipio") or VALLE_LABEL,
         }
         for lugar in lugares
     ]
@@ -482,7 +503,11 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict
         stats["skipped"] += 1
         continue
 
-      eventos = _fetch_weekly_events(recipient.get("municipio"), recipient.get("categoria"))
+      eventos = _fetch_weekly_events(
+          recipient.get("municipio"),
+          recipient.get("categoria"),
+          barrio=recipient.get("barrio"),
+      )
       if not eventos:
         eventos = _fetch_weekly_events(None, None, limit=6)
       if not eventos:
