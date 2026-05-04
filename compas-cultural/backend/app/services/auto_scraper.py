@@ -1496,14 +1496,11 @@ async def scrape_agenda_sources() -> dict:
                     print(f"  ✅ Código: {len(events)} evento(s)")
                 else:
                     text = _html_to_text(html_raw)[:4000]
-                    prompt = EVENT_EXTRACTION_PROMPT.format(
+                    prompt = AGENDA_EXTRACTION_PROMPT.format(
                         fecha_actual=now_iso,
                         anio_actual=anio,
-                        nombre_lugar=src["nombre"],
-                        lugar_id=src["nombre"],
-                        categoria=src["categoria_default"],
+                        nombre_fuente=src["nombre"],
                         municipio=src["municipio"],
-                        fuente_tipo="agenda",
                         fuente_url=src["url"],
                         contenido=text,
                     )
