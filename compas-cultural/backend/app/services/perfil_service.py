@@ -2,6 +2,8 @@ from typing import List, Optional
 from collections import Counter
 from datetime import datetime, timedelta
 import math
+import re
+import unicodedata
 
 from app.database import supabase
 
@@ -37,6 +39,60 @@ def _score_categoria_match(cat: str, top_cats: List[str], cat_scores: Counter) -
     raw = cat_scores.get(cat, 0.0)
     w_magnitude = min(4.0, math.log1p(raw))  # cap en 4 para no saturar
     return w_rank + w_magnitude
+
+
+def _normalize_zone_text(value: str | None) -> str:
+    if not value:
+        return ""
+    normalized = unicodedata.normalize("NFD", value)
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    normalized = normalized.lower()
+    normalized = re.sub(r"[_\-–—]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def _build_zona_tokens(zona_nombre: str) -> List[str]:
+    normalized = unicodedata.normalize("NFD", zona_nombre or "")
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    normalized = normalized.lower()
+    normalized = re.sub(r"[_\-–—]+", " - ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return []
+
+    no_paren = re.sub(r"\(.*?\)", "", normalized).strip()
+    no_dash = re.sub(r"\s+-\s+", " ", no_paren).strip()
+    parts = [part.strip() for part in re.split(r"\s+-\s+", no_paren) if part.strip()]
+
+    tokens: List[str] = []
+    for raw in [normalized, no_paren, no_dash, *parts]:
+        cleaned = _normalize_zone_text(re.sub(r"^(barrio|comuna|sector|zona)\s+", "", raw))
+        if cleaned and cleaned not in tokens:
+            tokens.append(cleaned)
+    return tokens
+
+
+def _item_matches_zona(item: dict, zona: dict) -> bool:
+    zona_tokens = _build_zona_tokens(zona.get("nombre") or "")
+    if not zona_tokens:
+        return True
+
+    municipio_zona = _normalize_zone_text(zona.get("municipio"))
+    municipio_item = _normalize_zone_text(item.get("municipio"))
+    if municipio_zona and municipio_item and municipio_zona not in municipio_item:
+        return False
+
+    searchable_fields = [
+        _normalize_zone_text(item.get("barrio")),
+        _normalize_zone_text(item.get("nombre_lugar")),
+        _normalize_zone_text(item.get("nombre")),
+        _normalize_zone_text(item.get("titulo")),
+        _normalize_zone_text(item.get("descripcion")),
+        _normalize_zone_text(item.get("descripcion_corta")),
+    ]
+
+    return any(token in field for token in zona_tokens for field in searchable_fields if field)
 
 
 def _score_proximidad(ev: dict, perfil: Optional[dict]) -> float:
@@ -379,20 +435,7 @@ def obtener_eventos_zona_hoy(zona_id: int) -> dict:
         .execute()
     )
 
-    eventos = resp.data or []
-
-    # Si no hay eventos con municipio, buscar sin filtro de municipio (fallback)
-    if not eventos:
-        resp_sin_filtro = (
-            supabase.table("eventos")
-            .select("*")
-            .gte("fecha_inicio", hoy)
-            .lte("fecha_inicio", catorce_dias)
-            .order("fecha_inicio")
-            .limit(20)
-            .execute()
-        )
-        eventos = resp_sin_filtro.data or []
+    eventos = [ev for ev in (resp.data or []) if _item_matches_zona(ev, zona)]
 
     # Espacios activos en ese municipio
     resp_espacios = (
@@ -404,8 +447,10 @@ def obtener_eventos_zona_hoy(zona_id: int) -> dict:
         .execute()
     )
 
+    espacios = [esp for esp in (resp_espacios.data or []) if _item_matches_zona(esp, zona)]
+
     return {
         "eventos": eventos,
-        "espacios": resp_espacios.data or [],
+        "espacios": espacios,
         "zona": zona,
     }

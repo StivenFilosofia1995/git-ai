@@ -88,18 +88,50 @@ function normalizeText(value: string | null | undefined): string {
     .normalize('NFD')
     .replaceAll(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replaceAll(/[_-]+/g, ' ')
+    .replaceAll(/[_\-–—]+/g, ' ')
     .replaceAll(/\s+/g, ' ')
     .trim()
 }
 
 function buildZonaTokens(zonaNombre: string): string[] {
-  const base = normalizeText(zonaNombre)
-  if (!base) return []
-  const noParen = base.replaceAll(/\(.*?\)/g, '').trim()
+  const normalized = (zonaNombre || '')
+    .normalize('NFD')
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replaceAll(/[_\-–—]+/g, ' - ')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+
+  if (!normalized) return []
+
+  const noParen = normalized.replaceAll(/\(.*?\)/g, '').trim()
   const noDash = noParen.replaceAll(/\s+-\s+/g, ' ').trim()
   const parts = noParen.split(/\s+-\s+/).map(t => t.trim()).filter(Boolean)
-  return Array.from(new Set([base, noParen, noDash, ...parts].filter(Boolean)))
+  const simplified = [normalized, noParen, noDash, ...parts]
+    .map(token => normalizeText(token.replace(/^(barrio|comuna|sector|zona)\s+/i, '')))
+    .filter(Boolean)
+
+  return Array.from(new Set(simplified))
+}
+
+function eventoMatchesZona(evento: Evento, zona: Zona): boolean {
+  const zonaTokens = buildZonaTokens(zona.nombre)
+  if (!zonaTokens.length) return true
+
+  const municipioZona = normalizeText(zona.municipio)
+  const municipioEvento = normalizeText(evento.municipio)
+  if (municipioZona && municipioEvento && !municipioEvento.includes(municipioZona)) {
+    return false
+  }
+
+  const searchableFields = [
+    normalizeText(evento.barrio),
+    normalizeText(evento.nombre_lugar),
+    normalizeText(evento.titulo),
+    normalizeText(evento.descripcion),
+  ].filter(Boolean)
+
+  return zonaTokens.some(token => searchableFields.some(field => field.includes(token)))
 }
 
 function priceFilterToBool(precio: PrecioFilter): boolean | undefined {
@@ -137,10 +169,8 @@ export default function Agenda() {
         const categoriaParam = catFilter || undefined
         const esGratuitoParam = priceFilterToBool(precioFilter)
         const zonaObj = zonas.find(z => z.slug === zonaFilter)
-        const barrioParam = zonaObj?.nombre || undefined
         const temporalFilters = {
-          municipio: municipioParam,
-          barrio: barrioParam,
+          municipio: municipioParam || zonaObj?.municipio || undefined,
           categoria: categoriaParam,
           es_gratuito: esGratuitoParam,
         }
@@ -154,8 +184,7 @@ export default function Agenda() {
           setEventos(await getEventosProximasSemanas(21, temporalFilters, 1))
         } else {
           setEventos(await getEventosTodos({
-            municipio: municipioParam,
-            barrio: barrioParam,
+            municipio: municipioParam || zonaObj?.municipio || undefined,
             categoria: categoriaParam,
             es_gratuito: esGratuitoParam,
           }))
@@ -186,15 +215,7 @@ export default function Agenda() {
     if (zonaFilter) {
       const zona = zonas.find(z => z.slug === zonaFilter)
       if (zona) {
-        const zonaTokens = buildZonaTokens(zona.nombre)
-        result = result.filter(e => {
-          const barrio = normalizeText(e.barrio)
-          const lugar = normalizeText(e.nombre_lugar)
-          // Si tiene barrio, debe coincidir con tokens de zona
-          if (barrio) return zonaTokens.some(t => barrio.includes(t) || lugar.includes(t))
-          // Sin barrio: pasa si ya fue filtrado por backend (llegó en la respuesta)
-          return true
-        })
+        result = result.filter(e => eventoMatchesZona(e, zona))
       }
     }
     if (textFilter.trim()) {
@@ -210,6 +231,16 @@ export default function Agenda() {
     }
     return result
   }, [eventos, catFilter, zonaFilter, zonas, textFilter, municipioFilter, precioFilter])
+
+  const zonasDisponibles = useMemo(() => {
+    return zonas.filter(zona => eventos.some(evento => eventoMatchesZona(evento, zona)))
+  }, [zonas, eventos])
+
+  useEffect(() => {
+    if (zonaFilter && !zonasDisponibles.some(z => z.slug === zonaFilter)) {
+      setZonaFilter('')
+    }
+  }, [zonaFilter, zonasDisponibles])
 
   // Reset to page 1 whenever filters change
   useEffect(() => { setPage(1) }, [catFilter, zonaFilter, textFilter, municipioFilter, precioFilter, timeFilter])
@@ -425,14 +456,14 @@ export default function Agenda() {
             ))}
           </select>
           {/* Zona */}
-          {zonas.length > 0 && (
+          {zonasDisponibles.length > 0 && (
             <select
               value={zonaFilter}
               onChange={e => setZonaFilter(e.target.value)}
               className="ml-2 px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
             >
               <option value="">Todas las zonas</option>
-              {zonas.map(z => (
+              {zonasDisponibles.map(z => (
                 <option key={z.id} value={z.slug}>{z.nombre}</option>
               ))}
             </select>
