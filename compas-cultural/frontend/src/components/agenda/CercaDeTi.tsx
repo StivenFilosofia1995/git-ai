@@ -5,6 +5,8 @@ import {
   type Evento,
 } from '../../lib/api'
 
+type GeoState = 'idle' | 'loading' | 'done' | 'error'
+
 // ─── Haversine (km) ──────────────────────────────────────────────────────────
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371
