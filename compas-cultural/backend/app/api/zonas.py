@@ -35,7 +35,6 @@ def get_zonas_calientes(
         .select("id,titulo,lat,lng,fecha_inicio,categoria_principal,nombre_lugar")
         .gte("fecha_inicio", ahora.isoformat())
         .lte("fecha_inicio", hasta)
-        .neq("estado_moderacion", "rechazado")
         .not_.is_("lat", "null")
         .not_.is_("lng", "null")
         .limit(500)

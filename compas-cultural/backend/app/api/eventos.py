@@ -83,18 +83,14 @@ async def publicar_evento(body: dict, request: Request):
     if existing.data:
         raise HTTPException(status_code=409, detail="Ya existe un evento con ese nombre")
 
-    # Eventos publicados manualmente tienen hora confirmada (el usuario la puso).
+    # Solo columnas que existen en la tabla eventos
     evento_data = {
         "titulo": evento.titulo[:200],
         "slug": slug,
         "espacio_id": evento.espacio_id,
         "fecha_inicio": evento.fecha_inicio.isoformat(),
         "fecha_fin": evento.fecha_fin.isoformat() if evento.fecha_fin else None,
-        "hora_inicio": evento.hora_inicio,  # HH:MM format
-        "hora_fin": evento.hora_fin,        # HH:MM format
-        "aforo": evento.aforo,              # Event capacity
-        "sesion_numero": evento.sesion_numero,  # Session number
-        "tiene_hora_confirmada": False,
+        "hora_confirmada": evento.hora_inicio or None,
         "categorias": [evento.categoria_principal],
         "categoria_principal": evento.categoria_principal,
         "municipio": evento.municipio,
@@ -104,14 +100,9 @@ async def publicar_evento(body: dict, request: Request):
         "precio": evento.precio,
         "es_gratuito": evento.es_gratuito,
         "imagen_url": evento.imagen_url,
-        "imagen_url_principal": evento.imagen_url,  # Primary image
-        "imagen_url_alternativa": evento.imagen_url_alternativa,  # Alternative
-        "tiene_imagen_confirmada": bool(evento.imagen_url),
-        "es_evento_registrado": True,  # Mark as user-registered
         "fuente": "colectivo_directo",
         "fuente_url": evento.contacto_instagram or evento.contacto_email,
         "verificado": False,
-        "estado_moderacion": "pendiente",
     }
 
     try:

@@ -4,7 +4,8 @@ import unicodedata
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Optional
-import anthropic
+# Anthropic deshabilitado (sin créditos de API)
+anthropic = None
 from app.config import settings
 from app.database import supabase
 from app.schemas.chat import ChatRequest, ChatResponse, FuenteCitada
@@ -519,7 +520,7 @@ def _build_historial_msgs(request: ChatRequest) -> List[Dict[str, str]]:
 
 
 def _chat_via_anthropic(system_prompt: str, messages: list) -> Optional[str]:
-    if not settings.anthropic_api_key:
+    if not settings.anthropic_api_key or anthropic is None:
         return None
     try:
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
@@ -554,14 +555,12 @@ def _chat_via_gemini(system_prompt: str, messages: list) -> Optional[str]:
 def _engine_order() -> List[str]:
     engine = (settings.chat_engine or "auto").lower()
     if engine in {"ollama", "auto"}:
-        return ["ollama", "groq", "gemini", "anthropic"]
+        return ["ollama", "groq", "gemini"]
     if engine == "groq":
-        return ["groq", "gemini", "anthropic"]
+        return ["groq", "gemini", "ollama"]
     if engine == "gemini":
-        return ["gemini", "groq", "anthropic"]
-    if engine == "anthropic":
-        return ["anthropic", "groq", "gemini"]
-    return ["ollama", "groq", "gemini", "anthropic"]
+        return ["gemini", "groq", "ollama"]
+    return ["ollama", "groq", "gemini"]
 
 
 def _generate_llm_response(prompt: str, historial_msgs: list) -> Optional[str]:
