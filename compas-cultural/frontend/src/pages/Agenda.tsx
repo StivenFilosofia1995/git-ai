@@ -150,8 +150,8 @@ export default function Agenda() {
           // Próxima semana real: día 1 al 7 desde hoy
           setEventos(await getEventosProximasSemanas(7, temporalFilters, 1))
         } else if (timeFilter === 'proximas') {
-          // Semanas próximas: día 8 al 15 desde hoy
-          setEventos(await getEventosProximasSemanas(15, temporalFilters, 8))
+          // Próximas 3 semanas: día 1 al 21 desde hoy
+          setEventos(await getEventosProximasSemanas(21, temporalFilters, 1))
         } else {
           setEventos(await getEventosTodos({
             municipio: municipioParam,
@@ -225,12 +225,15 @@ export default function Agenda() {
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE)
 
   // Group events by date — force Colombia timezone
-  // Events that started in the past but are still ongoing → group under today's date
-  const todayStr = new Date().toISOString().slice(0, 10)
+  // Events that started in the past but are still ongoing → group under today's date (only in HOY tab)
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }) // YYYY-MM-DD in Bogotá
   const grouped = paged.reduce<Record<string, Evento[]>>((acc, ev) => {
     const fechaInicioStr = ev.fecha_inicio?.slice(0, 10) ?? ''
     const fechaFinStr = ev.fecha_fin?.slice(0, 10) ?? ''
-    const isOngoing = fechaInicioStr < todayStr && (fechaFinStr >= todayStr || !fechaFinStr)
+    // Only treat as "en curso hoy" when we are on the HOY tab
+    const isOngoing = timeFilter === 'hoy' && fechaInicioStr < todayStr && fechaFinStr >= todayStr
+    // For non-hoy tabs: skip events that started before today (stale data)
+    if (timeFilter !== 'hoy' && fechaInicioStr < todayStr && !isOngoing) return acc
     const effectiveDate = isOngoing ? todayStr + 'T00:00:00' : ev.fecha_inicio
     const dateKey = formatEventDate(effectiveDate, {
       weekday: 'long', day: 'numeric', month: 'long'
@@ -259,7 +262,7 @@ export default function Agenda() {
       {/* ─── HERO ─────────────────────────────────────────────────────────────── */}
       <section className="relative bg-white border-b-2 border-black overflow-hidden min-h-[260px]">
         {/* Ilustración Medellín — img real para garantizar carga */}
-        <img src="/medellin-ilustracion.png" alt="" aria-hidden="true" className="absolute inset-0 w-[200%] sm:w-full h-full object-contain sm:object-cover object-center pointer-events-none select-none opacity-[0.25] mix-blend-multiply sm:opacity-30 left-1/2 -translate-x-1/2" />
+        <img src="/medellin-ilustracion.png" alt="" aria-hidden="true" className="absolute right-0 bottom-0 w-[55%] sm:w-[38%] lg:w-[28%] max-h-[85%] h-auto object-contain object-bottom pointer-events-none select-none opacity-[0.15] mix-blend-multiply" />
         {/* Gradiente izquierdo suave — solo para legibilidad del texto */}
         <div
           className="absolute inset-0 pointer-events-none"

@@ -343,10 +343,13 @@ def get_eventos_hoy(
     resp_inicio = q_inicio.order("fecha_inicio").execute()
     eventos = resp_inicio.data or []
 
-    # Multi-day events that started before today but end today or later
+    # Multi-day events that started within the last 30 days and end today or later
+    # Limit to 30 days to avoid surfacing stale/old events as "en curso hoy"
+    hace_30_dias = (hoy_inicio - timedelta(days=30)).strftime("%Y-%m-%d")
     q_en_curso = (
         supabase.table("eventos")
         .select("*")
+        .gte("fecha_inicio", hace_30_dias)
         .lt("fecha_inicio", hoy_str)
         .gte("fecha_fin", hoy_str)
     )
