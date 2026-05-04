@@ -214,28 +214,53 @@ function buildTemporalFiltersQS(filters?: EventosTemporalFilters): string {
 }
 
 export async function getEventosHoy(filters?: EventosTemporalFilters): Promise<Evento[]> {
-  const qs = buildTemporalFiltersQS(filters)
-  try {
-    return await apiGet<Evento[]>(`/eventos/hoy${qs}`)
-  } catch {
-    // Fallback directo a Supabase cuando Railway no responde
-    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
-    const manana = new Date(new Date().getTime() + 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
-    let q = supabase
-      .from('eventos')
-      .select('*')
-      .gte('fecha_inicio', hoy)
-      .lt('fecha_inicio', manana)
-      .neq('estado_moderacion', 'rechazado')
-      .order('fecha_inicio')
-      .limit(200)
-    if (filters?.municipio) q = q.ilike('municipio', `%${filters.municipio}%`)
-    if (filters?.categoria) q = q.eq('categoria_principal', filters.categoria)
-    if (typeof filters?.es_gratuito === 'boolean') q = q.eq('es_gratuito', filters.es_gratuito)
-    const { data, error } = await q
-    if (error) throw error
-    return (data ?? []) as Evento[]
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  const manana = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  })()
+  const hace2dias = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 2)
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  })()
+
+  // Consulta directa a Supabase — más rápido y no depende de Railway
+  let q = supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', hoy)
+    .lt('fecha_inicio', manana)
+    .neq('estado_moderacion', 'rechazado')
+    .order('fecha_inicio')
+    .limit(200)
+  if (filters?.municipio) q = q.ilike('municipio', `%${filters.municipio}%`)
+  if (filters?.categoria) q = q.eq('categoria_principal', filters.categoria)
+  if (typeof filters?.es_gratuito === 'boolean') q = q.eq('es_gratuito', filters.es_gratuito)
+  const { data: dataHoy, error: errorHoy } = await q
+  if (errorHoy) throw errorHoy
+  const eventosHoy = (dataHoy ?? []) as Evento[]
+
+  // Eventos multi-día en curso: empezaron en los últimos 2 días y terminan hoy o después
+  let q2 = supabase
+    .from('eventos')
+    .select('*')
+    .gte('fecha_inicio', hace2dias)
+    .lt('fecha_inicio', hoy)
+    .gte('fecha_fin', hoy)
+    .neq('estado_moderacion', 'rechazado')
+    .order('fecha_inicio')
+    .limit(50)
+  if (filters?.municipio) q2 = q2.ilike('municipio', `%${filters.municipio}%`)
+  if (filters?.categoria) q2 = q2.eq('categoria_principal', filters.categoria)
+  if (typeof filters?.es_gratuito === 'boolean') q2 = q2.eq('es_gratuito', filters.es_gratuito)
+  const { data: dataEnCurso } = await q2
+  const seenIds = new Set(eventosHoy.map(e => e.id))
+  for (const ev of (dataEnCurso ?? []) as Evento[]) {
+    if (!seenIds.has(ev.id)) eventosHoy.push(ev)
   }
+  return eventosHoy
 }
 
 export async function getEventosFeed(limit = 20): Promise<Evento[]> {
