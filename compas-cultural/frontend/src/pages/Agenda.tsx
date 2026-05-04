@@ -227,13 +227,19 @@ export default function Agenda() {
   // Group events by date — force Colombia timezone
   // Events that started in the past but are still ongoing → group under today's date (only in HOY tab)
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }) // YYYY-MM-DD in Bogotá
+  // Only allow "en curso" if the event started at most 2 days ago (not week-old events)
+  const twoDaysAgo = new Date()
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2)
+  const twoDaysAgoStr = twoDaysAgo.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
   const grouped = paged.reduce<Record<string, Evento[]>>((acc, ev) => {
     const fechaInicioStr = ev.fecha_inicio?.slice(0, 10) ?? ''
     const fechaFinStr = ev.fecha_fin?.slice(0, 10) ?? ''
-    // Only treat as "en curso hoy" when we are on the HOY tab
-    const isOngoing = timeFilter === 'hoy' && fechaInicioStr < todayStr && fechaFinStr >= todayStr
-    // For non-hoy tabs: skip events that started before today (stale data)
+    // Only treat as "en curso hoy" when we are on the HOY tab AND started within last 2 days
+    const isOngoing = timeFilter === 'hoy' && fechaInicioStr < todayStr && fechaInicioStr >= twoDaysAgoStr && fechaFinStr >= todayStr
+    // For non-hoy tabs, or for HOY tab events that started too long ago: skip
     if (timeFilter !== 'hoy' && fechaInicioStr < todayStr && !isOngoing) return acc
+    // For HOY tab: skip events that started before 2 days ago (not genuinely en-curso)
+    if (timeFilter === 'hoy' && fechaInicioStr < twoDaysAgoStr) return acc
     const effectiveDate = isOngoing ? todayStr + 'T00:00:00' : ev.fecha_inicio
     const dateKey = formatEventDate(effectiveDate, {
       weekday: 'long', day: 'numeric', month: 'long'
