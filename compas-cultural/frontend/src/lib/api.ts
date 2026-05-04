@@ -215,7 +215,27 @@ function buildTemporalFiltersQS(filters?: EventosTemporalFilters): string {
 
 export async function getEventosHoy(filters?: EventosTemporalFilters): Promise<Evento[]> {
   const qs = buildTemporalFiltersQS(filters)
-  return apiGet<Evento[]>(`/eventos/hoy${qs}`)
+  try {
+    return await apiGet<Evento[]>(`/eventos/hoy${qs}`)
+  } catch {
+    // Fallback directo a Supabase cuando Railway no responde
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+    const manana = new Date(new Date().getTime() + 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+    let q = supabase
+      .from('eventos')
+      .select('*')
+      .gte('fecha_inicio', hoy)
+      .lt('fecha_inicio', manana)
+      .neq('estado_moderacion', 'rechazado')
+      .order('fecha_inicio')
+      .limit(200)
+    if (filters?.municipio) q = q.ilike('municipio', `%${filters.municipio}%`)
+    if (filters?.categoria) q = q.eq('categoria_principal', filters.categoria)
+    if (typeof filters?.es_gratuito === 'boolean') q = q.eq('es_gratuito', filters.es_gratuito)
+    const { data, error } = await q
+    if (error) throw error
+    return (data ?? []) as Evento[]
+  }
 }
 
 export async function getEventosFeed(limit = 20): Promise<Evento[]> {
