@@ -1353,7 +1353,7 @@ AGENDA_SOURCES = [
     },
     {
         "nombre": "El Perpetuo Socorro - Eventos",
-        "url": "https://www.elperpetuosocorro.org/eventos/",
+        "url": "https://www.elperpetuosocorro.org/",
         "categoria_default": "teatro",
         "municipio": "medellin",
     },
@@ -1377,7 +1377,7 @@ AGENDA_SOURCES = [
     },
     {
         "nombre": "Casa Teatro El Poblado - Agenda",
-        "url": "https://casateatroelpoblado.com/agenda/",
+        "url": "https://casateatroelpoblado.com/",
         "categoria_default": "teatro",
         "municipio": "medellin",
     },
@@ -1389,7 +1389,7 @@ AGENDA_SOURCES = [
     },
     {
         "nombre": "Museo de Antioquia - Programación",
-        "url": "https://museodeantioquia.co/agenda/",
+        "url": "https://museodeantioquia.co/programacion/",
         "categoria_default": "galeria",
         "municipio": "medellin",
     },
@@ -1494,19 +1494,6 @@ async def scrape_agenda_sources() -> dict:
                         if not ev.get("imagen_url") and source_og_image:
                             ev["imagen_url"] = source_og_image
                     print(f"  ✅ Código: {len(events)} evento(s)")
-                else:
-                    text = _html_to_text(html_raw)[:4000]
-                    prompt = AGENDA_EXTRACTION_PROMPT.format(
-                        fecha_actual=now_iso,
-                        anio_actual=anio,
-                        nombre_fuente=src["nombre"],
-                        municipio=src["municipio"],
-                        fuente_url=src["url"],
-                        contenido=text,
-                    )
-                    events = _extract_events_with_ai(prompt)
-                    if events:
-                        print(f"  🧠 IA: {len(events)} evento(s)")
                 if not events:
                     feed_url = await get_or_discover_feed(src["url"])
                     if feed_url:
@@ -1523,7 +1510,7 @@ async def scrape_agenda_sources() -> dict:
                             events = rss_events
                             print(f"  📰 RSS: {len(events)} evento(s) desde {feed_url}")
             else:
-                print(f"  ⚠ Sin eventos de código para {src['nombre']} (sin fallback AI)")
+                print(f"  ⚠ Sin eventos de código para {src['nombre']}")
             if not events:
                 continue
 
