@@ -88,6 +88,10 @@ async def trigger_scrape_now(background_tasks: BackgroundTasks):
             await svc["scrape_agenda_sources"]()
         except Exception as e:
             print(f"❌ run-now agenda sources error: {e}")
+        try:
+            await svc["scrape_compas_urbano"]()
+        except Exception as e:
+            print(f"❌ run-now compas urbano error: {e}")
 
     background_tasks.add_task(_cleanup_and_scrape)
     return {"status": "started", "message": "Limpieza + scrape completo iniciado en background"}

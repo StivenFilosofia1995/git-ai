@@ -1634,7 +1634,12 @@ async def scrape_compas_urbano() -> dict:
 
     Ejecuta scraping diario de agenda alternativa (incluye Compas Urbano).
     """
-    return await scrape_agenda_sources()
+    try:
+        from app.services.compas_urbano_scraper import scrape_compas_urbano as _run_compas
+        return await _run_compas()
+    except Exception as e:
+        print(f"  ⚠ Error ejecutando compas_urbano_scraper dedicado: {e}")
+        return {"nuevos": 0, "duplicados": 0, "errores": 1, "total_api": 0}
 
 
 # ──────────────────────────────────────────────────────────────────────────

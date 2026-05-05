@@ -197,9 +197,9 @@ async def scrape_compas_urbano() -> dict:
     - Auto-registers organizers as lugares if not exists
     - All events are marked verificado=True
     """
-    print("\n[COMPAS URBANO] ══════════════════════════════════════════")
+    print("\n[COMPAS URBANO] ========================================")
     print("   Fetching eventos from apicompasurbano.com ...")
-    print("══════════════════════════════════════════════════════════")
+    print("========================================================")
 
     raw_events = await _fetch_compas_eventos()
     if not raw_events:
