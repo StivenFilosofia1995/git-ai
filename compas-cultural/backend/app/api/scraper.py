@@ -261,6 +261,7 @@ async def trigger_discover_events_publico(
                 es_gratuito=es_gratuito,
                 colectivo_slug=colectivo_slug,
                 texto=texto,
+                barrio=barrio,
                 max_queries=max(max_queries, 4),
                 max_results_per_query=max(max_results_per_query, 6),
                 days_from=days_from,

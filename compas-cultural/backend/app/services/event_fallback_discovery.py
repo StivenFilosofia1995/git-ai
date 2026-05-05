@@ -128,6 +128,56 @@ def _precio_label(es_gratuito: Optional[bool]) -> str:
     return "todos"
 
 
+# ── Barrios / comunas / zonas reconocidas de Medellín y Valle de Aburrá ────
+# Usados para extraer el barrio buscado cuando el usuario lo escribe
+# en texto libre (ej: "eventos en aranjuez" → barrio="aranjuez").
+_BARRIOS_MEDELLIN: list[str] = [
+    "aranjuez", "manrique", "belen", "belén", "laureles", "castilla", "robledo",
+    "la america", "la américa", "santa elena", "santa elena", "san javier",
+    "el poblado", "guayabal", "la candelaria", "villa hermosa", "buenos aires",
+    "prado", "carlos e restrepo", "conquistadores", "calasanz", "floresta",
+    "santa teresita", "los colores", "el estadio", "suramericana", "bello",
+    "itagui", "itagüí", "envigado", "sabaneta", "la estrella", "san antonio de prado",
+    "copacabana", "girardota", "caldas", "la pintada", "guarne", "el centro",
+    "boston", "villa del prado", "campo amor", "industriales", "el volador",
+    "san cristobal", "san cristóbal", "altavista", "san sebastian de palmitas",
+    "santa barbara", "santa bárbara", "el dorado", "loma hermosa", "picacho",
+    "aranjuez", "andalucia", "andalucía", "popular", "santa cruz", "doce de octubre",
+    "castilla", "guayabal", "belén", "laureles", "el estadio",
+]
+
+_FILLER_RE = re.compile(
+    r"\b(eventos?|actividades?|culturales?|conciertos?|teatros?|musica|en|de|del|para"
+    r"|con|la|el|los|las|una?|este|esta|pr[oó]ximos?|pr[oó]ximas?|hoy|ma[nñ]ana"
+    r"|semana|fin de semana|cerca|medellin|colombia|antioquia)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_search_text(text: str) -> str:
+    """Elimina palabras de relleno para aislar el término de búsqueda relevante."""
+    if not text:
+        return ""
+    clean = _FILLER_RE.sub(" ", _normalize_text(text))
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean[:80]
+
+
+def _extract_barrio_from_text(text: Optional[str]) -> Optional[str]:
+    """Detecta si el texto libre del usuario menciona un barrio/zona conocida.
+
+    Ordena por longitud descendente para que "la america" se detecte antes que "america".
+    """
+    if not text:
+        return None
+    t = _normalize_text(text)
+    for barrio in sorted(_BARRIOS_MEDELLIN, key=len, reverse=True):
+        barrio_norm = _normalize_text(barrio)
+        if barrio_norm in t:
+            return barrio_norm
+    return None
+
+
 def _build_google_queries(
     municipio: Optional[str],
     categoria: Optional[str],
@@ -349,6 +399,8 @@ async def _scrape_known_sites(
     as returned by extract_events_code() (NOT yet _build_candidate_event_data).
     """
     def _matches(site: dict) -> bool:
+        # Filtra por municipio y categoría — NO por texto libre.
+        # El texto libre es para queries de Google, no para filtrar sitios conocidos.
         if municipio and site.get("municipio") and site["municipio"] != municipio:
             return False
         if categoria and site.get("categorias"):
@@ -356,19 +408,13 @@ async def _scrape_known_sites(
             site_cats = [c.replace("_", " ").lower() for c in site["categorias"]]
             if not any(cat_norm in sc or sc in cat_norm for sc in site_cats):
                 return False
-        if texto:
-            t = texto.lower()
-            sn = site.get("nombre", "").lower()
-            su = site.get("url", "").lower()
-            sm = site.get("municipio", "").lower()
-            # Si el texto de busqueda no esta en el nombre, URL o municipio (y la busqueda no es un simple check por muni)
-            # Solo scrapeamos este sitio si hace match.
-            if t not in sn and t not in su and t not in sm and sm not in t:
-                return False
         return True
 
     matching_sites = [s for s in KNOWN_CULTURAL_SITES if _matches(s)]
-    if not matching_sites and not texto:
+    if not matching_sites:
+        # Sin match por categoría → scrapar todos los sitios del municipio
+        matching_sites = [s for s in KNOWN_CULTURAL_SITES if not municipio or s.get("municipio") == municipio]
+    if not matching_sites:
         matching_sites = list(KNOWN_CULTURAL_SITES)
 
     async def _fetch_site(site: dict) -> list[dict]:
@@ -410,6 +456,7 @@ def _find_candidate_lugares(
     municipio: Optional[str],
     categoria: Optional[str],
     texto: Optional[str],
+    barrio: Optional[str] = None,
     limit: int = 12,
 ) -> list[dict]:
     """Find likely matching lugares for user search filters.
@@ -425,19 +472,24 @@ def _find_candidate_lugares(
             query = query.eq("municipio", municipio)
         if categoria:
             query = query.eq("categoria_principal", categoria)
-        if texto:
-            t = texto[:80]
-            query = query.or_(
-                f"nombre.ilike.%{t}%,"
-                f"barrio.ilike.%{t}%,"
-                f"municipio.ilike.%{t}%"
-            )
+        if barrio:
+            # Búsqueda directa por barrio — máxima precisión
+            query = query.ilike("barrio", f"%{barrio}%")
+        elif texto:
+            # Limpiar texto libre de palabras de relleno antes de buscar
+            clean = _clean_search_text(texto)
+            if clean:
+                query = query.or_(
+                    f"nombre.ilike.%{clean}%,"
+                    f"barrio.ilike.%{clean}%,"
+                    f"municipio.ilike.%{clean}%"
+                )
         resp = query.limit(limit).execute()
         lugares = resp.data or []
         if lugares:
             return lugares
 
-        # Si el texto fue demasiado restrictivo, reintentar solo por municipio/categoría.
+        # Si el texto/barrio fue demasiado restrictivo, reintentar solo por municipio/categoría.
         relaxed = supabase.table("lugares").select(
             "id,nombre,slug,municipio,barrio,categoria_principal,sitio_web,instagram_handle"
         )
@@ -720,6 +772,12 @@ async def discover_events_for_filters(
     categoria = _normalize_text(categoria) or None
     texto = (texto or "").strip() or None
     barrio = (barrio or "").strip() or None
+
+    # Auto-detectar barrio desde el texto libre si el usuario no lo pasó explícitamente.
+    # Ej: "eventos en aranjuez" → barrio = "aranjuez"
+    if not barrio and texto:
+        barrio = _extract_barrio_from_text(texto)
+
     colectivo = _resolve_colectivo_by_slug(colectivo_slug)
     if colectivo:
         stats["colectivo"] = colectivo.get("slug")
@@ -774,7 +832,8 @@ async def discover_events_for_filters(
     candidate_lugares = _find_candidate_lugares(
         municipio=municipio,
         categoria=categoria,
-        texto=texto or (stats["variables"].get("barrio")),
+        texto=texto,
+        barrio=barrio or stats["variables"].get("barrio") or None,
         limit=24,
     )
     # Ordenar por tasa Poisson (λ) — lugares que publican más eventos van primero

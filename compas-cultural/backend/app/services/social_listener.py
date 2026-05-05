@@ -50,20 +50,28 @@ def _normalize_municipio(raw: str) -> str:
 
 async def _fetch_meta_api_posts(handle: str) -> list[dict]:
     """Obtiene posts recientes vía Meta Graph API (si configurada)."""
-    if not settings.meta_access_token or not settings.meta_ig_business_account_id:
+    # Usa el token gestionado (auto-renovado desde BD) en lugar del env token estático
+    try:
+        from app.services.meta_token_manager import get_valid_token
+        access_token = await get_valid_token()
+    except Exception:
+        access_token = settings.meta_access_token
+
+    if not access_token or not settings.meta_ig_business_account_id:
         return []
 
     clean_handle = handle.lstrip("@")
-    url = f"https://graph.facebook.com/v18.0/{settings.meta_ig_business_account_id}"
+    url = f"https://graph.facebook.com/v21.0/{settings.meta_ig_business_account_id}"
     params = {
         "fields": f"business_discovery.fields(username,name,biography,media.limit(20){{caption,timestamp,media_url,permalink,media_type}}).fields(username({clean_handle}))",
-        "access_token": settings.meta_access_token,
+        "access_token": access_token,
     }
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(url, params=params)
             if resp.status_code != 200:
+                logger.warning(f"Meta API {resp.status_code} for @{clean_handle}: {resp.text[:200]}")
                 return []
             data = resp.json()
             bd = data.get("business_discovery", {})
@@ -77,9 +85,11 @@ async def _fetch_meta_api_posts(handle: str) -> list[dict]:
                     "timestamp": m.get("timestamp", ""),
                     "handle": f"@{clean_handle}",
                 })
+            if posts:
+                logger.info(f"Meta API: {len(posts)} posts para @{clean_handle}")
             return posts
     except Exception as e:
-        logger.warning(f"Meta API error for {handle}: {e}")
+        logger.warning(f"Meta API error for @{clean_handle}: {e}")
         return []
 
 

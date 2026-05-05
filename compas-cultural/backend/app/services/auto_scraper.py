@@ -465,7 +465,13 @@ async def _fetch_ig_profile_via_meta_api(handle: str) -> Optional[dict]:
     Returns structured dict: {captions, image_urls, permalink_urls, biography, external_url}
     Same shape as instagram_pw_scraper.fetch_ig_profile() for use with ig_event_extractor.
     """
-    access_token = settings.meta_access_token
+    # Usar token gestionado (auto-renovado desde BD) en lugar del env token estático
+    try:
+        from app.services.meta_token_manager import get_valid_token
+        access_token = await get_valid_token()
+    except Exception:
+        access_token = settings.meta_access_token
+
     my_ig_id = settings.meta_ig_business_account_id
     if not access_token or not my_ig_id:
         return None
