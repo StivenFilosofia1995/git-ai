@@ -167,7 +167,7 @@ export default function Home() {
               to="/web-search"
               className="inline-flex items-center gap-2 px-4 py-2 border-2 border-black bg-black text-white text-[11px] font-mono font-bold uppercase tracking-wider hover:bg-neutral-800 transition-all"
             >
-              Abrir modulo web search
+              Ayudanos a buscar eventos
             </Link>
           </div>
         </section>
