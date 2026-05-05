@@ -94,6 +94,10 @@ def _detect_category(text: str) -> str:
     tl = (text or "").lower()
     if any(k in tl for k in ("teatro", "obra", "dramatur")):
         return "teatro"
+    if any(k in tl for k in ("metal", "heavy metal", "thrash", "black metal", "death metal", "punk")):
+        return "metal"
+    if any(k in tl for k in ("rock", "hard rock", "indie rock", "grunge")):
+        return "rock"
     if any(k in tl for k in ("jazz",)):
         return "jazz"
     if any(k in tl for k in ("hip hop", "rap", "freestyle")):
@@ -1323,7 +1327,7 @@ async def enrich_event_hours(limit: int = 800) -> dict:
 AGENDA_SOURCES = [
     {
         "nombre": "Compas Urbano - Agenda",
-        "url": "https://compasurbano.com",
+        "url": "https://www.compasurbano.com/eventos",
         "categoria_default": "festival",
         "municipio": "medellin",
     },
