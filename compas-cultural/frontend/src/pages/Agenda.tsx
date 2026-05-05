@@ -423,7 +423,7 @@ export default function Agenda() {
               <span className="text-[10px] font-mono font-bold uppercase tracking-[0.25em]">Web Search</span>
             </div>
             <p className="text-xs font-mono opacity-70">
-              El buscador web ahora está en un módulo independiente con búsqueda tipo Google por texto y zona.
+              Aporta al sistema y ayudanos a buscar eventos o colectivos que aun no mapeamos.
             </p>
           </div>
           <Link

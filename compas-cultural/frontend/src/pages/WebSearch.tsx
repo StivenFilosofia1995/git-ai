@@ -23,8 +23,7 @@ export default function WebSearch() {
             Web Search Cultural
           </h1>
           <p className="text-sm font-mono opacity-70 max-w-3xl">
-            Escribe exactamente lo que quieres buscar. El motor prioriza tu texto y tu zona para encontrar resultados en la web
-            y generar tarjetas candidatas para la agenda.
+            Aqui aportas al sistema cultural del Valle de Aburra: busca lo que no ves en el sistema.
           </p>
         </div>
       </section>
@@ -34,7 +33,7 @@ export default function WebSearch() {
           label="Buscar en web"
           allowTextInput
           searchPlaceholder="Escribe aqui"
-          helperText="Escribe lo que quieras encontrar y ETEREA busca en la web como un Google cultural del Valle."
+          helperText="Aqui aportas al sistema cultural del Valle de Aburra: busca lo que no ves en el sistema."
           onSearch={async (query) => {
             const textQuery = (query || '').trim()
             const res = await discoverEventosConBarrio({
