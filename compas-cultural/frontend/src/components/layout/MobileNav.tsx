@@ -3,6 +3,7 @@
 const LINKS = [
   { to: '/cerca-de-ti', label: 'CERCA', icon: '📍' },
   { to: '/agenda', label: 'AGENDA', icon: '▲' },
+  { to: '/web-search', label: 'SEARCH', icon: '🔎' },
   { to: '/colectivos', label: 'COLECTIVO', icon: '◇' },
   { to: '/nosotros', label: 'NOSOTROS', icon: 'M' },
   { to: '/aportes', label: 'VAKI', icon: '♥' },

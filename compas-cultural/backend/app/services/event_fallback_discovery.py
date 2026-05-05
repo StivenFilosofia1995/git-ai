@@ -196,6 +196,8 @@ def _build_google_queries(
     """
     q_parts = [p for p in [colectivo_nombre, categoria, texto] if p]
     base = " ".join(q_parts).strip() or "eventos culturales"
+    clean_texto = _clean_search_text(texto or "")
+    search_core = clean_texto or base
     region = barrio or municipio or "Medellín"
     ciudad = municipio or "Medellín"
 
@@ -203,25 +205,37 @@ def _build_google_queries(
 
     # Búsqueda hiper-local si hay barrio (ej: "aranjuez rock" → busca en Aranjuez)
     if barrio:
-        queries.append(f"{base} {barrio} {ciudad}")
-        queries.append(f"colectivos culturales {barrio} {ciudad} agenda")
-        queries.append(f"site:instagram.com {base} {barrio}")
-        queries.append(f"eventos hoy fin de semana {barrio} {ciudad}")
+        queries.append(f"{search_core} {barrio} {ciudad}")
+        queries.append(f"site:instagram.com {search_core} {barrio} {ciudad}")
+        queries.append(f"site:facebook.com events {search_core} {barrio} {ciudad}")
 
-    queries += [
-        f"{base} agenda cultural {region}",
-        f"{base} concierto teatro taller {ciudad}",
-        f"colectivos culturales {base} {ciudad}",
-        f"site:instagram.com {base} evento {ciudad}",
-        f"site:facebook.com events {base} {ciudad}",
-        f"agenda cultural gratis {ciudad} hoy fin de semana",
-        f"cartelera cultural {ciudad} {base}",
-        f"programacion cultural {ciudad} {base}",
-        f"site:eventbrite.com {base} {ciudad}",
-        f"site:tuboleta.com {base} {ciudad}",
-        f"cultura medellín {base} unofficial colectivo",
-        f"eventos hoy mañana fin de semana {ciudad}",
-    ]
+    if texto:
+        queries += [
+            f"{search_core} {region} {ciudad}",
+            f"eventos {search_core} {region}",
+            f"agenda {search_core} {ciudad}",
+            f"site:instagram.com {search_core} evento {region}",
+            f"site:facebook.com events {search_core} {region}",
+            f"cartelera {search_core} {ciudad}",
+            f"programacion {search_core} {region}",
+            f"site:eventbrite.com {search_core} {ciudad}",
+            f"site:tuboleta.com {search_core} {ciudad}",
+        ]
+    else:
+        queries += [
+            f"{base} agenda cultural {region}",
+            f"{base} concierto teatro taller {ciudad}",
+            f"colectivos culturales {base} {ciudad}",
+            f"site:instagram.com {base} evento {ciudad}",
+            f"site:facebook.com events {base} {ciudad}",
+            f"agenda cultural gratis {ciudad} hoy fin de semana",
+            f"cartelera cultural {ciudad} {base}",
+            f"programacion cultural {ciudad} {base}",
+            f"site:eventbrite.com {base} {ciudad}",
+            f"site:tuboleta.com {base} {ciudad}",
+            f"cultura medellín {base} unofficial colectivo",
+            f"eventos hoy mañana fin de semana {ciudad}",
+        ]
     # Deduplicar preservando orden
     seen: set = set()
     unique = []
@@ -661,6 +675,50 @@ def _build_candidate_event_data(
     return _sanitize_payload(evento_data)
 
 
+def _event_relevance_score(
+    evento: dict,
+    *,
+    texto: Optional[str],
+    barrio: Optional[str],
+    municipio: Optional[str],
+) -> int:
+    if not texto and not barrio and not municipio:
+        return 1
+
+    terms = [t for t in _clean_search_text(texto or "").split(" ") if len(t) >= 3]
+    geo_terms = [
+        _normalize_text(barrio or ""),
+        _normalize_text(municipio or ""),
+    ]
+    geo_terms = [t for t in geo_terms if t]
+
+    haystack = _normalize_text(
+        " ".join(
+            [
+                str(evento.get("titulo") or ""),
+                str(evento.get("descripcion") or ""),
+                str(evento.get("nombre_lugar") or ""),
+                str(evento.get("barrio") or ""),
+                str(evento.get("municipio") or ""),
+                str(evento.get("fuente_url") or ""),
+            ]
+        )
+    )
+
+    score = 0
+    matched_terms = 0
+    for t in terms:
+        if t in haystack:
+            score += 3
+            matched_terms += 1
+    for g in geo_terms:
+        if g in haystack:
+            score += 2
+    if terms and matched_terms == len(terms):
+        score += 2
+    return score
+
+
 def _event_exists(slug: str) -> bool:
     try:
         exists = supabase.table("eventos").select("id").eq("slug", slug).execute()
@@ -793,6 +851,10 @@ async def discover_events_for_filters(
         "barrio": barrio or "",
     }
 
+    # Query-first mode: when user typed text, prioritize Google-like discovery first.
+    query_first = bool(_clean_search_text(texto or ""))
+    min_relevance = 3 if texto else 1
+
     # ── 1. Direct scrape of known Medellín cultural sites (reliable, no Google) ──
     known_events = await _scrape_known_sites(
         municipio=municipio,
@@ -815,6 +877,13 @@ async def discover_events_for_filters(
                 required_es_gratuito=es_gratuito,
             )
             if not evento_data:
+                continue
+            if _event_relevance_score(
+                evento_data,
+                texto=texto,
+                barrio=barrio,
+                municipio=municipio,
+            ) < min_relevance:
                 continue
             stats["encontrados"] += 1
             if len(stats["candidatos"]) < 80:
@@ -862,6 +931,13 @@ async def discover_events_for_filters(
             )
             if not evento_data:
                 continue
+            if _event_relevance_score(
+                evento_data,
+                texto=texto,
+                barrio=barrio,
+                municipio=municipio,
+            ) < min_relevance:
+                continue
             stats["encontrados"] += 1
             if len(stats["candidatos"]) < 80:
                 stats["candidatos"].append(evento_data)
@@ -882,12 +958,15 @@ async def discover_events_for_filters(
         colectivo_nombre=(colectivo or {}).get("nombre"),
         texto=texto,
         barrio=_barrio,
-    )[:max_queries]
+    )[: (max(max_queries, 6) if query_first else max_queries)]
 
     seen_urls: set[str] = set()
     for query in queries:
         stats["consultas"].append(query)
-        urls = await _google_search_urls(query, max_results=max_results_per_query)
+        urls = await _google_search_urls(
+            query,
+            max_results=(max(max_results_per_query, 8) if query_first else max_results_per_query),
+        )
         await asyncio.sleep(2)  # Avoid rate limiting from search engines
         for url in urls:
             if url in seen_urls:
@@ -929,6 +1008,14 @@ async def discover_events_for_filters(
                     if not evento_data:
                         continue
 
+                    if _event_relevance_score(
+                        evento_data,
+                        texto=texto,
+                        barrio=barrio,
+                        municipio=municipio,
+                    ) < min_relevance:
+                        continue
+
                     stats["encontrados"] += 1
                     if len(stats["candidatos"]) < 80:
                         stats["candidatos"].append(evento_data)
@@ -951,6 +1038,23 @@ async def discover_events_for_filters(
             continue
         seen_keys.add(key)
         deduped.append(ev)
+    if texto:
+        deduped.sort(
+            key=lambda ev: _event_relevance_score(
+                ev,
+                texto=texto,
+                barrio=barrio,
+                municipio=municipio,
+            ),
+            reverse=True,
+        )
+        # Si el usuario escribió texto, mantener solo candidatos realmente relacionados.
+        deduped = [
+            ev
+            for ev in deduped
+            if _event_relevance_score(ev, texto=texto, barrio=barrio, municipio=municipio) >= min_relevance
+        ]
+
     stats["candidatos"] = deduped[:80]
     stats["encontrados"] = len(stats["candidatos"])
 

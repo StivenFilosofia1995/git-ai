@@ -6,10 +6,9 @@ import EventosHoySection from '../components/agenda/EventosHoySection'
 import RecomendacionesSection from '../components/agenda/RecomendacionesSection'
 import HomeChatSection from '../components/chat/HomeChatSection'
 import AISearchBar from '../components/search/AISearchBar'
-import BuscarConAI from '../components/ui/BuscarConAI'
 import ColtejerWireframe from '../components/illustrations/ColtejerWireframe'
 import ZonaCard from '../components/zones/ZonaCard'
-import { commitEventosDescubiertos, discoverEventosAI, getZonas, getStats, getEventos, type Zona } from '../lib/api'
+import { getZonas, getStats, getEventos, type Zona } from '../lib/api'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 
@@ -156,48 +155,20 @@ export default function Home() {
           <div className="max-w-4xl">
             <div className="flex items-center gap-3 mb-4">
               <span className="w-3 h-3 bg-black" />
-              <span className="text-[11px] font-mono font-bold uppercase tracking-[0.25em]">Web Search Colectivo</span>
+              <span className="text-[11px] font-mono font-bold uppercase tracking-[0.25em]">Web Search</span>
             </div>
             <h2 className="text-2xl md:text-4xl font-heading font-black uppercase tracking-tight mb-3">
-              Ayúdanos a encontrar eventos nuevos
+              Busqueda web en modulo independiente
             </h2>
             <p className="text-sm font-mono opacity-70 mb-5 max-w-2xl">
-              Busca por tema, barrio o colectivo. ETÉREA rastrea la web, arma las tarjetas candidatas y luego te pregunta si deseas guardarlas en el sistema para nutrir la agenda.
+              El buscador web ya no vive en Home. Ahora está en un módulo dedicado para búsquedas más precisas tipo Google por tema, barrio o colectivo.
             </p>
-            <BuscarConAI
-              label="Web search"
-              allowTextInput
-              searchPlaceholder="Ej: rock metal medellín, hip hop aranjuez, literatura laureles, poesía envigado"
-              helperText="También puedes escribir el nombre de un colectivo o un barrio."
-              suggestions={[
-                'rock metal medellin',
-                'hip hop aranjuez',
-                'literatura laureles',
-                'poesia envigado',
-              ]}
-              onSearch={async (query) => {
-                const res = await discoverEventosAI({
-                  texto: query || 'eventos culturales medellin valle de aburra',
-                  max_queries: 4,
-                  max_results_per_query: 8,
-                  days_ahead: 21,
-                  auto_insert: false,
-                })
-                return {
-                  message: res.message,
-                  candidatos: res.result.candidatos ?? [],
-                  variables: {
-                    tipo_evento: 'cultural',
-                    zona: 'valle de aburra',
-                    fecha_actual: new Date().toISOString().slice(0, 10),
-                  },
-                }
-              }}
-              onCommit={async candidatos => {
-                const saved = await commitEventosDescubiertos(candidatos)
-                return saved.message
-              }}
-            />
+            <Link
+              to="/web-search"
+              className="inline-flex items-center gap-2 px-4 py-2 border-2 border-black bg-black text-white text-[11px] font-mono font-bold uppercase tracking-wider hover:bg-neutral-800 transition-all"
+            >
+              Abrir modulo web search
+            </Link>
           </div>
         </section>
 
