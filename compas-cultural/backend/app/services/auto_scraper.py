@@ -1403,6 +1403,372 @@ AGENDA_SOURCES = [
         "categoria_default": "galeria",
         "municipio": "medellin",
     },
+    # ── INSTITUCIONES CULTURALES PÚBLICAS ─────────────────────
+    {
+        "nombre": "Alcaldía de Medellín - Agenda Cultural",
+        "url": "https://www.medellin.gov.co/es/inicio/sala-de-prensa/agenda-cultural/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Secretaría de Cultura de Medellín",
+        "url": "https://www.culturamedellín.gov.co/agenda",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Red de Bibliotecas Medellín",
+        "url": "https://bibliotecasmedellin.gov.co/content/actividades/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Biblioteca España - Agenda",
+        "url": "https://bibliotecasmedellin.gov.co/espana/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Biblioteca La Ladera - Agenda",
+        "url": "https://bibliotecasmedellin.gov.co/laladera/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Biblioteca Belén - Agenda",
+        "url": "https://bibliotecasmedellin.gov.co/belen/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Biblioteca San Javier - Agenda",
+        "url": "https://bibliotecasmedellin.gov.co/sanjavier/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Biblioteca Aranjuez - Agenda",
+        "url": "https://bibliotecasmedellin.gov.co/aranjuez/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Biblioteca Castilla - Agenda",
+        "url": "https://bibliotecasmedellin.gov.co/castilla/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Biblioteca Manrique - Agenda",
+        "url": "https://bibliotecasmedellin.gov.co/manrique/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    # ── UVA EPM (Unidades de Vida Articulada) ─────────────────
+    {
+        "nombre": "UVA La Imaginación - EPM",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad/uva-la-imaginacion",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "UVA El Paraíso - EPM",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad/uva-el-paraiso",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "UVA La Esperanza - EPM",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad/uva-la-esperanza",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "UVA La Armonía - EPM",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad/uva-la-armonia",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "UVA El Encuentro - EPM",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad/uva-el-encuentro",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "UVA La Alegría - EPM",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad/uva-la-alegria",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "UVA El Poblado - EPM",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad/uva-el-poblado",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "UVA Sol de Oriente - EPM",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad/uva-sol-de-oriente",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "EPM Cultura y Comunidad - Agenda",
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    # ── ESPACIOS INDEPENDIENTES Y COLECTIVOS ──────────────────
+    {
+        "nombre": "Platohedro - Agenda",
+        "url": "https://platohedro.org/actividades/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Corporación Nuestra Gente - Eventos",
+        "url": "https://nuestragente.com.co/programacion/",
+        "categoria_default": "hip_hop",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Casa Kolacho - Hip Hop",
+        "url": "https://www.casakolacho.org/programacion/",
+        "categoria_default": "hip_hop",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Corporación Otraparte - Agenda",
+        "url": "https://www.otraparte.org/actividades/",
+        "categoria_default": "filosofia",
+        "municipio": "envigado",
+    },
+    {
+        "nombre": "AgroArte Colombia - Eventos",
+        "url": "https://www.agroarte.org/agenda/",
+        "categoria_default": "hip_hop",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Centro Cultural Moravia - Agenda",
+        "url": "https://www.centroculturalmoravia.org/agenda/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Corporación Cultural Área Local - La Pascasia",
+        "url": "https://lapascasia.com/programacion/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Universo Centro - Agenda",
+        "url": "https://www.universocentro.com/agenda/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    # ── MUSEOS Y CENTROS DE ARTE ──────────────────────────────
+    {
+        "nombre": "Museo Casa de la Memoria - Programación",
+        "url": "https://www.museocasadelamemoria.gov.co/programacion/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "El Castillo Museo y Jardines",
+        "url": "https://www.elcastillo.org.co/programacion/",
+        "categoria_default": "galeria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Sala de Exposiciones Palacio de la Cultura",
+        "url": "https://www.museodeantioquia.co/agenda/palacio-de-la-cultura/",
+        "categoria_default": "galeria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Jardín Botánico de Medellín - Eventos",
+        "url": "https://www.botanicomedellin.org/eventos/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Parque de los Deseos - Agenda",
+        "url": "https://www.parquelosdeseos.org/agenda/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    # ── CENTROS CULTURALES INTERNACIONALES ───────────────────
+    {
+        "nombre": "Centro Colombo Americano - Agenda",
+        "url": "https://colombomedellin.com/agenda/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Alianza Francesa Medellín - Agenda",
+        "url": "https://alianzafrancesa.org.co/medellin/agenda/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Goethe-Institut Medellín - Programación",
+        "url": "https://www.goethe.de/ins/co/es/sta/med/ver.html",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    # ── MÚSICA Y CONCIERTOS ───────────────────────────────────
+    {
+        "nombre": "Orquesta Filarmónica de Medellín",
+        "url": "https://filarmed.gov.co/programacion/",
+        "categoria_default": "musica_en_vivo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Festival Internacional de Poesía de Medellín",
+        "url": "https://www.festivaldepoesiademedellin.org/pub/",
+        "categoria_default": "poesia",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Festival de Jazz de Medellín",
+        "url": "https://festivaljazzm.com/programacion/",
+        "categoria_default": "jazz",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Salón Málaga - Tango y Jazz",
+        "url": "https://salonmalaga.com/agenda/",
+        "categoria_default": "musica_en_vivo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "El Eslabon Prendido - Agenda",
+        "url": "https://eleslabon.com.co/agenda/",
+        "categoria_default": "musica_en_vivo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Casa de la Música Medellín - Programación",
+        "url": "https://redmusicamedellin.gov.co/programacion/",
+        "categoria_default": "musica_en_vivo",
+        "municipio": "medellin",
+    },
+    # ── CINE Y MEDIOS ─────────────────────────────────────────
+    {
+        "nombre": "Cinemateca Distrital Medellín",
+        "url": "https://www.cinemateca.org.co/programacion/",
+        "categoria_default": "cine",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Festival Internacional de Cine de Medellín",
+        "url": "https://medicinemafestival.com/programacion/",
+        "categoria_default": "cine",
+        "municipio": "medellin",
+    },
+    # ── GASTRONOMÍA CULTURAL / BARES CULTURALES ───────────────
+    {
+        "nombre": "El Nido Café Cultural - Agenda",
+        "url": "https://www.elnidocc.com/agenda/",
+        "categoria_default": "musica_en_vivo",
+        "municipio": "medellin",
+    },
+    # ── MEDIOS CULTURALES (agregadores) ──────────────────────
+    {
+        "nombre": "El Colombiano - Cultura y Entretenimiento",
+        "url": "https://www.elcolombiano.com/cultura/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Universo Centro - Publicaciones",
+        "url": "https://www.universocentro.com/",
+        "categoria_default": "editorial",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Hacemos Memoria - Agenda",
+        "url": "https://hacemosmemoria.org/agenda/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    # ── VALLE DE ABURRÁ: OTROS MUNICIPIOS ────────────────────
+    {
+        "nombre": "Casa de la Cultura de Envigado",
+        "url": "https://www.envigado.gov.co/cultura/Paginas/Agenda-cultural.aspx",
+        "categoria_default": "centro_cultural",
+        "municipio": "envigado",
+    },
+    {
+        "nombre": "Casa de la Cultura de Bello - Agenda",
+        "url": "https://www.bello.gov.co/index.php/cultura/agenda-cultural",
+        "categoria_default": "centro_cultural",
+        "municipio": "bello",
+    },
+    {
+        "nombre": "Casa de la Cultura de Itagüí",
+        "url": "https://www.itagui.gov.co/cultura/agenda-cultural",
+        "categoria_default": "centro_cultural",
+        "municipio": "itagui",
+    },
+    {
+        "nombre": "Casa de la Cultura de Sabaneta",
+        "url": "https://www.sabaneta.gov.co/cultura/agenda/",
+        "categoria_default": "centro_cultural",
+        "municipio": "sabaneta",
+    },
+    {
+        "nombre": "Casa de la Cultura de La Estrella",
+        "url": "https://www.laestrella.gov.co/alcaldia/entidades/cultura/agenda-cultural",
+        "categoria_default": "centro_cultural",
+        "municipio": "la estrella",
+    },
+    {
+        "nombre": "Municipio de Caldas Antioquia - Cultura",
+        "url": "https://www.caldas-antioquia.gov.co/cultura/agenda-cultural",
+        "categoria_default": "centro_cultural",
+        "municipio": "caldas",
+    },
+    # ── UNIVERSIDADES (agenda cultural abierta al público) ───
+    {
+        "nombre": "Universidad de Antioquia - Agenda Cultural",
+        "url": "https://www.udea.edu.co/wps/portal/udea/web/inicio/cultura-bienestar/cultura/agenda",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "EAFIT - Agenda Cultural",
+        "url": "https://www.eafit.edu.co/cultura/agenda/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Universidad Nacional Medellín - Cultura",
+        "url": "https://medellin.unal.edu.co/bienestar-cultura/agenda-cultural.html",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "UPB Medellín - Agenda Cultural",
+        "url": "https://www.upb.edu.co/es/agenda-cultural",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    # ── FIESTA DEL LIBRO Y FERIAS ─────────────────────────────
+    {
+        "nombre": "Fiesta del Libro y la Cultura de Medellín",
+        "url": "https://www.fiestadellibro.com.co/programacion/",
+        "categoria_default": "editorial",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Comfenalco Antioquia - Agenda Libros",
+        "url": "https://www.comfenalcoantioquia.com.co/servicios/librerias/eventos/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
 ]
 
 AGENDA_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).

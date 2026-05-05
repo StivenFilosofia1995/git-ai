@@ -102,6 +102,201 @@ KNOWN_CULTURAL_SITES: list[dict] = [
         "municipio": "medellin",
         "categorias": ["teatro", "musica_en_vivo"],
     },
+    # ── RED DE BIBLIOTECAS ────────────────────────────────────
+    {
+        "url": "https://bibliotecasmedellin.gov.co/content/actividades/",
+        "nombre": "Red de Bibliotecas Medellín",
+        "municipio": "medellin",
+        "categorias": ["libreria", "taller", "conferencia"],
+    },
+    {
+        "url": "https://bibliotecasmedellin.gov.co/espana/",
+        "nombre": "Biblioteca España",
+        "municipio": "medellin",
+        "categorias": ["libreria", "taller"],
+    },
+    {
+        "url": "https://bibliotecasmedellin.gov.co/laladera/",
+        "nombre": "Biblioteca La Ladera",
+        "municipio": "medellin",
+        "categorias": ["libreria", "taller"],
+    },
+    {
+        "url": "https://bibliotecasmedellin.gov.co/belen/",
+        "nombre": "Biblioteca Belén",
+        "municipio": "medellin",
+        "categorias": ["libreria", "taller"],
+    },
+    {
+        "url": "https://bibliotecasmedellin.gov.co/sanjavier/",
+        "nombre": "Biblioteca San Javier",
+        "municipio": "medellin",
+        "categorias": ["libreria", "taller"],
+    },
+    {
+        "url": "https://bibliotecasmedellin.gov.co/aranjuez/",
+        "nombre": "Biblioteca Aranjuez",
+        "municipio": "medellin",
+        "categorias": ["libreria", "taller"],
+    },
+    {
+        "url": "https://bibliotecasmedellin.gov.co/castilla/",
+        "nombre": "Biblioteca Castilla",
+        "municipio": "medellin",
+        "categorias": ["libreria", "taller"],
+    },
+    {
+        "url": "https://bibliotecasmedellin.gov.co/manrique/",
+        "nombre": "Biblioteca Manrique",
+        "municipio": "medellin",
+        "categorias": ["libreria", "taller"],
+    },
+    # ── UVA EPM ───────────────────────────────────────────────
+    {
+        "url": "https://www.epm.com.co/site/comunidad-y-medio-ambiente/comunidad",
+        "nombre": "UVA EPM - Unidades de Vida Articulada",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "taller", "festival"],
+    },
+    # ── ESPACIOS CULTURALES INDEPENDIENTES ───────────────────
+    {
+        "url": "https://platohedro.org/actividades/",
+        "nombre": "Platohedro",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "arte_contemporaneo", "taller"],
+    },
+    {
+        "url": "https://nuestragente.com.co/programacion/",
+        "nombre": "Corporación Nuestra Gente",
+        "municipio": "medellin",
+        "categorias": ["hip_hop", "muralismo", "centro_cultural"],
+    },
+    {
+        "url": "https://www.casakolacho.org/programacion/",
+        "nombre": "Casa Kolacho",
+        "municipio": "medellin",
+        "categorias": ["hip_hop", "batalla_freestyle", "muralismo"],
+    },
+    {
+        "url": "https://www.otraparte.org/actividades/",
+        "nombre": "Corporación Otraparte",
+        "municipio": "envigado",
+        "categorias": ["filosofia", "conferencia", "literatura"],
+    },
+    {
+        "url": "https://www.agroarte.org/agenda/",
+        "nombre": "AgroArte Colombia",
+        "municipio": "medellin",
+        "categorias": ["hip_hop", "muralismo", "centro_cultural"],
+    },
+    {
+        "url": "https://www.centroculturalmoravia.org/agenda/",
+        "nombre": "Centro Cultural Moravia",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "arte_contemporaneo", "taller"],
+    },
+    # ── MUSEOS ────────────────────────────────────────────────
+    {
+        "url": "https://www.museocasadelamemoria.gov.co/programacion/",
+        "nombre": "Museo Casa de la Memoria",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "conferencia", "arte_contemporaneo"],
+    },
+    {
+        "url": "https://www.elcastillo.org.co/programacion/",
+        "nombre": "El Castillo Museo y Jardines",
+        "municipio": "medellin",
+        "categorias": ["galeria", "festival", "arte_contemporaneo"],
+    },
+    # ── CENTROS INTERNACIONALES ───────────────────────────────
+    {
+        "url": "https://colombomedellin.com/agenda/",
+        "nombre": "Centro Colombo Americano Medellín",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "cine", "conferencia"],
+    },
+    {
+        "url": "https://alianzafrancesa.org.co/medellin/agenda/",
+        "nombre": "Alianza Francesa Medellín",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "cine", "conferencia"],
+    },
+    {
+        "url": "https://www.goethe.de/ins/co/es/sta/med/ver.html",
+        "nombre": "Goethe-Institut Medellín",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "cine", "taller"],
+    },
+    # ── MÚSICA EN VIVO / BARES CULTURALES ────────────────────
+    {
+        "url": "https://filarmed.gov.co/programacion/",
+        "nombre": "Orquesta Filarmónica de Medellín",
+        "municipio": "medellin",
+        "categorias": ["musica_en_vivo", "jazz", "danza"],
+    },
+    {
+        "url": "https://salonmalaga.com/agenda/",
+        "nombre": "Salón Málaga",
+        "municipio": "medellin",
+        "categorias": ["musica_en_vivo", "jazz", "danza"],
+    },
+    {
+        "url": "https://eleslabon.com.co/agenda/",
+        "nombre": "El Eslabon Prendido",
+        "municipio": "medellin",
+        "categorias": ["musica_en_vivo", "electronica"],
+    },
+    # ── UNIVERSIDADES ─────────────────────────────────────────
+    {
+        "url": "https://www.udea.edu.co/wps/portal/udea/web/inicio/cultura-bienestar/cultura/agenda",
+        "nombre": "Universidad de Antioquia - Cultura",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "conferencia", "teatro"],
+    },
+    {
+        "url": "https://www.eafit.edu.co/cultura/agenda/",
+        "nombre": "EAFIT - Agenda Cultural",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "conferencia", "musica_en_vivo"],
+    },
+    # ── AGENDA DIGITAL / MEDIOS ───────────────────────────────
+    {
+        "url": "https://www.universocentro.com/agenda/",
+        "nombre": "Universo Centro",
+        "municipio": "medellin",
+        "categorias": ["festival", "arte_contemporaneo", "editorial"],
+    },
+    {
+        "url": "https://www.fiestadellibro.com.co/programacion/",
+        "nombre": "Fiesta del Libro y la Cultura",
+        "municipio": "medellin",
+        "categorias": ["editorial", "libreria", "conferencia"],
+    },
+    # ── VALLE DE ABURRÁ ───────────────────────────────────────
+    {
+        "url": "https://www.envigado.gov.co/cultura/Paginas/Agenda-cultural.aspx",
+        "nombre": "Casa de la Cultura de Envigado",
+        "municipio": "envigado",
+        "categorias": ["centro_cultural", "teatro", "taller"],
+    },
+    {
+        "url": "https://www.bello.gov.co/index.php/cultura/agenda-cultural",
+        "nombre": "Casa de la Cultura de Bello",
+        "municipio": "bello",
+        "categorias": ["centro_cultural", "teatro", "taller"],
+    },
+    {
+        "url": "https://www.itagui.gov.co/cultura/agenda-cultural",
+        "nombre": "Casa de la Cultura de Itagüí",
+        "municipio": "itagui",
+        "categorias": ["centro_cultural", "teatro", "taller"],
+    },
+    {
+        "url": "https://www.sabaneta.gov.co/cultura/agenda/",
+        "nombre": "Casa de la Cultura de Sabaneta",
+        "municipio": "sabaneta",
+        "categorias": ["centro_cultural", "teatro"],
+    },
 ]
 
 UA = (
