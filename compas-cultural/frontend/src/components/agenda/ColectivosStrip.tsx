@@ -139,7 +139,7 @@ export default function ColectivosStrip({ className = '' }: Props) {
             {colectivos.length} con eventos
           </span>
           <Link
-            to="/espacios"
+            to="/colectivos"
             className="ml-auto text-[9px] font-mono font-bold uppercase tracking-widest underline hover:no-underline"
           >
             Ver todos →
