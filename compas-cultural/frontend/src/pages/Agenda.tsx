@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode
 import { Link } from 'react-router-dom'
 import EventCard from '../components/agenda/EventCard'
 import HomeChatSection from '../components/chat/HomeChatSection'
+import EventoDestacado from '../components/agenda/EventoDestacado'
 import { getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
 
@@ -381,6 +382,9 @@ export default function Agenda() {
 
       {/* ─── AGENDA: ¿QUÉ HAY HOY? + BUSCADOR + GRID ─────────────────────────── */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-8">
+        <div className="flex gap-8 items-start">
+        {/* Main content column */}
+        <div className="flex-1 min-w-0">
         {/* Encabezado de sección */}
         <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
           <div>
@@ -611,6 +615,13 @@ export default function Agenda() {
             )}
           </>
         )}
+        </div>{/* end main content column */}
+
+        {/* ── Sidebar derecho: Evento de la Semana (solo xl+) ── */}
+        <aside className="hidden xl:block w-72 shrink-0 sticky top-6 self-start">
+          <EventoDestacado />
+        </aside>
+        </div>{/* end flex row */}
       </div>
 
       {/* ─── MAPA CULTURAL ───────────────────────────────────────────────────── */}

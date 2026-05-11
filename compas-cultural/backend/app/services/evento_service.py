@@ -558,3 +558,92 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
             break
 
     return result
+
+
+# ══════════════════════════════════════════════════════════════
+# Eventos destacados — panel "Evento de la Semana"
+# ══════════════════════════════════════════════════════════════
+
+def get_eventos_destacados(limit: int = 5) -> List[dict]:
+    """
+    Retorna los eventos más destacados de los próximos 14 días.
+
+    Score compuesto privilegia:
+    - Eventos con imagen (calidad visual para el panel)
+    - Eventos con descripción completa
+    - Urgencia en los próximos días
+    - Diversidad de categoría (1 por categoría máx para el panel)
+    """
+    ahora = _now_co()
+    hoy = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    hasta = hoy + timedelta(days=14)
+
+    response = (
+        supabase.table("eventos")
+        .select("*")
+        .gte("fecha_inicio", hoy.isoformat())
+        .lte("fecha_inicio", hasta.isoformat())
+        .not_.is_("imagen_url", "null")
+        .order("fecha_inicio")
+        .limit(100)
+        .execute()
+    )
+    pool = response.data or []
+
+    # Fallback: incluye eventos sin imagen si hay pocos
+    if len(pool) < limit:
+        response2 = (
+            supabase.table("eventos")
+            .select("*")
+            .gte("fecha_inicio", hoy.isoformat())
+            .lte("fecha_inicio", hasta.isoformat())
+            .order("fecha_inicio")
+            .limit(60)
+            .execute()
+        )
+        seen = {ev["id"] for ev in pool}
+        for ev in (response2.data or []):
+            if ev["id"] not in seen:
+                pool.append(ev)
+
+    if not pool:
+        return []
+
+    # Score especializado para destacados: prioriza imagen + calidad + urgencia
+    def _score_destacado(ev: dict) -> float:
+        base = _score_evento_ml(ev, ahora)
+        # Fuerte bonus si tiene imagen
+        if ev.get("imagen_url"):
+            base += 3.0
+        # Bonus si tiene descripción larga
+        desc = ev.get("descripcion") or ""
+        if len(desc) > 100:
+            base += 1.0
+        # Bonus verificado
+        if ev.get("verificado"):
+            base += 1.5
+        return base
+
+    scored = sorted(pool, key=_score_destacado, reverse=True)
+
+    # 1 evento por categoría para diversidad visual en el panel
+    seen_cats: set = set()
+    result = []
+    for ev in scored:
+        cat = ev.get("categoria_principal") or "otro"
+        if cat not in seen_cats:
+            seen_cats.add(cat)
+            result.append(ev)
+        if len(result) >= limit:
+            break
+
+    # Si tras diversificación hay menos que limit, completar con los mejor puntuados
+    if len(result) < limit:
+        seen_ids = {ev["id"] for ev in result}
+        for ev in scored:
+            if ev["id"] not in seen_ids:
+                result.append(ev)
+            if len(result) >= limit:
+                break
+
+    return result

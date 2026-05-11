@@ -279,6 +279,10 @@ export async function getEventosFeed(limit = 20): Promise<Evento[]> {
   return apiGet<Evento[]>(`/eventos/feed?limit=${limit}`)
 }
 
+export async function getEventosDestacados(limit = 5): Promise<Evento[]> {
+  return apiGet<Evento[]>(`/eventos/destacados?limit=${limit}`)
+}
+
 export async function getEventosSemana(filters?: EventosTemporalFilters): Promise<Evento[]> {
   // Usa endpoint backend que cubre hasta el domingo de la próxima semana
   // (7-14 días). Antes usaba Supabase directo con ventana fija de 7 días,

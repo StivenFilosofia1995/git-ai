@@ -188,6 +188,12 @@ def get_eventos_proximas_semanas(
     )
 
 
+@router.get("/destacados")
+def get_eventos_destacados(limit: Annotated[int, Query(ge=1, le=10)] = 5):
+    """Top eventos de los próximos 14 días para el panel 'Evento de la Semana'."""
+    return evento_service.get_eventos_destacados(limit=limit)
+
+
 @router.get("/espacio/{espacio_id}")
 def get_eventos_espacio(espacio_id: str, limit: int = 10):
     return evento_service.get_eventos_by_espacio(espacio_id, limit)
