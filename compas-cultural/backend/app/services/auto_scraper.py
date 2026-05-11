@@ -1852,6 +1852,12 @@ AGENDA_SOURCES = [
         "municipio": "medellin",
     },
     {
+        "nombre": "Telemedellín - Agenda Cultural",
+        "url": "https://www.telemedellin.tv/agenda-cultural/",
+        "categoria_default": "festival",
+        "municipio": "medellin",
+    },
+    {
         "nombre": "CityU Medellín - Eventos",
         "url": "https://cityu.com.co/eventos/",
         "categoria_default": "festival",
