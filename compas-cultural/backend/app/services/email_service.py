@@ -573,36 +573,46 @@ def _build_weekly_digest_text(nombre: str, context_label: str, eventos: list[dic
 
 # ─── Recipient loaders ─────────────────────────────────────────────────────────
 
-def _load_auth_users(limit: int = 500) -> list[dict]:
+def _load_auth_users(limit: int = 2000) -> list[dict]:
     try:
-        users = supabase.auth.admin.list_users()
         result = []
-        for user in (users or []):
-            email = getattr(user, "email", None) or ""
-            email = email.strip().lower()
-            if not email:
-                continue
-            confirmed = (
-                getattr(user, "email_confirmed_at", None)
-                or getattr(user, "confirmed_at", None)
-            )
-            if not confirmed:
-                continue
-            meta = getattr(user, "user_metadata", None) or {}
-            if not isinstance(meta, dict):
-                meta = {}
-            nombre = (
-                meta.get("full_name") or meta.get("name")
-                or meta.get("nombre") or email.split("@")[0]
-            )
-            result.append({
-                "email": email,
-                "nombre": str(nombre),
-                "municipio": str(meta.get("municipio") or "medellin"),
-                "barrio": meta.get("barrio"),
-                "categoria": meta.get("categoria_favorita"),
-                "context_label": str(meta.get("municipio") or VALLE_LABEL),
-            })
+        page = 1
+        per_page = 100
+        while True:
+            users = supabase.auth.admin.list_users(page=page, per_page=per_page)
+            batch = list(users or [])
+            for user in batch:
+                email = getattr(user, "email", None) or ""
+                email = email.strip().lower()
+                if not email:
+                    continue
+                confirmed = (
+                    getattr(user, "email_confirmed_at", None)
+                    or getattr(user, "confirmed_at", None)
+                )
+                if not confirmed:
+                    continue
+                meta = getattr(user, "user_metadata", None) or {}
+                if not isinstance(meta, dict):
+                    meta = {}
+                nombre = (
+                    meta.get("full_name") or meta.get("name")
+                    or meta.get("nombre") or email.split("@")[0]
+                )
+                result.append({
+                    "email": email,
+                    "nombre": str(nombre),
+                    "municipio": str(meta.get("municipio") or "medellin"),
+                    "barrio": meta.get("barrio"),
+                    "categoria": meta.get("categoria_favorita"),
+                    "context_label": str(meta.get("municipio") or VALLE_LABEL),
+                })
+            if len(batch) < per_page:
+                break
+            page += 1
+            if len(result) >= limit:
+                break
+        logger.info("Loaded %d auth users across %d pages", len(result), page)
         return result[:limit]
     except Exception as e:
         logger.warning("Could not load auth users: %s", e)
