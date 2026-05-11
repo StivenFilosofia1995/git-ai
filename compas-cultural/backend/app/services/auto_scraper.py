@@ -1680,12 +1680,6 @@ AGENDA_SOURCES = [
     },
     # ── MEDIOS CULTURALES (agregadores) ──────────────────────
     {
-        "nombre": "El Colombiano - Cultura y Entretenimiento",
-        "url": "https://www.elcolombiano.com/cultura/",
-        "categoria_default": "festival",
-        "municipio": "medellin",
-    },
-    {
         "nombre": "Universo Centro - Publicaciones",
         "url": "https://www.universocentro.com/",
         "categoria_default": "editorial",
@@ -1828,12 +1822,6 @@ AGENDA_SOURCES = [
         "municipio": "medellin",
     },
     {
-        "nombre": "Hora 13 Noticias - Cultura",
-        "url": "https://h13n.com/cultura/",
-        "categoria_default": "otro",
-        "municipio": "medellin",
-    },
-    {
         "nombre": "Vivir en El Poblado - Agenda Cultural",
         "url": "https://vivirenelpoblado.com/agenda-cultural-en-medellin/",
         "categoria_default": "festival",
@@ -1852,18 +1840,6 @@ AGENDA_SOURCES = [
         "municipio": "medellin",
     },
     {
-        "nombre": "El Colombiano - Agenda Cultural",
-        "url": "https://www.elcolombiano.com/cultura/",
-        "categoria_default": "otro",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "El Espectador - Cultura Colombia",
-        "url": "https://www.elespectador.com/cultura/",
-        "categoria_default": "otro",
-        "municipio": "medellin",
-    },
-    {
         "nombre": "Universo Centro - Cultura Medellín",
         "url": "https://universocentro.com/agenda/",
         "categoria_default": "editorial",
@@ -1876,21 +1852,9 @@ AGENDA_SOURCES = [
         "municipio": "medellin",
     },
     {
-        "nombre": "Telemedellín - Agenda Cultural",
-        "url": "https://www.telemedellin.tv/agenda-cultural/",
-        "categoria_default": "otro",
-        "municipio": "medellin",
-    },
-    {
         "nombre": "CityU Medellín - Eventos",
         "url": "https://cityu.com.co/eventos/",
         "categoria_default": "festival",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Silla Vacía - Eventos Políticos/Culturales",
-        "url": "https://lasillavacia.com/agenda/",
-        "categoria_default": "otro",
         "municipio": "medellin",
     },
     {

@@ -2,6 +2,7 @@ import smtplib
 import logging
 import httpx
 import hashlib
+import time
 from datetime import datetime, timedelta
 from html import escape
 from email.mime.text import MIMEText
@@ -401,7 +402,7 @@ def _build_weekly_digest_html(
 ) -> str:
     frontend_url = settings.frontend_url.rstrip("/")
     now_co = datetime.now(CO_TZ)
-    fecha_label = now_co.strftime("%-d de %B").upper() if hasattr(now_co, "strftime") else now_co.strftime("%d de %B").lstrip("0").upper()
+    fecha_label = now_co.strftime("%d de %B").lstrip("0").upper()
     context_upper = escape(context_label.upper())
 
     # HOY section — up to 3 large cards
@@ -941,6 +942,8 @@ def send_blast_all() -> dict:
         else:
             stats["failed"] += 1
             logger.warning("Blast failed for %s", email)
+
+        time.sleep(8)  # 8s between sends — avoids Gmail rate limits (~7/min)
 
     return stats
 
