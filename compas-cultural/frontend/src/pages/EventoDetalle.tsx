@@ -1,7 +1,6 @@
 import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
 import { getEvento, registrarInteraccion, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import ReviewSection from '../components/ui/ReviewSection'
@@ -37,44 +36,21 @@ export default function EventoDetalle() {
   if (error) return <div className="max-w-3xl mx-auto px-4 py-12 font-mono border-2 border-black p-4">{error}</div>
   if (!evento) return <div className="max-w-3xl mx-auto px-4 py-12 font-mono">Evento no encontrado</div>
 
-  const { diaLargo: fechaStr, hora: horaStr } = getEventDateParts(evento)
-  const horaConfiable = evento.hora_confirmada === true && horaStr
+  const { diaLargo: fechaStr } = getEventDateParts(evento)
   const fuenteUrl = evento.fuente_url ?? null
   const fuenteUrlValue = fuenteUrl ?? ''
-  const horaLabel = horaConfiable
-    ? horaStr
-    : 'Horario en el enlace'
-  const mostrarHorarioEnlace = !horaConfiable && Boolean(fuenteUrl)
-  const horaTextoCompartir = mostrarHorarioEnlace ? 'Horario en el enlace' : horaLabel
   const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
   const mapsSearchTarget = ubicacionLabel || `${evento.titulo}, Medellin`
   const mapsUrl = evento.lat && evento.lng
     ? `https://www.google.com/maps?q=${evento.lat},${evento.lng}`
     : `https://www.google.com/maps/search/${encodeURIComponent(mapsSearchTarget)}`
   const preguntaEterea = encodeURIComponent(
-    `Quiero que me cuentes mas detalles solo de este evento: "${evento.titulo}". No me listes otros eventos. Fecha: ${fechaStr} ${horaLabel}. Lugar: ${ubicacionLabel || 'Medellin'}.`
+    `Quiero que me cuentes mas detalles solo de este evento: "${evento.titulo}". No me listes otros eventos. Fecha: ${fechaStr}. Lugar: ${ubicacionLabel || 'Medellin'}.`
   )
 
   const canonicalUrl = `https://culturaetereamed.com/evento/${slug}`
   const ubicacionLine = ubicacionLabel ? `\n📍 ${ubicacionLabel}` : ''
-  const fechaShareLine = horaConfiable ? `${fechaStr} · ${horaStr}` : `${fechaStr} · ${horaTextoCompartir}`
-  let horaContenido: ReactNode
-  if (mostrarHorarioEnlace) {
-    horaContenido = (
-      <a
-        href={fuenteUrlValue}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-lg underline"
-      >
-        Horario en el enlace
-      </a>
-    )
-  } else if (horaConfiable) {
-    horaContenido = <p className="text-lg">{horaLabel}</p>
-  } else {
-    horaContenido = <p className="text-lg">Horario en el enlace</p>
-  }
+  const fechaShareLine = fechaStr
   const whatsappText = encodeURIComponent(
     `📅 *${evento.titulo}*\n🗓 ${fechaShareLine}${ubicacionLine}\n\n${canonicalUrl}`
   )
@@ -172,8 +148,8 @@ export default function EventoDetalle() {
                 <p className="text-lg capitalize">{fechaStr}</p>
               </div>
               <div>
-                <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">HORA</h3>
-                {horaContenido}
+                <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">FECHA</h3>
+                <p className="text-lg">{fechaStr}</p>
               </div>
               <div>
                 <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">PRECIO</h3>

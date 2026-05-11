@@ -129,9 +129,7 @@ export function getEventDateParts(value: EventDateInput) {
       month: 'long',
       year: 'numeric',
     }),
-    hora: horaConfiable
-      ? formatEventDate(context.fecha_inicio, { hour: '2-digit', minute: '2-digit' })
-      : null,
-    horaConfiable,
+    hora: null,
+    horaConfiable: false,
   }
 }

@@ -45,7 +45,7 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
   // null / undefined means "not yet set" — still show the time if the hora field is populated.
   const horaConfirmada = evento.hora_confirmada !== false && hora
   const fechaLabel = horaConfirmada ? `${dia} · ${hora}` : dia
-  const horaPrompt = horaConfirmada ? hora : 'Horario en el enlace'
+  const horaPrompt = horaConfirmada ? hora : ''
 
   // ML: urgency score para badge visual
   const urgency = getUrgencyLabel(evento.fecha_inicio)
@@ -166,20 +166,6 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
             <span className="text-[10px] font-mono font-bold">{fechaLabel}</span>
           </div>
         </div>
-        {!horaConfirmada && sourceUrl && (
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            className="inline-flex items-center gap-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-70 hover:opacity-100 underline mb-2"
-          >
-            🕐 Horario en el enlace
-          </a>
-        )}
-        {!horaConfirmada && !sourceUrl && (
-          <span className="text-[9px] font-mono opacity-50 mb-2 block">🕐 Horario en el enlace</span>
-        )}
 
         <Link to={`/evento/${evento.slug}`} onClick={handleClick}>
           <h3 className="font-heading font-black text-sm leading-snug mb-2 uppercase tracking-wide">

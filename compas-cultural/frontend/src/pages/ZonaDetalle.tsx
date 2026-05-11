@@ -132,8 +132,7 @@ export default function ZonaDetalle() {
                       {(() => {
                         const { diaCorto, hora } = getEventDateParts(ev)
                         const horaConfiable = ev.hora_confirmada === true && hora
-                        const horaFallback = 'Horario en el enlace'
-                        const horario = horaConfiable ? `${diaCorto} · ${hora}` : `${diaCorto} · ${horaFallback}`
+                        const horario = horaConfiable ? `${diaCorto} · ${hora}` : diaCorto
                         return (
                           <>
                             {ev.imagen_url && (

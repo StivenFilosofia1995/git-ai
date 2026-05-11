@@ -168,7 +168,7 @@ export default function Chat() {
                           const horaConfiable = ev.hora_confirmada === true && hora
                           const horario = horaConfiable
                             ? `${dia} · ${hora}`
-                            : `${dia} · Horario en el enlace`
+                            : dia
                           return (
                             <Link
                               key={ev.id}

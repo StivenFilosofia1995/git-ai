@@ -28,10 +28,7 @@ export default function EventDetail({ evento }: Readonly<EventDetailProps>) {
         <div>
           <span className="font-mono font-bold">FECHA</span>
           <p className="capitalize">{fechaFormateada}</p>
-          {horaLabel
-            ? <p>{horaLabel}</p>
-            : <p className="text-xs opacity-60">Horario en el enlace del evento</p>
-          }
+          {horaLabel && <p>{horaLabel}</p>}
         </div>
         <div>
           <span className="font-mono font-bold">LUGAR</span>
