@@ -173,9 +173,9 @@ def start_scheduler():
 
     scheduler.add_job(
         _run_weekly_digest,
-        trigger=CronTrigger(minute="*/5", timezone=CO_TZ),
+        trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
         id="weekly_digest",
-        name="Boletín semanal (goteo cada 5 minutos)",
+        name="Boletín semanal (goteo cada 4 minutos)",
         replace_existing=True,
     )
 
@@ -256,7 +256,7 @@ def start_scheduler():
     print("   • Discovery: 08:10 y 20:10")
     print("   • Imágenes: 10:20 y 22:20")
     print("   • Agenda alternativa: 07:40, 11:40, 16:40, 21:40")
-    print("   • Boletín semanal: 1 destinatario cada 5 minutos")
+    print("   • Boletín semanal: 1 destinatario cada 4 minutos (solo lunes)")
     print("   • Limpieza de privacidad: diaria a las 3:30am")
     print("   • Limpieza eventos pasados: diaria a las 1:00am")
 
