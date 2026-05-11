@@ -82,7 +82,7 @@ async def _run_agenda_alternativa():
 
 
 def _run_weekly_digest():
-    """Digest tick: sends at most one recipient per execution."""
+    """Digest tick: sends at most one recipient per execution (Mondays only)."""
     from app.services.email_service import send_weekly_digest_campaign
     try:
         stats = send_weekly_digest_campaign()
@@ -96,6 +96,23 @@ def _run_weekly_digest():
         )
     except Exception as e:
         print(f"❌ Digest tick error: {e}")
+
+
+def _run_blast_tick():
+    """Blast campaign tick — sends to next unsent user (any day)."""
+    from app.services.email_service import send_blast_campaign_tick
+    try:
+        stats = send_blast_campaign_tick()
+        if stats.get("sent") or stats.get("failed"):
+            print(
+                "🚀 Blast tick: "
+                f"sent={stats.get('sent', 0)} | "
+                f"skipped={stats.get('skipped', 0)} | "
+                f"failed={stats.get('failed', 0)} | "
+                f"target={stats.get('target_email') or '-'}"
+            )
+    except Exception as e:
+        print(f"❌ Blast tick error: {e}")
 
 
 def _run_privacy_cleanup():
@@ -176,6 +193,15 @@ def start_scheduler():
         trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
         id="weekly_digest",
         name="Boletín semanal (goteo cada 4 minutos)",
+        replace_existing=True,
+    )
+
+    # ── Blast campaign: cada 4 minutos — envío a todos los usuarios ───────────
+    scheduler.add_job(
+        _run_blast_tick,
+        trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
+        id="blast_campaign",
+        name="Blast campaign — goteo a todos los usuarios (cada 4min)",
         replace_existing=True,
     )
 
