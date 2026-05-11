@@ -37,8 +37,6 @@ export default function EventoDetalle() {
   if (!evento) return <div className="max-w-3xl mx-auto px-4 py-12 font-mono">Evento no encontrado</div>
 
   const { diaLargo: fechaStr } = getEventDateParts(evento)
-  const fuenteUrl = evento.fuente_url ?? null
-  const fuenteUrlValue = fuenteUrl ?? ''
   const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
   const mapsSearchTarget = ubicacionLabel || `${evento.titulo}, Medellin`
   const mapsUrl = evento.lat && evento.lng
@@ -58,7 +56,7 @@ export default function EventoDetalle() {
   const metaDescription =
     evento.descripcion
       ? evento.descripcion.slice(0, 155)
-      : `${evento.categoria_principal?.replaceAll('_', ' ')} en ${evento.nombre_lugar || evento.municipio}. ${fechaStr} — ${horaLabel}.`
+      : `${evento.categoria_principal?.replaceAll('_', ' ')} en ${evento.nombre_lugar || evento.municipio}. ${fechaStr}.`
   const eventSchema = {
     '@context': 'https://schema.org',
     '@type': 'Event',

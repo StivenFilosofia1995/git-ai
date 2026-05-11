@@ -115,7 +115,6 @@ export function formatEventTime(value: EventDateInput, fallback = 'Hora por conf
 
 export function getEventDateParts(value: EventDateInput) {
   const context = getInputContext(value)
-  const horaConfiable = hasReliableEventTime(value)
 
   return {
     diaCorto: formatEventDate(context.fecha_inicio, {
