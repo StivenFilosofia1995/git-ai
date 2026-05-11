@@ -56,6 +56,65 @@ def get_stats():
     return result
 
 
+@router.get("/colectivos-activos")
+def get_colectivos_activos(limit: Annotated[int, Query(ge=1, le=50)] = 20):
+    """
+    Colectivos y espacios culturales con eventos en los próximos 21 días.
+    Ordenados por cantidad de eventos próximos (más activos primero).
+    Incluye instagram_handle para visibilidad directa.
+    """
+    from app.database import supabase
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    CO_TZ = ZoneInfo("America/Bogota")
+    ahora = datetime.now(CO_TZ)
+    hoy = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    hasta = hoy + timedelta(days=21)
+
+    # Traer eventos próximos con espacio_id
+    ev_resp = (
+        supabase.table("eventos")
+        .select("espacio_id,titulo,fecha_inicio")
+        .gte("fecha_inicio", hoy.isoformat())
+        .lte("fecha_inicio", hasta.isoformat())
+        .not_.is_("espacio_id", "null")
+        .limit(1000)
+        .execute()
+    )
+    eventos = ev_resp.data or []
+
+    # Contar eventos por espacio_id
+    from collections import Counter
+    conteo: Counter = Counter()
+    for ev in eventos:
+        eid = ev.get("espacio_id")
+        if eid:
+            conteo[eid] += 1
+
+    if not conteo:
+        return []
+
+    # Traer los lugares más activos
+    top_ids = [eid for eid, _ in conteo.most_common(limit * 2)]
+
+    # Supabase IN query — batch
+    lugares_resp = (
+        supabase.table("lugares")
+        .select("id,nombre,slug,tipo,categoria_principal,categorias,barrio,municipio,instagram_handle,sitio_web,descripcion_corta,imagen_url,nivel_actividad,es_underground")
+        .in_("id", top_ids)
+        .execute()
+    )
+    lugares = lugares_resp.data or []
+
+    # Añadir conteo y ordenar
+    for l in lugares:
+        l["proximos_eventos"] = conteo.get(l["id"], 0)
+
+    lugares.sort(key=lambda x: x["proximos_eventos"], reverse=True)
+    return lugares[:limit]
+
+
 @router.get("/cerca")
 def get_espacios_cerca(
     lat: Annotated[float, Query(description="Latitud")],

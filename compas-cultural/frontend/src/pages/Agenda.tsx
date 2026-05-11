@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import EventCard from '../components/agenda/EventCard'
 import HomeChatSection from '../components/chat/HomeChatSection'
 import EventoDestacado from '../components/agenda/EventoDestacado'
+import ColectivosStrip from '../components/agenda/ColectivosStrip'
 import { getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
 
@@ -379,6 +380,9 @@ export default function Agenda() {
           ))}
         </div>
       </div>
+
+      {/* ─── COLECTIVOS ACTIVOS ───────────────────────────────────────────────── */}
+      <ColectivosStrip />
 
       {/* ─── AGENDA: ¿QUÉ HAY HOY? + BUSCADOR + GRID ─────────────────────────── */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-8">
