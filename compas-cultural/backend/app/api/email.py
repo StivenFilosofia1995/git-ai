@@ -15,6 +15,17 @@ def trigger_blast_now(api_key: Annotated[str, Query()] = ""):
     return stats
 
 
+@router.post("/blast-all")
+def trigger_blast_all(api_key: Annotated[str, Query()] = ""):
+    """Sends to ALL pending users in one call. Returns total sent/skipped/failed."""
+    from app.config import settings
+    if api_key != settings.scraper_api_key:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    from app.services.email_service import send_blast_all
+    stats = send_blast_all()
+    return stats
+
+
 @router.get("/blast-status")
 def get_blast_status():
     """Returns cursor position and recipient count for the blast campaign."""

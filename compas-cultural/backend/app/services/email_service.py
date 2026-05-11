@@ -877,6 +877,64 @@ def send_blast_campaign_tick() -> dict:
     return stats
 
 
+# ─── Blast ALL (send to every pending recipient in one call) ──────────────────
+
+def send_blast_all() -> dict:
+    """Send to every unsent recipient in one HTTP call. Use for test blasts."""
+    BLAST_KEY = "blast:2026-05"
+
+    recipients: list[dict] = []
+    seen: set[str] = set()
+    for r in _load_auth_users(500):
+        _append_recipient(recipients, seen, r)
+    for r in _load_profile_recipients(300):
+        _append_recipient(recipients, seen, r)
+    for r in _load_place_recipients(200):
+        _append_recipient(recipients, seen, r)
+
+    recipients.sort(key=lambda r: r.get("email", ""))
+    stats = {
+        "recipients": len(recipients),
+        "sent": 0,
+        "skipped": 0,
+        "failed": 0,
+        "blast_key": BLAST_KEY,
+        "emails_sent": [],
+    }
+
+    for r in recipients:
+        email = (r.get("email") or "").strip().lower()
+        if not email:
+            stats["skipped"] += 1
+            continue
+
+        ehash = hashlib.sha1(email.encode()).hexdigest()[:20]
+        sent_key = f"sent:{BLAST_KEY}:{ehash}"
+        if _kv_get(sent_key) == "1":
+            stats["skipped"] += 1
+            continue
+
+        eventos_hoy = _fetch_today_events(r.get("municipio"), limit=3)
+        eventos_semana = _fetch_weekly_events(r.get("municipio"), r.get("categoria"), limit=8, barrio=r.get("barrio"))
+        if not eventos_semana:
+            eventos_semana = _fetch_weekly_events(None, None, limit=6)
+
+        context_label = r.get("context_label") or VALLE_LABEL
+        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy)
+        text = _build_weekly_digest_text(r["nombre"], context_label, eventos_semana)
+
+        if _send_email(email, "Tu agenda cultural esta semana — ETÉREA", html, text):
+            _kv_upsert(sent_key, "1")
+            stats["sent"] += 1
+            stats["emails_sent"].append(email)
+            logger.info("Blast sent to %s", email)
+        else:
+            stats["failed"] += 1
+            logger.warning("Blast failed for %s", email)
+
+    return stats
+
+
 # ─── Scraper alert emails ──────────────────────────────────────────────────────
 
 def send_scraper_alert(job_name: str, error: str, consecutive_failures: int) -> bool:
