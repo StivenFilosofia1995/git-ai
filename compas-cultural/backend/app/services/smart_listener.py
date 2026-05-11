@@ -35,20 +35,22 @@ Si SÍ es un evento, extrae:
 {{
   "es_evento": true,
   "titulo": "nombre del evento",
-  "fecha_iso": "YYYY-MM-DDTHH:MM:SS (calcula la fecha real si dice 'este sábado', 'próximo viernes', etc.)",
+  "fecha_iso": "YYYY-MM-DDTHH:MM:SS o null si no hay fecha EXPLÍCITA en el flyer",
+  "hora_confirmada": true si hay hora EXPLÍCITA en el flyer, false si no,
   "descripcion": "descripción breve del evento (máx 200 chars)",
-  "lugar": "nombre del lugar/venue si aparece",
-  "direccion": "dirección si aparece",
+  "lugar": "nombre del lugar/venue si aparece, o null",
+  "direccion": "dirección si aparece, o null",
   "precio": "precio si se menciona, o 'Entrada libre'",
   "es_gratuito": true/false,
   "categoria": "teatro|musica_en_vivo|jazz|hip_hop|electronica|danza|cine|galeria|arte_contemporaneo|libreria|poesia|fotografia|festival|taller|conferencia|otro",
   "artistas": ["lista de artistas/performers mencionados"]
 }}
 
-REGLAS:
-- Si hay una fecha relativa ("este sábado"), calcula la fecha real desde hoy {fecha_hoy}
-- Si no hay hora, usa 19:00:00 por defecto
-- Si no hay fecha clara, intenta inferir del contexto
+REGLAS ESTRICTAS:
+- Si hay una fecha relativa EXPLÍCITA ("este sábado", "viernes 23"), calcula la fecha real desde hoy {fecha_hoy}
+- Si NO hay fecha EXPLÍCITA en el flyer, usa null para fecha_iso (NO inventes ni asumas fechas)
+- Si NO hay hora EXPLÍCITA en el flyer, usa T00:00:00 y marca hora_confirmada: false
+- NUNCA uses 19:00 como hora por defecto — solo si está escrita en el flyer
 - Responde SOLO con JSON, sin texto adicional
 """
 
@@ -64,19 +66,22 @@ CAPTION:
 Extrae TODOS los eventos futuros mencionados. Para cada uno:
 {{
   "titulo": "nombre del evento",
-  "fecha_iso": "YYYY-MM-DDTHH:MM:SS",
+  "fecha_iso": "YYYY-MM-DDTHH:MM:SS o null si la fecha no está EXPLÍCITA en el texto/imagen",
+  "hora_confirmada": true si la hora está explícitamente escrita, false si no,
   "descripcion": "descripción breve (máx 200 chars)",
-  "lugar": "lugar del evento",
+  "lugar": "lugar del evento o null",
   "precio": "precio o 'Entrada libre'",
   "es_gratuito": true/false,
   "categoria": "teatro|musica_en_vivo|jazz|hip_hop|electronica|danza|cine|galeria|arte_contemporaneo|libreria|poesia|fotografia|festival|taller|conferencia|otro",
   "imagen_url": "URL de la imagen del post si existe"
 }}
 
-REGLAS:
-- "Este sábado", "mañana", "el viernes" → calcula la fecha real
+REGLAS ESTRICTAS:
+- Fechas relativas EXPLÍCITAS ("este sábado 24", "viernes 23 de mayo") → calcula la fecha real
+- Si la fecha NO está escrita claramente en el caption/imagen, usa null (NO inventes fechas)
 - Solo eventos FUTUROS (después de {fecha_hoy})
-- Si NO hay eventos, devuelve []
+- Si NO hay eventos claros, devuelve []
+- NUNCA pongas 19:00 por defecto — solo la hora que esté escrita
 
 Responde SOLO con un JSON array. Sin texto adicional.
 """

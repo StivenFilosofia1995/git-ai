@@ -178,16 +178,19 @@ def _finalize_event_datetime(
     fallback_hour: tuple[int, int] = (19, 0),
     texts: tuple[Optional[str], ...] = (),
 ) -> tuple[datetime, bool]:
-    """Normalize to date-only events with unconfirmed hour policy.
+    """Normalize datetime and confirm hour only when explicitly found in text.
 
-    Product policy: scraped events must not expose hour as reliable. We force
-    00:00 local and return hora_confirmada=False.
+    Returns (fecha, hora_confirmada):
+    - hora_confirmada=True when an explicit time pattern was found in texts
+    - hora_confirmada=False when time defaults to 00:00 (unknown)
     """
+    # First normalize to 00:00 so _apply_text_hour_if_missing can detect "no hour set"
     try:
         fecha = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
     except Exception:
         pass
-    return fecha, False
+    fecha, hora_confirmada = _apply_text_hour_if_missing(fecha, *texts)
+    return fecha, hora_confirmada
 
 
 def _sanitize_text(value: Optional[str]) -> Optional[str]:

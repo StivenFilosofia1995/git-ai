@@ -521,6 +521,67 @@ async def trigger_profile_listener(background_tasks: BackgroundTasks):
 
 
 # ═══════════════════════════════════════════════════════════════
+# PRECISION SCRAPER — Algoritmo maestro de precisión
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/precision/run", dependencies=[Depends(_verify_scraper_key)])
+async def trigger_precision_scraper(
+    background_tasks: BackgroundTasks,
+    municipio: str | None = Query(default=None, description="Filtrar por municipio"),
+    limit: int | None = Query(default=None, ge=1, le=500, description="Máx lugares a procesar"),
+    vision: bool = Query(default=False, description="Activar Vision LLM (consume tokens)"),
+):
+    """
+    Ejecuta el scraper de precisión maestro en background.
+
+    Garantías: fecha explícita · fuente_url específica · imagen enriquecida ·
+    hora_confirmada real · zona correcta · concurrencia controlada.
+    """
+    from app.services.precision_scraper import run_precision_scraper
+
+    async def _run():
+        try:
+            await run_precision_scraper(
+                limit=limit,
+                municipio=municipio,
+                run_agenda_sources=True,
+                run_vision_listener=vision,
+                enrich_images=True,
+            )
+        except Exception as e:
+            print(f"❌ Precision scraper error: {e}")
+
+    background_tasks.add_task(_run)
+    return {
+        "status": "started",
+        "message": (
+            f"Precision scraper iniciado"
+            f"{f' (municipio={municipio})' if municipio else ''}"
+            f"{f' (limit={limit})' if limit else ''}"
+            f"{' + Vision' if vision else ''}"
+        ),
+    }
+
+
+@router.post("/precision/zona/{municipio}")
+async def trigger_precision_zona_publico(
+    municipio: str,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Scraping de precisión para un municipio específico (acceso público).
+    Solo procesa los primeros 30 lugares del municipio — sin Vision.
+    """
+    from app.services.precision_scraper import run_quick_precision_scraper
+
+    background_tasks.add_task(run_quick_precision_scraper, municipio=municipio)
+    return {
+        "status": "started",
+        "message": f"Scraping de precisión iniciado para {municipio} (30 lugares)",
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
 # STATUS — Estado del sistema de scraping
 # ═══════════════════════════════════════════════════════════════
 

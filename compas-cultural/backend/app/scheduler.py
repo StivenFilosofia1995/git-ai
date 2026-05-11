@@ -22,6 +22,19 @@ async def _run_scraper_job():
         print(f"❌ Scheduler error: {e}")
 
 
+async def _run_precision_scraper_job():
+    """Job wrapper for the precision scraper (runs all lugares + agenda alternativa)."""
+    from app.services.precision_scraper import run_precision_scraper
+    try:
+        await run_precision_scraper(
+            run_agenda_sources=True,
+            run_vision_listener=False,
+            enrich_images=True,
+        )
+    except Exception as e:
+        print(f"❌ Precision scraper error: {e}")
+
+
 async def _run_image_enrichment():
     """Job wrapper for image enrichment."""
     from app.services.auto_scraper import enrich_event_images
@@ -104,12 +117,21 @@ def _run_privacy_cleanup():
 def start_scheduler():
     """Start the periodic scraper. Called from FastAPI lifespan."""
 
-    # ── Auto-scraper: diario 2:00 AM Colombia ─────────────────────────────
+    # ── Auto-scraper legacy: diario 2:00 AM Colombia ──────────────────────
     scheduler.add_job(
         _run_scraper_job,
         trigger=CronTrigger(hour=2, minute=0, timezone=CO_TZ),
         id="auto_scraper",
         name="Auto-scraper cultural (diario 2:00am, hora Colombia)",
+        replace_existing=True,
+    )
+
+    # ── Precision scraper: 3 veces al día — alta frecuencia, todos los lugares ─
+    scheduler.add_job(
+        _run_precision_scraper_job,
+        trigger=CronTrigger(hour="6,13,19", minute=30, timezone=CO_TZ),
+        id="precision_scraper",
+        name="Precision scraper (6:30, 13:30, 19:30 Colombia)",
         replace_existing=True,
     )
 

@@ -90,7 +90,7 @@ async def publicar_evento(body: dict, request: Request):
         "espacio_id": evento.espacio_id,
         "fecha_inicio": evento.fecha_inicio.isoformat(),
         "fecha_fin": evento.fecha_fin.isoformat() if evento.fecha_fin else None,
-        "hora_confirmada": evento.hora_inicio or None,
+        "hora_confirmada": bool(evento.hora_inicio),
         "categorias": [evento.categoria_principal],
         "categoria_principal": evento.categoria_principal,
         "municipio": evento.municipio,
