@@ -33,7 +33,7 @@ def get_blast_status():
         _load_auth_users, _load_profile_recipients, _load_place_recipients,
         _append_recipient, _kv_get,
     )
-    BLAST_KEY = "blast:2026-05"
+    BLAST_KEY = "blast:2026-05b"
     cursor = _kv_get(f"cursor:{BLAST_KEY}") or "0"
 
     recipients: list[dict] = []

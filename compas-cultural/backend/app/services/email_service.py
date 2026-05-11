@@ -824,7 +824,7 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict
 # ─── Blast campaign (immediate test — any day) ────────────────────────────────
 
 def send_blast_campaign_tick() -> dict:
-    BLAST_KEY = "blast:2026-05"  # bump suffix to restart blast
+    BLAST_KEY = "blast:2026-05b"  # bump suffix to restart blast
 
     recipients: list[dict] = []
     seen: set[str] = set()
