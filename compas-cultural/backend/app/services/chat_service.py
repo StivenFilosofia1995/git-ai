@@ -569,10 +569,8 @@ def _generate_llm_response(prompt: str, historial_msgs: list) -> Optional[str]:
             respuesta = _chat_via_ollama(prompt, historial_msgs)
         elif engine == "groq":
             respuesta = _chat_via_groq(prompt, historial_msgs)
-        elif engine == "gemini":
-            respuesta = _chat_via_gemini(prompt, historial_msgs)
         else:
-            respuesta = _chat_via_anthropic(prompt, historial_msgs)
+            respuesta = _chat_via_gemini(prompt, historial_msgs)
         if respuesta:
             return respuesta
     return None

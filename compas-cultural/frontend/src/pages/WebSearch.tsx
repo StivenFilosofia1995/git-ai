@@ -25,6 +25,9 @@ export default function WebSearch() {
           <p className="text-sm font-mono opacity-70 max-w-3xl">
             Aqui aportas al sistema cultural del Valle de Aburra: busca lo que no ves en el sistema.
           </p>
+          <p className="text-xs font-mono opacity-50 mt-2 max-w-2xl">
+            La búsqueda recorre la web en tiempo real — puede tomar hasta 60 segundos.
+          </p>
         </div>
       </section>
 
@@ -38,8 +41,8 @@ export default function WebSearch() {
             const textQuery = (query || '').trim()
             const res = await discoverEventosConBarrio({
               texto: textQuery,
-              max_queries: 8,
-              max_results_per_query: 10,
+              max_queries: 4,
+              max_results_per_query: 6,
               days_ahead: 45,
               strict_categoria: false,
               auto_insert: false,

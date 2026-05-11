@@ -106,32 +106,46 @@ function withTimeout<T>(promise: PromiseLike<T>, ms = 2500): Promise<T> {
   ])
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`)
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`Error API (${response.status}): ${text}`)
+async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30_000)
+  const mergedSignal = signal ?? controller.signal
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, { signal: mergedSignal })
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`Error API (${response.status}): ${text}`)
+    }
+    return response.json() as Promise<T>
+  } finally {
+    clearTimeout(timeoutId)
   }
-
-  return response.json() as Promise<T>
 }
 
-async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`Error API (${response.status}): ${text}`)
+async function apiPost<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  // Scraper discover-events can take up to 90 s (8 parallel queries); other
+  // endpoints use a 30 s safety cap.
+  const isLongRunning = path.includes('discover-events')
+  const timeoutMs = isLongRunning ? 90_000 : 30_000
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  // If caller passes its own signal, abort our controller when it fires
+  signal?.addEventListener('abort', () => controller.abort())
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`Error API (${response.status}): ${text}`)
+    }
+    return response.json() as Promise<T>
+  } finally {
+    clearTimeout(timeoutId)
   }
-
-  return response.json() as Promise<T>
 }
 
 export async function getEspacios(params?: {
@@ -775,8 +789,29 @@ export async function discoverEventosConBarrio(
   if (typeof params.days_ahead === 'number') search.set('days_ahead', String(params.days_ahead))
   if (typeof params.strict_categoria === 'boolean') search.set('strict_categoria', String(params.strict_categoria))
   search.set('auto_insert', String(params.auto_insert ?? true))
-  const path = '/scraper/discover-events/publico?' + search.toString()
-  return apiPost<DiscoverEventosResponse>(path, {})
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 75_000)
+  try {
+    const response = await fetch(`${API_BASE_URL}/scraper/discover-events/publico?${search.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`Error API (${response.status}): ${text}`)
+    }
+    return response.json() as Promise<DiscoverEventosResponse>
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('La búsqueda tardó demasiado. El servicio está ocupado, intentá de nuevo en un momento.')
+    }
+    throw err
+  }
 }
 
 export async function registrarInteraccion(

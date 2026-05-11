@@ -27,7 +27,7 @@ class Settings(BaseSettings):
         or os.getenv("SUPABASE_ANON_KEY", "")
     )
 
-    # Anthropic (Claude) — only used for chat, app works without it
+    # Anthropic (Claude) — deshabilitado actualmente, se conserva solo por compatibilidad
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-3-5-haiku-20241022"
 
@@ -54,14 +54,14 @@ class Settings(BaseSettings):
 
     # Groq AI (fast/cheap LLM for scraping — replaces Claude for non-chat tasks)
     groq_api_key: str = ""
-    chat_engine: str = "ollama"  # ollama | groq | gemini | anthropic | auto
+    chat_engine: str = "ollama"  # ollama | groq | gemini | auto
     chat_max_tokens: int = 900
     chat_temperature: float = 0.7
     chat_history_messages: int = 8
     chat_context_events_limit: int = 20
     chat_context_spaces_limit: int = 20
 
-    # Gemini (Google AI) — primary model for user chat (free tier: 1500 req/day)
+    # Gemini (Google AI) — fallback si Ollama no responde
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
 

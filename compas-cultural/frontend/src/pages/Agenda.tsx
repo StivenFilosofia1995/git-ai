@@ -308,11 +308,14 @@ export default function Agenda() {
           aria-hidden="true"
         />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-20 pb-10 lg:pt-28 lg:pb-14">
-          {/* Live badge */}
-          <div className="flex items-center gap-3 mb-8">
+          {/* Live + IA badge */}
+          <div className="flex items-center gap-3 mb-8 flex-wrap">
             <span className="block w-3 h-3 bg-black animate-pulse" />
             <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
               Medellín · Valle de Aburrá · Live
+            </span>
+            <span className="bg-black text-white text-[9px] font-mono font-bold uppercase tracking-[0.25em] px-2 py-0.5">
+              Agenda generada por IA
             </span>
           </div>
           {/* Title */}
@@ -452,7 +455,7 @@ export default function Agenda() {
           </div>
           {/* Precio */}
           <div className="flex ml-2">
-            {([ ['', 'PRECIO'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
+            {([ ['', 'TODOS'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
               <button
                 key={val}
                 onClick={() => setPrecioFilter(val)}
@@ -474,8 +477,8 @@ export default function Agenda() {
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
-          {/* Zona */}
-          {zonasDisponibles.length > 0 && (
+          {/* Zona — only visible when Medellín or no specific city is selected */}
+          {(municipioFilter === '' || municipioFilter === 'medellin') && (
             <select
               value={zonaFilter}
               onChange={e => setZonaFilter(e.target.value)}
@@ -498,9 +501,12 @@ export default function Agenda() {
         </div>
 
         {/* Filtros — Fila 2: Categorías scrollables */}
+        <div className="relative mb-6">
+          {/* Gradient fade on the right to hint there are more items */}
+          <div className="pointer-events-none absolute right-0 top-0 bottom-2 w-12 bg-gradient-to-l from-white to-transparent z-10" aria-hidden="true" />
         <div
-          className="flex gap-2 overflow-x-auto pb-2 mb-6 -mx-4 px-4 sm:mx-0 sm:px-0"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0"
+          style={{ scrollbarWidth: 'thin', msOverflowStyle: 'auto' }}
         >
           {CAT_OPTIONS.map(opt => (
             <button
@@ -513,6 +519,7 @@ export default function Agenda() {
               {opt.value === '' ? '★ TODAS' : opt.label}
             </button>
           ))}
+        </div>
         </div>
 
         {/* Loading skeleton */}

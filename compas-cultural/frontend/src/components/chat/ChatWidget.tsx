@@ -96,9 +96,11 @@ export default function ChatWidget() {
       <div className="fixed bottom-6 right-6 z-50">
         <button
           onClick={toggleChat}
-          className="w-14 h-14 bg-black text-white flex items-center justify-center border-2 border-black hover:bg-white hover:text-black transition-all duration-300 hover-lift"
+          aria-label="Abrir asistente cultural ETÉREA"
+          className="flex items-center gap-2 pl-3 pr-4 h-11 bg-black text-white border-2 border-black hover:bg-white hover:text-black transition-all duration-300 hover-lift"
         >
-          <span className="text-lg font-black">◆</span>
+          <span className="text-sm font-black">◆</span>
+          <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em]">ETÉREA</span>
         </button>
       </div>
     )

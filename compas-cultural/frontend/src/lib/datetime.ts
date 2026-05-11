@@ -84,15 +84,9 @@ export function parseEventDate(value?: string | null): Date | null {
   return isValidDate(fallback) ? fallback : null
 }
 
-/**
- * Política de producto 2026-04: no mostrar horas en frontend.
- * Siempre devolvemos false para forzar "Horario en el enlace".
- */
 export function hasReliableEventTime(value: EventDateInput): boolean {
   const context = getInputContext(value)
-  void context
-  // Keep helper centralized so all views respect the same no-hour policy.
-  return false
+  return context.hora_confirmada === true
 }
 
 export function formatEventDate(

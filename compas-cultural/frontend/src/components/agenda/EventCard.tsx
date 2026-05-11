@@ -41,7 +41,9 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
   const { diaCorto: dia, hora } = getEventDateParts(evento)
   const cat = evento.categoria_principal
   const placeholderColor = CAT_COLORS[cat] ?? '#0a0a0a'
-  const horaConfirmada = evento.hora_confirmada === true && hora
+  // Show hora whenever it exists, unless explicitly flagged as unconfirmed (false).
+  // null / undefined means "not yet set" — still show the time if the hora field is populated.
+  const horaConfirmada = evento.hora_confirmada !== false && hora
   const fechaLabel = horaConfirmada ? `${dia} · ${hora}` : dia
   const horaPrompt = horaConfirmada ? hora : 'Horario en el enlace'
 

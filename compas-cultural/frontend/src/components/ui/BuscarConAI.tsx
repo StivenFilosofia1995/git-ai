@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { type DescubiertoEvento } from '../../lib/api'
 
 interface Props {
@@ -37,15 +37,25 @@ export default function BuscarConAI({
   const [candidatos, setCandidatos] = useState<DescubiertoEvento[]>([])
   const [variables, setVariables] = useState<Record<string, string>>({})
   const [query, setQuery] = useState(initialQuery)
+  // Cancellation: flip this flag and the in-flight result is ignored
+  const cancelledRef = useRef(false)
+
+  const handleCancel = () => {
+    cancelledRef.current = true
+    setSearching(false)
+    setMsg('Búsqueda cancelada.')
+  }
 
   const handleSearch = async (queryOverride?: string) => {
     const effectiveQuery = (queryOverride ?? query).trim()
+    cancelledRef.current = false
     setSearching(true)
     setMsg('Buscando eventos en la web...')
     setCandidatos([])
     setVariables({})
     try {
       const result = await onSearch(effectiveQuery || undefined)
+      if (cancelledRef.current) return
       if (typeof result === 'string') {
         setMsg(result)
       } else {
@@ -133,6 +143,15 @@ export default function BuscarConAI({
                 </>
               )}
             </button>
+            {searching && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="px-4 py-3 border-l-0 sm:border-l-2 border-t-2 sm:border-t-0 border-black bg-white text-black text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-neutral-100 transition-all"
+              >
+                Cancelar
+              </button>
+            )}
           </div>
           {(helperText || suggestions.length > 0) && (
             <div className="border-t border-black px-3 py-2">
