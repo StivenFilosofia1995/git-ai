@@ -1852,12 +1852,6 @@ AGENDA_SOURCES = [
         "municipio": "medellin",
     },
     {
-        "nombre": "Telemedellín - Agenda Cultural",
-        "url": "https://www.telemedellin.tv/agenda-cultural/",
-        "categoria_default": "festival",
-        "municipio": "medellin",
-    },
-    {
         "nombre": "CityU Medellín - Eventos",
         "url": "https://cityu.com.co/eventos/",
         "categoria_default": "festival",
@@ -1965,6 +1959,8 @@ Reglas:
 - Cuando una fecha NO especifica año, usa {anio_actual}.
 - Incluye SOLO eventos que ocurran DESPUÉS de {fecha_actual}.
 - Prioriza agenda alternativa, underground, independiente.
+- IGNORA artículos de noticias, coberturas periodísticas, reseñas, crónicas y notas de prensa — aunque tengan fecha. Solo extrae eventos futuros con lugar y fecha claros.
+- IGNORA resultados de búsqueda, titulares sin detalle de lugar, ni "listas de los mejores X".
 - Si no hay eventos claros, responde: {{"eventos": []}}
 - NO inventes horas. Si el contenido NO trae hora explícita, usa 00:00:00. NUNCA pongas 19:00 por defecto — es mejor un evento sin hora que una hora falsa.
 - Si el contenido incluye [OG_IMAGE: url], usa esa URL como imagen_url del evento principal.
