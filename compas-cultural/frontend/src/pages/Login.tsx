@@ -439,15 +439,23 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="text-center mt-6">
+        <div className="text-center mt-6 space-y-3">
           <button
             onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); setStep('credentials') }}
-            className="text-sm font-mono font-bold uppercase tracking-wider hover:underline transition-colors"
+            className="text-sm font-mono font-bold uppercase tracking-wider hover:underline transition-colors block w-full"
           >
             {mode === 'login'
               ? '¿No tenés cuenta? Crear cuenta'
               : '¿Ya tenés cuenta? Iniciar sesión'}
           </button>
+          {mode === 'login' && (
+            <Link
+              to="/forgot-password"
+              className="text-xs font-mono opacity-50 hover:opacity-100 transition-opacity hover:underline uppercase tracking-wider"
+            >
+              ¿Olvidaste tu contraseña?
+            </Link>
+          )}
         </div>
       </div>
     </>

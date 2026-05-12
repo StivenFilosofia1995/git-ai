@@ -9,6 +9,8 @@ class MensajeChat(BaseModel):
 class ChatRequest(BaseModel):
     mensaje: str
     historial: List[MensajeChat] = []
+    slug_contexto: Optional[str] = None   # slug del evento/espacio que el usuario está viendo
+    tipo_contexto: Optional[str] = None   # "evento" | "espacio"
 
 class FuenteCitada(BaseModel):
     tipo: str  # "espacio" o "evento"

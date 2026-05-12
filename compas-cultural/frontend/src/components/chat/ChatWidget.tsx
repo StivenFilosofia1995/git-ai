@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import ChatMessage from './ChatMessage'
 import ChatInput from './ChatInput'
 import { enviarMensajeChat, getEvento, getEspacio, type ChatMessage as ApiChatMessage, type Evento, type Espacio } from '../../lib/api'
@@ -14,6 +14,7 @@ interface Mensaje {
 }
 
 export default function ChatWidget() {
+  const location = useLocation()
   const [isOpen, setIsOpen] = useState(false)
   const [mensajes, setMensajes] = useState<Mensaje[]>([
     {
@@ -23,6 +24,15 @@ export default function ChatWidget() {
       timestamp: new Date().toISOString()
     }
   ])
+
+  // Detecta si el usuario está en una página de evento o espacio específico
+  const paginaContexto = useMemo(() => {
+    const eventoMatch = location.pathname.match(/^\/evento\/(.+)$/)
+    const espacioMatch = location.pathname.match(/^\/espacio\/(.+)$/)
+    if (eventoMatch) return { slug_contexto: eventoMatch[1], tipo_contexto: 'evento' as const }
+    if (espacioMatch) return { slug_contexto: espacioMatch[1], tipo_contexto: 'espacio' as const }
+    return undefined
+  }, [location.pathname])
 
   const toggleChat = () => setIsOpen(!isOpen)
 
@@ -45,7 +55,7 @@ export default function ChatWidget() {
 
     try {
       const historial = construirHistorial(mensajes)
-      const response = await enviarMensajeChat(mensaje, historial)
+      const response = await enviarMensajeChat(mensaje, historial, paginaContexto)
 
       // Fetch event data for fuentes of type 'evento'
       let eventosData: Evento[] = []

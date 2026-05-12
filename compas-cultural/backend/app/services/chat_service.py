@@ -488,6 +488,9 @@ def _compact_context(contexto: Dict, user_message: str) -> Dict:
         "eventos_anteriores": [_compact_event(e) for e in (contexto.get("eventos_anteriores") or [])[:10]],
     }
 
+    if contexto.get("espacio_foco"):
+        ctx["espacio_foco"] = _compact_space(contexto["espacio_foco"])
+
     espacios_relevantes = contexto.get("espacios_relevantes") or []
     espacios_generales = contexto.get("espacios") or []
     if espacios_relevantes:
@@ -576,12 +579,34 @@ def _generate_llm_response(prompt: str, historial_msgs: list) -> Optional[str]:
     return None
 
 
+def _inject_page_context(contexto: Dict, slug: str, tipo: str) -> None:
+    """Prioriza el evento/espacio que el usuario está viendo en el chat."""
+    try:
+        if tipo == "evento":
+            resp = supabase.table("eventos").select(EVENT_SELECT_FIELDS).eq("slug", slug).limit(1).execute()
+            if resp.data:
+                contexto["evento_foco"] = resp.data[0]
+        elif tipo == "espacio":
+            resp = supabase.table("lugares").select(
+                "id,slug,nombre,categoria_principal,municipio,barrio,direccion,"
+                "instagram_handle,sitio_web,descripcion_corta,descripcion"
+            ).eq("slug", slug).limit(1).execute()
+            if resp.data:
+                contexto["espacio_foco"] = resp.data[0]
+    except Exception:
+        pass
+
+
 def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     if _is_smalltalk_message(request.mensaje):
         respuesta = "Hola, soy ETÉREA. Te ayudo a encontrar planes culturales reales en Medellín y el Valle de Aburrá. ¿Qué te gusta más: música, teatro, cine o algo para hoy?"
         return ChatResponse(respuesta=respuesta, fuentes=[])
 
     contexto = _obtener_contexto(request.mensaje)
+
+    # Si el usuario está viendo un evento/espacio específico, lo ponemos en foco
+    if request.slug_contexto and request.tipo_contexto:
+        _inject_page_context(contexto, request.slug_contexto, request.tipo_contexto)
 
     contexto_compacto = _compact_context(contexto, request.mensaje)
     historial_msgs = _build_historial_msgs(request)
