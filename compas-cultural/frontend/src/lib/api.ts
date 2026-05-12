@@ -1066,3 +1066,72 @@ export function getUrgencyLabel(fechaInicio: string): 'alta' | 'media' | 'baja' 
   }
 }
 
+// ── Admin dashboard ────────────────────────────────────────────────────────────
+
+export interface AdminDashboard {
+  generado_en: string
+  eventos: {
+    total: number
+    hoy: number
+    proxima_semana: number
+    con_imagen: number
+    verificados: number
+    nuevos_7d: number
+    top_categorias: { cat: string; n: number }[]
+    por_dia: { fecha: string; nuevos: number }[]
+  }
+  espacios: {
+    total: number
+    activos: number
+    colectivos: number
+    con_instagram: number
+  }
+  usuarios: { auth_registrados: number }
+  email: {
+    blast_key: string
+    blast_cursor: number
+    destinatarios_estimados: number
+  }
+  scrapers: {
+    runs_7d: number
+    nuevos_eventos_7d: number
+    fuentes_activas: number
+    ultimas_fuentes: { fuente: string; registros_nuevos: number; errores: number; created_at: string }[]
+  }
+}
+
+export async function getAdminDashboard(apiKey: string): Promise<AdminDashboard> {
+  const res = await fetch(`${API_BASE_URL}/admin/dashboard`, {
+    headers: { 'X-API-Key': apiKey },
+  })
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+
+export async function adminTriggerScraper(apiKey: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/admin/trigger-scraper`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+  })
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+
+export async function adminTriggerBlastTick(apiKey: string): Promise<{ ok: boolean; stats: Record<string, unknown> }> {
+  const res = await fetch(`${API_BASE_URL}/admin/trigger-blast-tick`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+  })
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+
+export async function adminTriggerCleanup(apiKey: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/admin/trigger-cleanup`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+  })
+  if (!res.ok) throw new Error(`${res.status}`)
+  return res.json()
+}
+

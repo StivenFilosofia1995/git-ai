@@ -18,6 +18,7 @@ _route_modules = [
     ("app.api.media", "/media", "media"),
     ("app.api.scraper", "", "scraper"),
     ("app.api.email", "/email", "email"),
+    ("app.api.admin", "/admin", "admin"),
 ]
 
 for module_path, prefix, tag in _route_modules:
