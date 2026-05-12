@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
+import { trackPageView } from './lib/analytics'
 import Header from './components/layout/Header'
 import Footer from './components/layout/Footer'
 import ChatWidget from './components/chat/ChatWidget'
@@ -41,6 +43,14 @@ function ProfileGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   return <>{children}</>
 }
 
+function GATracker() {
+  const location = useLocation()
+  useEffect(() => {
+    trackPageView(location.pathname + location.search, document.title)
+  }, [location.pathname, location.search])
+  return null
+}
+
 function Layout() {
   return (
     <div className="min-h-screen bg-white">
@@ -59,6 +69,7 @@ function Layout() {
 function App() {
   return (
     <AuthProvider>
+      <GATracker />
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Agenda />} />
