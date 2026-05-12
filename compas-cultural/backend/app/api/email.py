@@ -1,7 +1,44 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from typing import Annotated
 
 router = APIRouter()
+
+
+@router.get("/unsubscribe", response_class=HTMLResponse)
+def unsubscribe_email(email: str = Query(...), token: str = Query(...)):
+    """Procesaa el link de baja de emails. Devuelve página HTML de confirmación."""
+    from app.services.email_service import _unsub_token, mark_email_unsubscribed, is_email_unsubscribed
+    # Validate token to prevent arbitrary unsubscribes
+    if token != _unsub_token(email):
+        return HTMLResponse(
+            content=_unsub_page("Token inválido", "El enlace de baja no es válido o ya expiró.", error=True),
+            status_code=400,
+        )
+    if is_email_unsubscribed(email):
+        return HTMLResponse(content=_unsub_page("Ya dado de baja", f"{email} ya no recibe emails de ETÉREA."))
+    mark_email_unsubscribed(email)
+    return HTMLResponse(content=_unsub_page("Listo", f"Te diste de baja exitosamente. {email} no recibirá más emails de Cultura ETÉREA."))
+
+
+def _unsub_page(title: str, message: str, error: bool = False) -> str:
+    color = "#DC2626" if error else "#16a34a"
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title} — Cultura ETÉREA</title>
+</head>
+<body style="margin:0;padding:40px 16px;background:#f5f5f5;font-family:'Helvetica Neue',Arial,sans-serif;text-align:center;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border:2px solid #0a0a0a;padding:48px 32px;">
+    <p style="font-family:'Courier New',monospace;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#999;margin:0 0 24px;">CULTURA ETÉREA</p>
+    <h1 style="font-size:28px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:{color};margin:0 0 16px;">{title}</h1>
+    <p style="font-size:14px;color:#444;line-height:1.6;margin:0 0 32px;">{message}</p>
+    <a href="https://culturaetereamed.com" style="display:inline-block;background:#0a0a0a;color:#fff;text-decoration:none;padding:12px 28px;font-family:'Courier New',monospace;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">IR A LA AGENDA →</a>
+  </div>
+</body>
+</html>"""
 
 
 @router.post("/blast-now")

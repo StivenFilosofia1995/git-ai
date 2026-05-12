@@ -2,7 +2,9 @@ import smtplib
 import logging
 import httpx
 import hashlib
+import hmac
 import time
+from urllib.parse import quote as _url_quote
 from datetime import datetime, timedelta
 from html import escape
 from email.mime.text import MIMEText
@@ -399,6 +401,7 @@ def _build_weekly_digest_html(
     context_label: str,
     eventos_semana: list[dict],
     eventos_hoy: list[dict] | None = None,
+    unsubscribe_url: str = "",
 ) -> str:
     frontend_url = settings.frontend_url.rstrip("/")
     now_co = datetime.now(CO_TZ)
@@ -538,7 +541,7 @@ def _build_weekly_digest_html(
       <p style="margin:10px 0 0;font-size:10px;color:#2a2a2a;">
         <a href="{frontend_url}/perfil" style="color:#444444;text-decoration:underline;">Gestionar preferencias</a>
         &nbsp;·&nbsp;
-        <a href="{frontend_url}/perfil" style="color:#444444;text-decoration:underline;">Darse de baja</a>
+        <a href="{unsubscribe_url}" style="color:#444444;text-decoration:underline;">Darse de baja</a>
       </p>
     </td>
   </tr>
@@ -715,6 +718,21 @@ def _kv_upsert(key: str, value: str) -> None:
         logger.warning("Could not persist digest state for key=%s", key)
 
 
+def _unsub_token(email: str) -> str:
+    secret = (settings.scraper_api_key or "eterea-unsub-2026").encode()
+    return hmac.new(secret, email.lower().strip().encode(), hashlib.sha256).hexdigest()[:40]
+
+
+def is_email_unsubscribed(email: str) -> bool:
+    key = f"unsub:{hashlib.sha1(email.lower().strip().encode()).hexdigest()[:20]}"
+    return _kv_get(key) == "1"
+
+
+def mark_email_unsubscribed(email: str) -> None:
+    key = f"unsub:{hashlib.sha1(email.lower().strip().encode()).hexdigest()[:20]}"
+    _kv_upsert(key, "1")
+
+
 def _digest_marker_key(week_start_iso: str, email: str) -> str:
     email_hash = hashlib.sha1(email.encode("utf-8")).hexdigest()[:20]
     return f"weekly_digest_sent:{week_start_iso}:{email_hash}"
@@ -784,7 +802,7 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict
         idx = (start_idx + offset) % len(recipients)
         r = recipients[idx]
         email = r.get("email") or ""
-        if not email or _digest_already_sent(week_start, email):
+        if not email or _digest_already_sent(week_start, email) or is_email_unsubscribed(email):
             stats["skipped"] += 1
             continue
 
@@ -804,7 +822,8 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict
             return stats
 
         context_label = r.get("context_label") or VALLE_LABEL
-        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy)
+        unsub_url = f"{settings.frontend_url.rstrip('/')}/api/v1/email/unsubscribe?email={_url_quote(email)}&token={_unsub_token(email)}"
+        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy, unsubscribe_url=unsub_url)
         text = _build_weekly_digest_text(r["nombre"], context_label, eventos_semana)
         subject = f"Tu agenda cultural esta semana — ETÉREA"
 
@@ -861,7 +880,7 @@ def send_blast_campaign_tick() -> dict:
 
         ehash = hashlib.sha1(email.encode()).hexdigest()[:20]
         sent_key = f"sent:{BLAST_KEY}:{ehash}"
-        if _kv_get(sent_key) == "1":
+        if _kv_get(sent_key) == "1" or is_email_unsubscribed(email):
             stats["skipped"] += 1
             continue
 
@@ -872,7 +891,8 @@ def send_blast_campaign_tick() -> dict:
 
         context_label = r.get("context_label") or VALLE_LABEL
         stats["target_email"] = email
-        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy)
+        unsub_url = f"{settings.frontend_url.rstrip('/')}/api/v1/email/unsubscribe?email={_url_quote(email)}&token={_unsub_token(email)}"
+        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy, unsubscribe_url=unsub_url)
         text = _build_weekly_digest_text(r["nombre"], context_label, eventos_semana)
 
         if _send_email(email, "Tu agenda cultural esta semana — ETÉREA", html, text):
@@ -921,7 +941,7 @@ def send_blast_all() -> dict:
 
         ehash = hashlib.sha1(email.encode()).hexdigest()[:20]
         sent_key = f"sent:{BLAST_KEY}:{ehash}"
-        if _kv_get(sent_key) == "1":
+        if _kv_get(sent_key) == "1" or is_email_unsubscribed(email):
             stats["skipped"] += 1
             continue
 
@@ -931,7 +951,8 @@ def send_blast_all() -> dict:
             eventos_semana = _fetch_weekly_events(None, None, limit=6)
 
         context_label = r.get("context_label") or VALLE_LABEL
-        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy)
+        unsub_url = f"{settings.frontend_url.rstrip('/')}/api/v1/email/unsubscribe?email={_url_quote(email)}&token={_unsub_token(email)}"
+        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy, unsubscribe_url=unsub_url)
         text = _build_weekly_digest_text(r["nombre"], context_label, eventos_semana)
 
         if _send_email(email, "Tu agenda cultural esta semana — ETÉREA", html, text):

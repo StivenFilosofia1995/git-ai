@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Header
 from typing import Annotated, List, Optional
 from app.services import espacio_service
 import time
@@ -122,6 +122,24 @@ def get_espacios_cerca(
     radio_metros: Annotated[int, Query(ge=100, le=10000)] = 2000,
 ):
     return espacio_service.get_espacios_cerca(lat, lng, radio_metros)
+
+
+@router.delete("/{espacio_id}")
+def delete_espacio(
+    espacio_id: str,
+    x_scraper_key: str | None = Header(default=None, alias="X-Scraper-Key"),
+):
+    """Elimina un espacio/colectivo y sus eventos. Requiere X-Scraper-Key de admin."""
+    from app.config import settings
+    from app.database import supabase
+    if x_scraper_key != settings.scraper_api_key:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    # Delete associated events first
+    supabase.table("eventos").delete().eq("espacio_id", espacio_id).execute()
+    resp = supabase.table("lugares").delete().eq("id", espacio_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Espacio no encontrado")
+    return {"ok": True, "deleted": espacio_id}
 
 
 @router.get("/{slug}")

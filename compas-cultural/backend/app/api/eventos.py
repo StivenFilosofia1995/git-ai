@@ -5,7 +5,7 @@ Fixes 2026-04:
 - Nuevo endpoint GET /proximas-semanas?dias=21
 - Resto se mantiene igual (hoy, feed, semana, espacio, slug, publicar).
 """
-from fastapi import APIRouter, Query, HTTPException, Request
+from fastapi import APIRouter, Query, HTTPException, Request, Header
 from typing import Annotated, List, Optional
 from datetime import datetime
 from app.services import evento_service
@@ -197,6 +197,34 @@ def get_eventos_destacados(limit: Annotated[int, Query(ge=1, le=10)] = 5):
 @router.get("/espacio/{espacio_id}")
 def get_eventos_espacio(espacio_id: str, limit: int = 10):
     return evento_service.get_eventos_by_espacio(espacio_id, limit)
+
+
+@router.delete("/{evento_id}")
+def delete_evento(
+    evento_id: str,
+    x_scraper_key: str | None = Header(default=None, alias="X-Scraper-Key"),
+):
+    """Elimina un evento. Requiere X-Scraper-Key de admin."""
+    from app.config import settings
+    from app.database import supabase
+    if x_scraper_key != settings.scraper_api_key:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    resp = supabase.table("eventos").delete().eq("id", evento_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    return {"ok": True, "deleted": evento_id}
+
+
+@router.post("/{evento_id}/reportar")
+def reportar_evento(evento_id: str, body: dict = {}):
+    """Marca un evento como reportado por la comunidad (duplicado, incorrecto, pasado)."""
+    from app.database import supabase
+    motivo = (body.get("motivo") or "incorrecto")[:100]
+    resp = supabase.table("eventos").select("id").eq("id", evento_id).single().execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    supabase.table("eventos").update({"reportado": True, "motivo_reporte": motivo}).eq("id", evento_id).execute()
+    return {"ok": True, "message": "Reporte recibido. Gracias por ayudar a mantener la agenda limpia."}
 
 
 @router.get("/{slug}")
