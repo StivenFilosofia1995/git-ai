@@ -138,6 +138,69 @@ def get_dashboard(x_api_key: str | None = Header(default=None, alias="X-API-Key"
     except Exception:
         pass
 
+    # ── Interacciones (clicks) ────────────────────────────────────────────────
+    top_espacios_clicks: list[dict] = []
+    total_interacciones = 0
+    interacciones_por_tipo: dict[str, int] = {}
+    try:
+        int_resp = (
+            supabase.table("perfil_interacciones")
+            .select("tipo,item_id,categoria")
+            .gte("created_at", hace_7.isoformat())
+            .limit(2000)
+            .execute()
+        )
+        interacciones = int_resp.data or []
+        total_interacciones = len(interacciones)
+        item_counts: dict[str, int] = {}
+        for row in interacciones:
+            t = row.get("tipo") or "ver"
+            interacciones_por_tipo[t] = interacciones_por_tipo.get(t, 0) + 1
+            item = row.get("item_id")
+            if item:
+                item_counts[item] = item_counts.get(item, 0) + 1
+        top_items = sorted(item_counts.items(), key=lambda x: x[1], reverse=True)[:8]
+        if top_items:
+            ids = [i for i, _ in top_items]
+            lug_resp = (
+                supabase.table("lugares")
+                .select("id,nombre,slug,categoria_principal,barrio")
+                .in_("id", ids)
+                .execute()
+            )
+            lug_map = {l["id"]: l for l in (lug_resp.data or [])}
+            for item_id, count in top_items:
+                l = lug_map.get(item_id)
+                if l:
+                    top_espacios_clicks.append({
+                        "nombre": l.get("nombre"),
+                        "slug": l.get("slug"),
+                        "categoria": l.get("categoria_principal"),
+                        "barrio": l.get("barrio"),
+                        "clicks": count,
+                    })
+    except Exception:
+        pass
+
+    # ── Registros por día (usuarios) ──────────────────────────────────────────
+    registros_por_dia: list[dict] = []
+    try:
+        from app.services.email_service import _load_auth_users
+        all_users = _load_auth_users(2000)
+        day_counts: dict[str, int] = {}
+        for u in all_users:
+            created = (u.get("created_at") or "")[:10]
+            if created >= hace_7.strftime("%Y-%m-%d"):
+                day_counts[created] = day_counts.get(created, 0) + 1
+        for i in range(6, -1, -1):
+            dia = hoy_inicio - timedelta(days=i)
+            k = dia.strftime("%Y-%m-%d")
+            registros_por_dia.append({"fecha": dia.strftime("%d/%m"), "nuevos": day_counts.get(k, 0)})
+    except Exception:
+        for i in range(6, -1, -1):
+            dia = hoy_inicio - timedelta(days=i)
+            registros_por_dia.append({"fecha": dia.strftime("%d/%m"), "nuevos": 0})
+
     return {
         "generado_en": now.isoformat(),
         "eventos": {
@@ -156,9 +219,6 @@ def get_dashboard(x_api_key: str | None = Header(default=None, alias="X-API-Key"
             "colectivos": colectivos,
             "con_instagram": con_instagram,
         },
-        "usuarios": {
-            "auth_registrados": auth_users,
-        },
         "email": {
             "blast_key": "blast:2026-05b",
             "blast_cursor": blast_cursor,
@@ -169,6 +229,15 @@ def get_dashboard(x_api_key: str | None = Header(default=None, alias="X-API-Key"
             "nuevos_eventos_7d": total_nuevos_7d_log,
             "fuentes_activas": len(fuentes_seen),
             "ultimas_fuentes": list(fuentes_seen.values())[:10],
+        },
+        "interacciones": {
+            "total_7d": total_interacciones,
+            "por_tipo": interacciones_por_tipo,
+            "top_espacios": top_espacios_clicks,
+        },
+        "usuarios": {
+            "auth_registrados": auth_users,
+            "registros_por_dia": registros_por_dia,
         },
     }
 

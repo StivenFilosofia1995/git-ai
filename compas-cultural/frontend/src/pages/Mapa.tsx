@@ -9,7 +9,7 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
   render() {
     if (this.state.hasError) {
       return (
-        <div className="w-full h-[600px] border-2 border-black bg-gray-50 flex items-center justify-center">
+        <div className="w-full h-[55vh] min-h-[320px] sm:h-[620px] border-2 border-black bg-gray-50 flex items-center justify-center">
           <div className="text-center px-8">
             <div className="text-4xl mb-4">🗺️</div>
             <p className="font-mono text-sm text-gray-600">No se pudo cargar el mapa</p>
@@ -37,7 +37,7 @@ export default function Mapa() {
         <div className="overflow-hidden border-2 border-black">
           <MapErrorBoundary>
             <Suspense fallback={
-              <div className="w-full h-[600px] bg-gray-50 flex items-center justify-center">
+              <div className="w-full h-[55vh] min-h-[320px] sm:h-[620px] bg-gray-50 flex items-center justify-center">
                 <p className="font-mono text-sm text-gray-400 animate-pulse">Cargando mapa…</p>
               </div>
             }>

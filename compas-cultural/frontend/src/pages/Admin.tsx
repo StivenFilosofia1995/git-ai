@@ -313,6 +313,76 @@ export default function Admin() {
           </div>
         </div>
 
+        {/* Interacciones + Top espacios */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Clicks por tipo */}
+          <div className="border-2 border-black p-5">
+            <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-1">Interacciones (7 días)</p>
+            <p className="text-2xl font-heading font-black mb-4">{(d.interacciones?.total_7d ?? 0).toLocaleString()}</p>
+            <div className="space-y-2">
+              {Object.entries(d.interacciones?.por_tipo ?? {})
+                .sort((a, b) => b[1] - a[1])
+                .map(([tipo, n]) => {
+                  const total = d.interacciones?.total_7d || 1
+                  return (
+                    <div key={tipo} className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono w-28 shrink-0 capitalize">{tipo.replace(/_/g, ' ')}</span>
+                      <div className="flex-1 bg-neutral-100 h-3">
+                        <div className="h-3 bg-yellow-300 border-r border-black/20" style={{ width: `${Math.round((n / total) * 100)}%` }} />
+                      </div>
+                      <span className="text-[10px] font-mono font-black w-8 text-right">{n}</span>
+                    </div>
+                  )
+                })}
+              {Object.keys(d.interacciones?.por_tipo ?? {}).length === 0 && (
+                <p className="font-mono text-xs text-neutral-400">Sin datos de interacciones</p>
+              )}
+            </div>
+          </div>
+
+          {/* Top espacios más vistos */}
+          <div className="border-2 border-black p-5">
+            <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-4">Top espacios más visitados (7d)</p>
+            <div className="space-y-2">
+              {(d.interacciones?.top_espacios ?? []).length === 0 && (
+                <p className="font-mono text-xs text-neutral-400">Sin datos todavía</p>
+              )}
+              {(d.interacciones?.top_espacios ?? []).map((e, i) => (
+                <div key={e.slug} className="flex items-center gap-3 border-b border-black/5 pb-2">
+                  <span className="text-[10px] font-mono font-black text-neutral-300 w-4">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-xs font-bold truncate">{e.nombre}</p>
+                    <p className="font-mono text-[9px] text-neutral-400">{e.barrio} · {e.categoria?.replace(/_/g, ' ')}</p>
+                  </div>
+                  <span className="font-mono text-xs font-black shrink-0">{e.clicks} clicks</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Registros de usuarios por día */}
+        <div className="border-2 border-black p-5 mb-8">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-4">
+            Nuevos usuarios — últimos 7 días
+            <span className="ml-3 text-neutral-400 font-normal normal-case">
+              {d.usuarios.auth_registrados} total registrados
+            </span>
+          </p>
+          <div className="flex items-end gap-2 h-20">
+            {(d.usuarios.registros_por_dia ?? []).map(({ fecha, nuevos }) => {
+              const maxU = Math.max(...(d.usuarios.registros_por_dia ?? []).map(x => x.nuevos), 1)
+              return (
+                <div key={fecha} className="flex-1 flex flex-col items-center gap-1">
+                  <span className="text-[9px] font-mono font-black">{nuevos || ''}</span>
+                  <div className="w-full bg-yellow-300" style={{ height: `${Math.max((nuevos / maxU) * 56, nuevos > 0 ? 4 : 0)}px` }} />
+                  <span className="text-[8px] font-mono text-neutral-400">{fecha}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
         {/* Calidad datos */}
         <div className="border-2 border-black p-5">
           <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-4">Calidad de datos</p>

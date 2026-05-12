@@ -1086,7 +1086,10 @@ export interface AdminDashboard {
     colectivos: number
     con_instagram: number
   }
-  usuarios: { auth_registrados: number }
+  usuarios: {
+    auth_registrados: number
+    registros_por_dia: { fecha: string; nuevos: number }[]
+  }
   email: {
     blast_key: string
     blast_cursor: number
@@ -1097,6 +1100,11 @@ export interface AdminDashboard {
     nuevos_eventos_7d: number
     fuentes_activas: number
     ultimas_fuentes: { fuente: string; registros_nuevos: number; errores: number; created_at: string }[]
+  }
+  interacciones: {
+    total_7d: number
+    por_tipo: Record<string, number>
+    top_espacios: { nombre: string; slug: string; categoria: string; barrio: string; clicks: number }[]
   }
 }
 

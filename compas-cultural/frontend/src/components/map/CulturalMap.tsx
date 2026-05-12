@@ -37,27 +37,14 @@ const ALL_CATS = [
 ]
 
 const catLabels: Record<string, string> = {
-  teatro: 'Teatro',
-  hip_hop: 'Hip Hop',
-  jazz: 'Jazz',
-  galeria: 'Galerías',
-  libreria: 'Librerías',
-  casa_cultura: 'Casas Cultura',
-  electronica: 'Electrónica',
-  danza: 'Danza',
-  arte_contemporaneo: 'Arte Contemporáneo',
-  centro_cultural: 'Centros Culturales',
-  musica_en_vivo: 'Música en Vivo',
-  muralismo: 'Muralismo',
-  fotografia: 'Fotografía',
-  batalla_freestyle: 'Freestyle',
-  poesia: 'Poesía',
-  festival: 'Festivales',
-  espacio_hibrido: 'Espacio Híbrido',
-  cine: 'Cine',
+  teatro: 'Teatro', hip_hop: 'Hip Hop', jazz: 'Jazz', galeria: 'Galerías',
+  libreria: 'Librerías', casa_cultura: 'Casas Cultura', electronica: 'Electrónica',
+  danza: 'Danza', arte_contemporaneo: 'Arte Contemp.', centro_cultural: 'Centros Cult.',
+  musica_en_vivo: 'Música en Vivo', muralismo: 'Muralismo', fotografia: 'Fotografía',
+  batalla_freestyle: 'Freestyle', poesia: 'Poesía', festival: 'Festivales',
+  espacio_hibrido: 'Híbrido', cine: 'Cine',
 }
 
-/** Fit map bounds to visible markers */
 function FitBounds({ coords }: { coords: [number, number][] }) {
   const map = useMap()
   useEffect(() => {
@@ -83,10 +70,11 @@ export default function CulturalMap() {
   const [showAllCats, setShowAllCats] = useState(false)
   const [showEquipamientos, setShowEquipamientos] = useState(true)
   const [showEventos, setShowEventos] = useState(true)
+  // Mobile: panel hidden by default; desktop always shown via CSS
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   useEffect(() => {
     getEspacios({ limit: 1000 }).then(setEspacios).catch(console.error)
-    // Load events with coordinates (today + next 7 days)
     getEventosTodos({ maxRows: 500 })
       .then(evs => {
         const hoy = new Date().toISOString().slice(0, 10)
@@ -113,30 +101,87 @@ export default function CulturalMap() {
   const toggleCat = (cat: string) => {
     setActiveCats(prev => {
       const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
+      if (next.has(cat)) next.delete(cat); else next.add(cat)
       return next
     })
   }
 
   const mainCats = ALL_CATS.slice(0, 8)
   const extraCats = ALL_CATS.slice(8)
+  const espaciosConCoords = espacios.filter(e => (e.lat ?? e.coordenadas?.lat) && (e.lng ?? e.coordenadas?.lng)).length
 
-  const espaciosConCoords = espacios.filter(e => {
-    const lat = e.lat ?? e.coordenadas?.lat
-    const lng = e.lng ?? e.coordenadas?.lng
-    return lat && lng
-  }).length
+  const filterPanel = (
+    <div className="p-4 h-full overflow-y-auto">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-mono font-black text-xs uppercase tracking-[0.2em]">Filtros</h3>
+        {/* Close button — only visible inside panel on mobile */}
+        <button
+          type="button"
+          onClick={() => setFiltersOpen(false)}
+          className="sm:hidden text-[11px] font-mono font-bold px-2 py-1 border border-black/20 hover:bg-black hover:text-white transition-colors"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="space-y-1.5">
+        {mainCats.map(cat => (
+          <label key={cat} className="flex items-center gap-2 text-xs cursor-pointer py-0.5">
+            <input type="checkbox" className="rounded" checked={activeCats.has(cat)} onChange={() => toggleCat(cat)} />
+            <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ backgroundColor: CAT_MARKER_COLORS[cat] }} />
+            <span className="truncate">{catLabels[cat] ?? cat}</span>
+          </label>
+        ))}
+        {showAllCats && extraCats.map(cat => (
+          <label key={cat} className="flex items-center gap-2 text-xs cursor-pointer py-0.5">
+            <input type="checkbox" className="rounded" checked={activeCats.has(cat)} onChange={() => toggleCat(cat)} />
+            <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ backgroundColor: CAT_MARKER_COLORS[cat] ?? '#6B7280' }} />
+            <span className="truncate">{catLabels[cat] ?? cat}</span>
+          </label>
+        ))}
+        {extraCats.length > 0 && (
+          <button type="button" onClick={() => setShowAllCats(v => !v)}
+            className="text-[10px] font-mono font-bold uppercase tracking-wider hover:underline mt-1">
+            {showAllCats ? '▲ Menos' : `▼ +${extraCats.length} más`}
+          </button>
+        )}
+      </div>
+
+      <div className="border-t-2 border-black mt-3 pt-3 space-y-2">
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input type="checkbox" className="rounded" checked={showEquipamientos} onChange={() => setShowEquipamientos(v => !v)} />
+          <span className="font-bold">★ Equipamientos Públicos</span>
+        </label>
+        <p className="text-[9px] font-mono opacity-50 -mt-1">UVAs · Bibliotecas · Teatros oficiales</p>
+
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input type="checkbox" className="rounded" checked={showEventos} onChange={() => setShowEventos(v => !v)} />
+          <span className="inline-flex items-center gap-1.5 font-bold">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
+            Eventos próximos
+          </span>
+        </label>
+        <p className="text-[9px] font-mono opacity-50 -mt-1">
+          {showEventos && eventos.length > 0 ? `${eventos.length} eventos en el mapa` : 'Hoy y próximos 7 días'}
+        </p>
+      </div>
+
+      <p className="text-[10px] font-mono font-black mt-3 pt-2 border-t border-black/10 uppercase tracking-wider">
+        {filtered.length} / {espaciosConCoords} lugares
+      </p>
+    </div>
+  )
 
   return (
     <div className="relative">
+      {/* MAP — responsive height */}
       <MapContainer
         center={[6.2442, -75.5812]}
         zoom={12}
         minZoom={10}
         maxZoom={18}
         scrollWheelZoom
-        className="w-full h-[600px] z-0"
+        className="w-full h-[55vh] min-h-[320px] sm:h-[620px] z-0"
         style={{ background: '#f8f8f8' }}
       >
         <TileLayer
@@ -144,52 +189,44 @@ export default function CulturalMap() {
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
         <FitBounds coords={coords} />
+
         <MarkerClusterGroup chunkedLoading>
-        {filtered.map(espacio => {
-          const lat = espacio.lat ?? espacio.coordenadas?.lat ?? 0
-          const lng = espacio.lng ?? espacio.coordenadas?.lng ?? 0
-          const color = CAT_MARKER_COLORS[espacio.categoria_principal] ?? '#6B7280'
-          const isPublico = !!espacio.es_equipamiento_publico
-          return (
-            <CircleMarker
-              key={espacio.id}
-              center={[lat, lng]}
-              radius={isPublico ? 10 : 7}
-              pathOptions={{
-                fillColor: color,
-                fillOpacity: isPublico ? 0.95 : 0.85,
-                color: isPublico ? '#000' : '#fff',
-                weight: isPublico ? 2.5 : 2,
-                dashArray: isPublico ? '4 2' : undefined,
-              }}
-            >
-              <Popup>
-                <a
-                  href={`/espacio/${espacio.slug}`}
-                  style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'Space Mono', monospace" }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2 }}>
-                    {isPublico && <span title="Equipamiento público">★ </span>}{espacio.nombre}
-                  </div>
-                  <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    {espacio.categoria_principal.replace(/_/g, ' ')}
-                  </div>
-                  {espacio.barrio && (
-                    <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>
-                      ◉ {espacio.barrio}, {espacio.municipio}
+          {filtered.map(espacio => {
+            const lat = espacio.lat ?? espacio.coordenadas?.lat ?? 0
+            const lng = espacio.lng ?? espacio.coordenadas?.lng ?? 0
+            const color = CAT_MARKER_COLORS[espacio.categoria_principal] ?? '#6B7280'
+            const isPublico = !!espacio.es_equipamiento_publico
+            return (
+              <CircleMarker
+                key={espacio.id}
+                center={[lat, lng]}
+                radius={isPublico ? 10 : 7}
+                pathOptions={{
+                  fillColor: color, fillOpacity: isPublico ? 0.95 : 0.85,
+                  color: isPublico ? '#000' : '#fff', weight: isPublico ? 2.5 : 2,
+                  dashArray: isPublico ? '4 2' : undefined,
+                }}
+              >
+                <Popup>
+                  <a href={`/espacio/${espacio.slug}`}
+                    style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'Space Mono', monospace" }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2 }}>
+                      {isPublico && <span title="Equipamiento público">★ </span>}{espacio.nombre}
                     </div>
-                  )}
-                  <div style={{ fontSize: 9, color: '#000', marginTop: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                    Ver detalle →
-                  </div>
-                </a>
-              </Popup>
-            </CircleMarker>
-          )
-        })}
+                    <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      {espacio.categoria_principal.replace(/_/g, ' ')}
+                    </div>
+                    {espacio.barrio && (
+                      <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>◉ {espacio.barrio}, {espacio.municipio}</div>
+                    )}
+                    <div style={{ fontSize: 9, color: '#000', marginTop: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>Ver detalle →</div>
+                  </a>
+                </Popup>
+              </CircleMarker>
+            )
+          })}
         </MarkerClusterGroup>
 
-        {/* Events layer — upcoming events with coordinates */}
         {showEventos && (
           <MarkerClusterGroup chunkedLoading>
             {eventos.map(ev => {
@@ -202,34 +239,17 @@ export default function CulturalMap() {
                   key={ev.id}
                   center={[lat, lng]}
                   radius={esHoy ? 9 : 6}
-                  pathOptions={{
-                    fillColor: esHoy ? '#EF4444' : '#F97316',
-                    fillOpacity: 0.9,
-                    color: '#fff',
-                    weight: esHoy ? 2 : 1.5,
-                  }}
+                  pathOptions={{ fillColor: esHoy ? '#EF4444' : '#F97316', fillOpacity: 0.9, color: '#fff', weight: esHoy ? 2 : 1.5 }}
                 >
                   <Popup>
-                    <a
-                      href={`/evento/${ev.slug}`}
-                      style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'Space Mono', monospace", maxWidth: 200 }}
-                    >
-                      {esHoy && (
-                        <div style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', marginBottom: 2 }}>
-                          ● HOY
-                        </div>
-                      )}
+                    <a href={`/evento/${ev.slug}`}
+                      style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'Space Mono', monospace", maxWidth: 200 }}>
+                      {esHoy && <div style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', marginBottom: 2 }}>● HOY</div>}
                       <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2, lineHeight: 1.3 }}>{ev.titulo}</div>
                       <div style={{ fontSize: 10, color: '#666' }}>{fecha}</div>
-                      {ev.nombre_lugar && (
-                        <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>◉ {ev.nombre_lugar}</div>
-                      )}
-                      {ev.es_gratuito && (
-                        <div style={{ fontSize: 9, fontWeight: 700, color: '#10B981', marginTop: 2 }}>GRATIS</div>
-                      )}
-                      <div style={{ fontSize: 9, color: '#000', marginTop: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                        Ver evento →
-                      </div>
+                      {ev.nombre_lugar && <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>◉ {ev.nombre_lugar}</div>}
+                      {ev.es_gratuito && <div style={{ fontSize: 9, fontWeight: 700, color: '#10B981', marginTop: 2 }}>GRATIS</div>}
+                      <div style={{ fontSize: 9, color: '#000', marginTop: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>Ver evento →</div>
                     </a>
                   </Popup>
                 </CircleMarker>
@@ -239,84 +259,32 @@ export default function CulturalMap() {
         )}
       </MapContainer>
 
-      {/* FILTERS panel */}
-      <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm border-2 border-black p-4 max-h-[560px] overflow-y-auto z-[1000]">
-        <h3 className="font-mono font-bold text-sm mb-2">FILTROS</h3>
-        <div className="space-y-2">
-          {mainCats.map((cat) => (
-            <label key={cat} className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                className="rounded"
-                checked={activeCats.has(cat)}
-                onChange={() => toggleCat(cat)}
-              />
-              <span
-                className="w-2 h-2 rounded-full inline-block"
-                style={{ backgroundColor: CAT_MARKER_COLORS[cat] }}
-              />
-              <span>{catLabels[cat] ?? cat}</span>
-            </label>
-          ))}
-          {showAllCats && extraCats.map((cat) => (
-            <label key={cat} className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                className="rounded"
-                checked={activeCats.has(cat)}
-                onChange={() => toggleCat(cat)}
-              />
-              <span
-                className="w-2 h-2 rounded-full inline-block"
-                style={{ backgroundColor: CAT_MARKER_COLORS[cat] ?? '#6B7280' }}
-              />
-              <span>{catLabels[cat] ?? cat}</span>
-            </label>
-          ))}
-          {extraCats.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowAllCats(v => !v)}
-              className="text-[10px] font-mono font-bold uppercase tracking-wider hover:underline"
-            >
-              {showAllCats ? '▲ Menos' : `▼ +${extraCats.length} más`}
-            </button>
-          )}
-        </div>
-        <div className="border-t-2 border-black mt-3 pt-3">
-          <label className="flex items-center gap-2 text-xs cursor-pointer">
-            <input
-              type="checkbox"
-              className="rounded"
-              checked={showEquipamientos}
-              onChange={() => setShowEquipamientos(v => !v)}
-            />
-            <span className="font-bold">★ Equipamientos Públicos</span>
-          </label>
-          <p className="text-[9px] font-mono opacity-50 mt-1">UVAs · Bibliotecas · Teatros oficiales</p>
-        </div>
-        <div className="border-t border-black/20 mt-3 pt-3">
-          <label className="flex items-center gap-2 text-xs cursor-pointer">
-            <input
-              type="checkbox"
-              className="rounded"
-              checked={showEventos}
-              onChange={() => setShowEventos(v => !v)}
-            />
-            <span className="inline-flex items-center gap-1.5 font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
-              Eventos próximos
-            </span>
-          </label>
-          <p className="text-[9px] font-mono opacity-50 mt-1">Hoy y los próximos 7 días</p>
-          {showEventos && eventos.length > 0 && (
-            <p className="text-[9px] font-mono font-bold mt-0.5">{eventos.length} eventos en el mapa</p>
-          )}
-        </div>
-        <p className="text-[10px] font-mono font-bold mt-2 uppercase tracking-wider">
-          {espaciosConCoords} lugares
-        </p>
+      {/* ── DESKTOP: always-visible left floating panel ─────────────────── */}
+      <div className="hidden sm:block absolute top-4 left-4 w-52 max-h-[75vh] bg-white/95 backdrop-blur-sm border-2 border-black z-[1000] shadow-sm">
+        {filterPanel}
       </div>
+
+      {/* ── MOBILE: toggle button bottom-left ──────────────────────────── */}
+      <button
+        type="button"
+        onClick={() => setFiltersOpen(v => !v)}
+        className="sm:hidden absolute bottom-4 left-4 z-[1001] flex items-center gap-2 bg-black text-white font-mono text-[11px] font-bold uppercase tracking-widest px-3 py-2.5 shadow-lg active:scale-95 transition-transform"
+      >
+        <span>{filtersOpen ? '✕' : '⊞'}</span>
+        <span>{filtersOpen ? 'Cerrar' : 'Filtros'}</span>
+        {!filtersOpen && (
+          <span className="bg-yellow-300 text-black px-1.5 py-0.5 text-[9px] font-black rounded-sm">
+            {filtered.length}
+          </span>
+        )}
+      </button>
+
+      {/* ── MOBILE: bottom sheet panel ─────────────────────────────────── */}
+      {filtersOpen && (
+        <div className="sm:hidden absolute bottom-0 left-0 right-0 z-[1000] bg-white border-t-2 border-black max-h-[55vh] overflow-y-auto shadow-2xl">
+          {filterPanel}
+        </div>
+      )}
     </div>
   )
 }
