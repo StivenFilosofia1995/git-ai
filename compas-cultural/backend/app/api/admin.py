@@ -242,6 +242,109 @@ def get_dashboard(x_api_key: str | None = Header(default=None, alias="X-API-Key"
     }
 
 
+@router.get("/eventos")
+def admin_list_eventos(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    page: int = 1,
+    per_page: int = 50,
+    search: str = "",
+    categoria: str = "",
+    municipio: str = "",
+    reportados: bool = False,
+):
+    _check_key(x_api_key)
+    from app.database import supabase
+    offset = (max(page, 1) - 1) * per_page
+    q = (
+        supabase.table("eventos")
+        .select(
+            "id,titulo,slug,fecha_inicio,categoria_principal,municipio,barrio,"
+            "verificado,reportado,fuente,imagen_url,es_gratuito,created_at",
+            count="exact",
+        )
+        .order("fecha_inicio", desc=False)
+        .range(offset, offset + per_page - 1)
+    )
+    if search:
+        q = q.ilike("titulo", f"%{search}%")
+    if categoria:
+        q = q.eq("categoria_principal", categoria)
+    if municipio:
+        q = q.eq("municipio", municipio)
+    if reportados:
+        q = q.eq("reportado", True)
+    resp = q.execute()
+    return {"data": resp.data or [], "total": resp.count or 0, "page": page, "per_page": per_page}
+
+
+@router.get("/espacios")
+def admin_list_espacios(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    page: int = 1,
+    per_page: int = 50,
+    search: str = "",
+    tipo: str = "",
+    municipio: str = "",
+):
+    _check_key(x_api_key)
+    from app.database import supabase
+    offset = (max(page, 1) - 1) * per_page
+    q = (
+        supabase.table("lugares")
+        .select(
+            "id,nombre,slug,tipo,categoria_principal,municipio,barrio,"
+            "instagram_handle,sitio_web,nivel_actividad,verificado,created_at",
+            count="exact",
+        )
+        .order("nombre", desc=False)
+        .range(offset, offset + per_page - 1)
+    )
+    if search:
+        q = q.ilike("nombre", f"%{search}%")
+    if tipo:
+        q = q.eq("tipo", tipo)
+    if municipio:
+        q = q.eq("municipio", municipio)
+    resp = q.execute()
+    return {"data": resp.data or [], "total": resp.count or 0, "page": page, "per_page": per_page}
+
+
+@router.get("/usuarios")
+def admin_list_usuarios(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    page: int = 1,
+    per_page: int = 50,
+):
+    _check_key(x_api_key)
+    from app.services.email_service import _load_auth_users
+    all_users = _load_auth_users(2000)
+    start = (max(page, 1) - 1) * per_page
+    end = start + per_page
+    return {
+        "data": all_users[start:end],
+        "total": len(all_users),
+        "page": page,
+        "per_page": per_page,
+    }
+
+
+@router.get("/logs")
+def admin_scraping_logs(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    limit: int = 100,
+):
+    _check_key(x_api_key)
+    from app.database import supabase
+    resp = (
+        supabase.table("scraping_log")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(min(limit, 200))
+        .execute()
+    )
+    return {"data": resp.data or [], "total": len(resp.data or [])}
+
+
 @router.post("/trigger-scraper")
 def trigger_scraper(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
     """Trigger full scraper + agenda alternativa (background)."""
