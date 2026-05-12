@@ -26,6 +26,7 @@ import RequireAuth from './components/auth/RequireAuth'
 import CercaDeTiPage from './pages/CercaDeTiPage'
 import WebSearch from './pages/WebSearch'
 import Admin from './pages/Admin'
+import Guardados from './pages/Guardados'
 
 /** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
 function ProfileGuard({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -90,6 +91,7 @@ function App() {
           <Route path="aportes" element={<Aportes />} />
           <Route path="nosotros" element={<Nosotros />} />
           <Route path="proteccion-datos" element={<ProteccionDatos />} />
+          <Route path="guardados" element={<Guardados />} />
         </Route>
         <Route path="/chat" element={<Chat />} />
         <Route path="/admin" element={<Admin />} />

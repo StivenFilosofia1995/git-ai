@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState } from 'react'
 import { getEvento, registrarInteraccion, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { useFavoritos } from '../lib/useFavoritos'
 import ReviewSection from '../components/ui/ReviewSection'
 import { getEventDateParts } from '../lib/datetime'
 import SmartEventImage from '../components/ui/SmartEventImage'
@@ -10,6 +11,7 @@ import SmartEventImage from '../components/ui/SmartEventImage'
 export default function EventoDetalle() {
   const { slug } = useParams()
   const { user } = useAuth()
+  const { toggle, isSaved } = useFavoritos()
   const [evento, setEvento] = useState<Evento | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -204,6 +206,13 @@ export default function EventoDetalle() {
                 </svg>
                 Compartir
               </a>
+              <button
+                type="button"
+                onClick={() => evento && toggle({ id: evento.id, titulo: evento.titulo, slug: evento.slug ?? '', fecha_inicio: evento.fecha_inicio, categoria_principal: evento.categoria_principal, nombre_lugar: evento.nombre_lugar ?? undefined, barrio: evento.barrio ?? undefined, municipio: evento.municipio ?? undefined, imagen_url: evento.imagen_url ?? undefined, es_gratuito: evento.es_gratuito ?? undefined })}
+                className={`inline-flex items-center gap-2 text-sm font-mono font-bold uppercase tracking-wider border-2 px-4 py-2 transition-all ${isSaved(evento.id) ? 'bg-black text-white border-black' : 'border-black hover:bg-black hover:text-white'}`}
+              >
+                {isSaved(evento.id) ? '♥ Guardado' : '♡ Guardar'}
+              </button>
               {evento.fuente_url && (
                 <a
                   href={evento.fuente_url}

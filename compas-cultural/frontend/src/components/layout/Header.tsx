@@ -43,13 +43,22 @@ export default function Header() {
               Ley de protección de datos
             </Link>
 
-            {/* Botón donación Vaki */}
+            {/* Guardados */}
+            <Link
+              to="/guardados"
+              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-[11px] font-mono font-bold hover:bg-black hover:text-white transition-all duration-200 border border-transparent hover:border-black"
+              title="Eventos guardados"
+            >
+              ♡ Guardados
+            </Link>
+
+            {/* Botón donación Bre-B */}
             <Link
               to="/aportes"
               className="hidden md:flex items-center gap-1.5 px-3 py-1.5 border-2 border-black bg-yellow-300 text-black text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-yellow-400 transition-all duration-200"
-              title="Apoyá el proyecto en Vaki"
+              title="Apoyá el proyecto"
             >
-              ♥ Vaki Aportes
+              ♥ Aportes
             </Link>
 
             {!loading && (
