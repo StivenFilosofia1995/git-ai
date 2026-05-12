@@ -3,20 +3,12 @@ FROM python:3.11-slim
 WORKDIR /app
 
 ENV EASYOCR_MODULE_PATH=/opt/easyocr-models
-ENV OLLAMA_MODELS=/root/.ollama/models
 
-# System deps + Ollama
+# System deps + Ollama (para desarrollo local; en Railway usa Groq/Gemini)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev curl ca-certificates \
     && curl -fsSL https://ollama.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
-
-# Pre-pull Ollama model at BUILD time so it never downloads at runtime
-ARG OLLAMA_MODEL=qwen2.5:1.5b
-RUN ollama serve & \
-    sleep 8 && \
-    ollama pull ${OLLAMA_MODEL} && \
-    pkill -f "ollama serve" || true
 
 # Python deps + Playwright chromium
 COPY requirements.txt .

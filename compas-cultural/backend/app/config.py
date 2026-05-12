@@ -54,7 +54,7 @@ class Settings(BaseSettings):
 
     # Groq AI (fast/cheap LLM for scraping — replaces Claude for non-chat tasks)
     groq_api_key: str = ""
-    chat_engine: str = "ollama"  # ollama | groq | gemini | auto
+    chat_engine: str = "groq"  # groq | gemini | ollama | auto
     chat_max_tokens: int = 900
     chat_temperature: float = 0.7
     chat_history_messages: int = 8
