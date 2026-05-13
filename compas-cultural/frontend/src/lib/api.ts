@@ -562,7 +562,7 @@ export async function getZona(slug: string): Promise<Zona> {
   }
 }
 
-export async function enviarMensajeChat(mensaje: string, historial: ChatMessage[], _paginaContexto?: string): Promise<ChatResponse> {
+export async function enviarMensajeChat(mensaje: string, historial: ChatMessage[], _paginaContexto?: { slug_contexto: string; tipo_contexto: 'evento' | 'espacio' }): Promise<ChatResponse> {
   return apiPost<ChatResponse>('/chat/', {
     mensaje,
     historial
