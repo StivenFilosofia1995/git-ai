@@ -61,6 +61,24 @@ KNOWN_CULTURAL_SITES: list[dict] = [
         "categorias": ["centro_cultural"],
     },
     {
+        "url": "https://www.comfama.com/agenda/",
+        "nombre": "Comfama - Agenda",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural"],
+    },
+    {
+        "url": "https://www.comfama.com/cultura-y-ocio/claustro/",
+        "nombre": "Comfama Claustro San Ignacio",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "teatro"],
+    },
+    {
+        "url": "https://www.comfama.com/cultura-y-ocio/bibliotecas/",
+        "nombre": "Comfama - Red de Bibliotecas",
+        "municipio": "medellin",
+        "categorias": ["libreria", "centro_cultural"],
+    },
+    {
         "url": "https://www.elperpetuosocorro.org/agenda",
         "nombre": "Teatro El Perpetuo Socorro",
         "municipio": "medellin",
@@ -259,6 +277,36 @@ KNOWN_CULTURAL_SITES: list[dict] = [
         "municipio": "medellin",
         "categorias": ["centro_cultural", "conferencia", "musica_en_vivo"],
     },
+    {
+        "url": "https://www.itm.edu.co/bienestar-institucional/cultura/",
+        "nombre": "ITM - Cultura",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "teatro", "musica_en_vivo"],
+    },
+    {
+        "url": "https://www.itm.edu.co/campus/fraternidad/",
+        "nombre": "ITM Boston (Campus Fraternidad)",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "conferencia"],
+    },
+    {
+        "url": "https://www.colmayor.edu.co/",
+        "nombre": "Colegio Mayor de Antioquia",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "conferencia"],
+    },
+    {
+        "url": "https://www.upb.edu.co/es/agenda-cultural",
+        "nombre": "UPB Medellin - Agenda Cultural",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "musica_en_vivo", "teatro"],
+    },
+    {
+        "url": "https://www.pascualbravo.edu.co/agenda-cultural",
+        "nombre": "Pascual Bravo - Agenda Cultural",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "teatro", "conferencia"],
+    },
     # ── AGENDA DIGITAL / MEDIOS ───────────────────────────────
     {
         "url": "https://www.universocentro.com/agenda/",
@@ -271,6 +319,42 @@ KNOWN_CULTURAL_SITES: list[dict] = [
         "nombre": "Fiesta del Libro y la Cultura",
         "municipio": "medellin",
         "categorias": ["editorial", "libreria", "conferencia"],
+    },
+    {
+        "url": "https://ateneomedellin.com/",
+        "nombre": "Teatro Ateneo Porfirio Barba Jacob",
+        "municipio": "medellin",
+        "categorias": ["teatro", "musica_en_vivo"],
+    },
+    {
+        "url": "https://pequenoteatro.com/",
+        "nombre": "Pequeno Teatro Medellin",
+        "municipio": "medellin",
+        "categorias": ["teatro"],
+    },
+    {
+        "url": "https://bellasartesmed.edu.co/",
+        "nombre": "Bellas Artes Medellin",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "musica_en_vivo"],
+    },
+    {
+        "url": "https://www.instagram.com/rudacafe/",
+        "nombre": "Ruda Cafe - Calle Cervantes",
+        "municipio": "medellin",
+        "categorias": ["musica_en_vivo"],
+    },
+    {
+        "url": "https://www.instagram.com/silenciobar/",
+        "nombre": "Silencio Bar - Calle Cervantes",
+        "municipio": "medellin",
+        "categorias": ["musica_en_vivo"],
+    },
+    {
+        "url": "https://www.universocentro.com/agenda/",
+        "nombre": "Torres de Bombona - Agenda Centro",
+        "municipio": "medellin",
+        "categorias": ["centro_cultural", "teatro"],
     },
     # ── VALLE DE ABURRÁ ───────────────────────────────────────
     {
