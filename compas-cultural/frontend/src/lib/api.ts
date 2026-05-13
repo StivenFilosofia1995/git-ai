@@ -279,18 +279,6 @@ export async function getEventosFeed(limit = 20): Promise<Evento[]> {
   return apiGet<Evento[]>(`/eventos/feed?limit=${limit}`)
 }
 
-export async function getEventosDestacados(limit = 5): Promise<Evento[]> {
-  return apiGet<Evento[]>(`/eventos/destacados?limit=${limit}`)
-}
-
-export interface ColectivoActivo extends Espacio {
-  proximos_eventos: number
-}
-
-export async function getColectivosActivos(limit = 20): Promise<ColectivoActivo[]> {
-  return apiGet<ColectivoActivo[]>(`/espacios/colectivos-activos?limit=${limit}`)
-}
-
 export async function getEventosSemana(filters?: EventosTemporalFilters): Promise<Evento[]> {
   // Usa endpoint backend que cubre hasta el domingo de la próxima semana
   // (7-14 días). Antes usaba Supabase directo con ventana fija de 7 días,
@@ -574,15 +562,10 @@ export async function getZona(slug: string): Promise<Zona> {
   }
 }
 
-export async function enviarMensajeChat(
-  mensaje: string,
-  historial: ChatMessage[],
-  contexto?: { slug_contexto: string; tipo_contexto: 'evento' | 'espacio' }
-): Promise<ChatResponse> {
+export async function enviarMensajeChat(mensaje: string, historial: ChatMessage[]): Promise<ChatResponse> {
   return apiPost<ChatResponse>('/chat/', {
     mensaje,
-    historial,
-    ...contexto,
+    historial
   })
 }
 
@@ -1071,7 +1054,7 @@ export function getUrgencyLabel(fechaInicio: string): 'alta' | 'media' | 'baja' 
   }
 }
 
-// ── Admin dashboard ────────────────────────────────────────────────────────────
+// ---------- Admin Dashboard ----------
 
 export interface AdminDashboard {
   generado_en: string
@@ -1079,11 +1062,11 @@ export interface AdminDashboard {
     total: number
     hoy: number
     proxima_semana: number
+    nuevos_7d: number
+    por_dia: { fecha: string; nuevos: number }[]
+    top_categorias: { cat: string; n: number }[]
     con_imagen: number
     verificados: number
-    nuevos_7d: number
-    top_categorias: { cat: string; n: number }[]
-    por_dia: { fecha: string; nuevos: number }[]
   }
   espacios: {
     total: number
@@ -1093,7 +1076,7 @@ export interface AdminDashboard {
   }
   usuarios: {
     auth_registrados: number
-    registros_por_dia: { fecha: string; nuevos: number }[]
+    registros_por_dia?: { fecha: string; nuevos: number }[]
   }
   email: {
     blast_key: string
@@ -1104,47 +1087,111 @@ export interface AdminDashboard {
     runs_7d: number
     nuevos_eventos_7d: number
     fuentes_activas: number
-    ultimas_fuentes: { fuente: string; registros_nuevos: number; errores: number; created_at: string }[]
+    ultimas_fuentes: { fuente: string; errores?: number; registros_nuevos?: number }[]
   }
-  interacciones: {
+  interacciones?: {
     total_7d: number
     por_tipo: Record<string, number>
-    top_espacios: { nombre: string; slug: string; categoria: string; barrio: string; clicks: number }[]
+    top_espacios: { slug: string; nombre: string; barrio: string; categoria: string; clicks: number }[]
   }
 }
 
 export async function getAdminDashboard(apiKey: string): Promise<AdminDashboard> {
-  const res = await fetch(`${API_BASE_URL}/admin/dashboard`, {
+  const response = await fetch(`${API_BASE_URL}/admin/dashboard`, {
     headers: { 'X-API-Key': apiKey },
   })
-  if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
+  if (response.status === 403) throw new Error('403')
+  if (!response.ok) throw new Error(String(response.status))
+  return response.json() as Promise<AdminDashboard>
 }
 
-export async function adminTriggerScraper(apiKey: string): Promise<{ ok: boolean; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/admin/trigger-scraper`, {
+export async function adminTriggerScraper(apiKey: string): Promise<{ ok: boolean; message?: string }> {
+  const response = await fetch(`${API_BASE_URL}/admin/trigger-scraper`, {
     method: 'POST',
     headers: { 'X-API-Key': apiKey },
   })
-  if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
+  if (!response.ok) throw new Error(String(response.status))
+  return response.json() as Promise<{ ok: boolean; message?: string }>
 }
 
-export async function adminTriggerBlastTick(apiKey: string): Promise<{ ok: boolean; stats: Record<string, unknown> }> {
-  const res = await fetch(`${API_BASE_URL}/admin/trigger-blast-tick`, {
+export async function adminTriggerBlastTick(apiKey: string): Promise<{ ok: boolean; message?: string }> {
+  const response = await fetch(`${API_BASE_URL}/admin/blast-tick`, {
     method: 'POST',
     headers: { 'X-API-Key': apiKey },
   })
-  if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
+  if (!response.ok) throw new Error(String(response.status))
+  return response.json() as Promise<{ ok: boolean; message?: string }>
 }
 
-export async function adminTriggerCleanup(apiKey: string): Promise<{ ok: boolean; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/admin/trigger-cleanup`, {
+export async function adminTriggerCleanup(apiKey: string): Promise<{ ok: boolean; message?: string }> {
+  const response = await fetch(`${API_BASE_URL}/admin/cleanup-pasados`, {
     method: 'POST',
     headers: { 'X-API-Key': apiKey },
   })
-  if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
+  if (!response.ok) throw new Error(String(response.status))
+  return response.json() as Promise<{ ok: boolean; message?: string }>
+}
+
+// ---------- Colectivos Activos ----------
+
+export interface ColectivoActivo {
+  id: string
+  slug: string
+  nombre: string
+  tipo?: string | null
+  categoria_principal: string
+  categorias?: string[]
+  barrio?: string | null
+  municipio: string
+  descripcion_corta?: string | null
+  instagram_handle?: string | null
+  sitio_web?: string | null
+  imagen_url?: string | null
+  nivel_actividad: string
+  es_underground?: boolean | null
+  coordenadas?: { lat: number; lng: number } | null
+  proximos_eventos?: number
+}
+
+export async function getColectivosActivos(_limit?: number): Promise<ColectivoActivo[]> {
+  try {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('lugares')
+        .select('*')
+        .eq('tipo', 'colectivo')
+        .neq('nivel_actividad', 'cerrado')
+        .order('nombre')
+        .limit(200)
+    )
+    if (error) throw error
+    return (data ?? []) as ColectivoActivo[]
+  } catch {
+    return apiGet<ColectivoActivo[]>('/espacios/?tipo=colectivo&limit=200')
+  }
+}
+
+// ---------- Eventos Destacados ----------
+
+export async function getEventosDestacados(limit = 5): Promise<Evento[]> {
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  const en14d = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  try {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('eventos')
+        .select('*')
+        .gte('fecha_inicio', hoy)
+        .lte('fecha_inicio', en14d)
+        .not('imagen_url', 'is', null)
+        .neq('estado_moderacion', 'rechazado')
+        .order('fecha_inicio')
+        .limit(limit)
+    )
+    if (error) throw error
+    return (data ?? []) as Evento[]
+  } catch {
+    return apiGet<Evento[]>(`/eventos/?limit=${limit}&tiene_imagen=true`)
+  }
 }
 
