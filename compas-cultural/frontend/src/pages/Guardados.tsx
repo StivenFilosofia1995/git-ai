@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useFavoritos } from '../lib/useFavoritos'
-import { getEventDateParts } from '../lib/datetime'
 
 export default function Guardados() {
   const { favoritos, toggle } = useFavoritos()
