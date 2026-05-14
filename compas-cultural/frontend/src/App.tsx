@@ -5,6 +5,7 @@ import { trackPageView } from './lib/analytics'
 import Header from './components/layout/Header'
 import Footer from './components/layout/Footer'
 import ChatWidget from './components/chat/ChatWidget'
+import EventoDestacado from './components/agenda/EventoDestacado'
 import Home from './pages/Home'
 import Explorar from './pages/Explorar'
 import EspacioDetalle from './pages/EspacioDetalle'
@@ -65,6 +66,7 @@ function Layout() {
       </main>
       <Footer />
       <ChatWidget />
+      <EventoDestacado />
     </div>
   )
 }

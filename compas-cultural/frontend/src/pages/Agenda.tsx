@@ -2,7 +2,6 @@ import { Helmet } from 'react-helmet-async'
 import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import EventCard from '../components/agenda/EventCard'
-import EventoDestacado from '../components/agenda/EventoDestacado'
 import HomeChatSection from '../components/chat/HomeChatSection'
 import { getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
 import { formatEventDate } from '../lib/datetime'
@@ -381,9 +380,7 @@ export default function Agenda() {
       </div>
 
       {/* ─── AGENDA: ¿QUÉ HAY HOY? + BUSCADOR + GRID ─────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-8 xl:flex xl:gap-10 xl:items-start">
-        {/* ─── Columna principal ─── */}
-        <div className="flex-1 min-w-0">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-8">
         {/* Encabezado de sección */}
         <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
           <div>
@@ -614,12 +611,7 @@ export default function Agenda() {
             )}
           </>
         )}
-        </div>{/* end columna principal */}
 
-        {/* ─── Sidebar: Eventos del mes (solo xl+) ─── */}
-        <aside className="hidden xl:block w-80 shrink-0 sticky top-6 self-start">
-          <EventoDestacado />
-        </aside>
       </div>
 
       {/* ─── MAPA CULTURAL ───────────────────────────────────────────────────── */}
