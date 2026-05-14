@@ -1174,24 +1174,40 @@ export async function getColectivosActivos(_limit?: number): Promise<ColectivoAc
 // ---------- Eventos Destacados ----------
 
 export async function getEventosDestacados(limit = 5): Promise<Evento[]> {
-  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
-  const en14d = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  const now = new Date()
+  const hoy = now.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  // Fin del mes actual
+  const finMes = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    .toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
   try {
-    const { data, error } = await withTimeout(
+    // Primero: eventos con imagen en el mes
+    const { data: conImg } = await withTimeout(
       supabase
         .from('eventos')
         .select('*')
         .gte('fecha_inicio', hoy)
-        .lte('fecha_inicio', en14d)
+        .lte('fecha_inicio', finMes)
         .not('imagen_url', 'is', null)
         .neq('estado_moderacion', 'rechazado')
         .order('fecha_inicio')
         .limit(limit)
     )
+    if (conImg && conImg.length >= limit) return conImg as Evento[]
+    // Fallback: cualquier evento del mes (con o sin imagen)
+    const { data: todos, error } = await withTimeout(
+      supabase
+        .from('eventos')
+        .select('*')
+        .gte('fecha_inicio', hoy)
+        .lte('fecha_inicio', finMes)
+        .neq('estado_moderacion', 'rechazado')
+        .order('fecha_inicio')
+        .limit(limit)
+    )
     if (error) throw error
-    return (data ?? []) as Evento[]
+    return ((todos && todos.length > 0 ? todos : conImg) ?? []) as Evento[]
   } catch {
-    return apiGet<Evento[]>(`/eventos/?limit=${limit}&tiene_imagen=true`)
+    return apiGet<Evento[]>(`/eventos/?limit=${limit}`)
   }
 }
 

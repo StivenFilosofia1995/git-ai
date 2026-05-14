@@ -55,9 +55,18 @@ export default function EventoDestacado({ className = '' }: Props) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    getEventosDestacados(5)
-      .then(setEventos)
-      .catch(() => setEventos([]))
+    const fetch = () => {
+      getEventosDestacados(5)
+        .then(data => {
+          setEventos(data)
+          setCurrent(0)
+        })
+        .catch(() => setEventos([]))
+    }
+    fetch()
+    // Re-fetch cada hora → eventos expirados desaparecen automáticamente
+    const id = setInterval(fetch, 60 * 60 * 1000)
+    return () => clearInterval(id)
   }, [])
 
   const advance = useCallback((dir: 1 | -1) => {
@@ -93,7 +102,7 @@ export default function EventoDestacado({ className = '' }: Props) {
           style={{ backgroundColor: accent }}
         />
         <span className="text-[9px] font-mono font-black uppercase tracking-[0.3em] text-neutral-400">
-          EVENTO DE LA SEMANA
+          EVENTOS DEL MES
         </span>
         {eventos.length > 1 && (
           <span className="ml-auto text-[9px] font-mono text-neutral-600">
