@@ -521,27 +521,138 @@ def _parse_perpetuo_socorro(soup: BeautifulSoup, now: datetime) -> list[dict]:
 
 
 def _parse_comfama(soup: BeautifulSoup, now: datetime) -> list[dict]:
-    """comfama.com — event cards."""
-    events = []
+    """comfama.com — event cards are <a> links pointing to /agenda/evento/<slug>/."""
+    events: list[dict] = []
     year = now.year
-    for card in soup.find_all(class_=re.compile(r"card|evento|item|activity", re.I)):
-        text = card.get_text(" ", strip=True)
-        if len(text) < 20:
+    seen_titles: set[str] = set()
+
+    # Primary selector: anchors whose href contains /agenda/evento/
+    event_links = soup.find_all("a", href=re.compile(r"/agenda/evento/", re.I))
+
+    # Fallback: class-based card lookup
+    if not event_links:
+        event_links = soup.find_all(class_=re.compile(r"card|evento|item|activity", re.I))
+
+    _CAT_MAP = {
+        "talleres": "centro_cultural", "taller": "centro_cultural",
+        "teatro": "teatro",
+        "conciertos": "musica_en_vivo", "concierto": "musica_en_vivo",
+        "cine": "cine",
+        "danza": "danza",
+        "charlas": "centro_cultural", "charla": "centro_cultural",
+        "exposiciones": "galeria", "exposicion": "galeria", "exposición": "galeria",
+        "festival": "festival", "ferias": "festival",
+    }
+
+    for link in event_links:
+        text = link.get_text(" ", strip=True)
+        if len(text) < 10:
             continue
+
+        # Title: prefer heading element; fallback to first non-badge, non-date line
+        heading = link.find(["h2", "h3", "h4", "h5"])
+        if heading:
+            title = heading.get_text(strip=True)
+        else:
+            lines = [ln.strip() for ln in re.split(r"[\n|]+", text) if ln.strip() and len(ln.strip()) > 8]
+            title_lines = [
+                ln for ln in lines
+                if not re.match(r'^Agenda\s*/|^\d{1,2}\s+de\s+|^Conoce', ln, re.I)
+            ]
+            title = title_lines[0] if title_lines else None
+
+        if not title or len(title) < 5 or len(title) > 200:
+            continue
+
+        key = title.lower()[:60]
+        if key in seen_titles:
+            continue
+        seen_titles.add(key)
+
+        # Date
         fecha = parse_date(text, year)
         if not fecha or fecha.date() < now.date():
             continue
-        heading = card.find(["h2", "h3", "h4", "a"])
-        if not heading:
+
+        # Location: text after the time range "HH:MM pm - HH:MM pm  <Location>"
+        loc_m = re.search(
+            r'\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)\s*-\s*\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)\s+(.+?)(?:\s*Conoce|\s*$)',
+            text, re.I,
+        )
+        if loc_m:
+            loc_parts = loc_m.group(1).strip().split(",")
+            nombre_lugar = loc_parts[0].strip()[:100] or "Comfama"
+        else:
+            nombre_lugar = "Comfama"
+
+        # Category from "Agenda / Talleres" badge text
+        cat_m = re.search(r'Agenda\s*/\s*([\w\s]+?)(?:\s{2,}|\||\n|$)', text, re.I)
+        cat_raw = cat_m.group(1).strip().lower() if cat_m else ""
+        cat = _CAT_MAP.get(cat_raw, "centro_cultural")
+
+        # Image inside the link card
+        img_tag = link.find("img")
+        img_url = None
+        if img_tag:
+            src = img_tag.get("src") or img_tag.get("data-src") or img_tag.get("data-lazy-src") or ""
+            if src and not src.startswith("data:"):
+                img_url = _to_absolute("https://www.comfama.com", src)
+
+        href = link.get("href", "")
+        fuente_url = href if href.startswith("http") else f"https://www.comfama.com{href}"
+
+        ev = _make_event(title, fecha, cat, nombre_lugar, "comfama_parser", "Consultar", False, img=img_url)
+        ev["_fuente_url"] = fuente_url
+        events.append(ev)
+
+    return events[:50]
+
+
+def _parse_museo_antioquia(soup: BeautifulSoup, now: datetime) -> list[dict]:
+    """museodeantioquia.co — expositions page: cards link to ?exposicion=<slug>."""
+    events: list[dict] = []
+    seen: set[str] = set()
+    year = now.year
+
+    # Exposition cards: <a href="?exposicion=..."> or internal links
+    cards = soup.find_all("a", href=re.compile(r"exposicion=", re.I))
+    if not cards:
+        cards = soup.find_all(class_=re.compile(r"expo|card|item", re.I))
+
+    for card in cards:
+        title_tag = card.find(["h2", "h3", "h4", "p"])
+        if not title_tag:
+            title_tag = card
+        title = title_tag.get_text(strip=True)
+        if not title or len(title) < 5 or len(title) > 200:
             continue
-        title = heading.get_text(strip=True)
-        if not title or len(title) < 5:
+        key = title.lower()[:60]
+        if key in seen:
             continue
+        seen.add(key)
+
+        # Expositions rarely have explicit dates on listing pages; use today
+        # so they appear as "ongoing" events with today as start date
+        fecha = datetime(now.year, now.month, now.day, 0, 0, tzinfo=CO_TZ)
+
         img_tag = card.find("img")
-        img_url = _to_absolute("https://comfama.com", (img_tag.get("src") or img_tag.get("data-src") or img_tag.get("data-lazy-src")) if img_tag else None)
-        events.append(_make_event(title, fecha, "centro_cultural", "Comfama",
-                                  "comfama_parser", "Consultar", False, img=img_url))
-    return events[:20]
+        img_url = None
+        if img_tag:
+            src = img_tag.get("src") or img_tag.get("data-src") or ""
+            if src and not src.startswith("data:"):
+                img_url = _to_absolute("https://museodeantioquia.co", src)
+
+        href = card.get("href", "")
+        fuente_url = href if href.startswith("http") else f"https://museodeantioquia.co{href}"
+
+        ev = _make_event(
+            title, fecha, "galeria", "Museo de Antioquia",
+            "museo_antioquia_parser", "Consultar", False, img=img_url,
+        )
+        ev["_fuente_url"] = fuente_url
+        events.append(ev)
+
+    return events[:15]
 
 
 # ── 5. Generic heading + date fallback ────────────────────────────────────
@@ -641,6 +752,8 @@ def extract_events_code(
         events = _parse_perpetuo_socorro(soup, now)
     elif "comfama.com" in url:
         events = _parse_comfama(soup, now)
+    elif "museodeantioquia.co" in url:
+        events = _parse_museo_antioquia(soup, now)
     if events:
         print(f"    🎯 Parser específico: {len(events)} evento(s)")
         return _dedup(events)

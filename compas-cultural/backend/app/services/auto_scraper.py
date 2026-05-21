@@ -2100,6 +2100,12 @@ AGENDA_SOURCES = [
         "categoria_default": "galeria",
         "municipio": "medellin",
     },
+    {
+        "nombre": "Museo de Antioquia - Formación de Públicos",
+        "url": "https://museodeantioquia.co/formacion-publicos/",
+        "categoria_default": "galeria",
+        "municipio": "medellin",
+    },
 
     # ── COMFAMA — categorías específicas (esta semana, talleres, teatro, conciertos) ──
     {
