@@ -347,7 +347,7 @@ def admin_scraping_logs(
 
 @router.post("/trigger-scraper")
 def trigger_scraper(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
-    """Trigger full scraper + agenda alternativa (background)."""
+    """Trigger full scraper + comfama + agenda alternativa (background)."""
     _check_key(x_api_key)
     from fastapi import BackgroundTasks
     import asyncio
@@ -362,9 +362,14 @@ def trigger_scraper(x_api_key: str | None = Header(default=None, alias="X-API-Ke
             await scrape_agenda_sources()
         except Exception as e:
             print(f"[admin] agenda alt error: {e}")
+        try:
+            from app.services.comfama_scraper import run_comfama_scraper
+            await run_comfama_scraper()
+        except Exception as e:
+            print(f"[admin] comfama error: {e}")
 
     asyncio.create_task(_run())
-    return {"ok": True, "message": "Scraper iniciado en background"}
+    return {"ok": True, "message": "Scraper (auto + comfama) iniciado en background"}
 
 
 @router.post("/trigger-blast-tick")
