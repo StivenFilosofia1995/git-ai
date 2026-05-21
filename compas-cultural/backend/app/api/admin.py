@@ -346,7 +346,7 @@ def admin_scraping_logs(
 
 
 @router.post("/trigger-scraper")
-def trigger_scraper(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+async def trigger_scraper(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
     """Trigger full scraper + comfama + agenda alternativa (background)."""
     _check_key(x_api_key)
     from fastapi import BackgroundTasks
@@ -382,7 +382,7 @@ def trigger_blast_tick(x_api_key: str | None = Header(default=None, alias="X-API
 
 
 @router.post("/trigger-cleanup")
-def trigger_cleanup(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+async def trigger_cleanup(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
     """Remove fully-past events."""
     _check_key(x_api_key)
     import asyncio
