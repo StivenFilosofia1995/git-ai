@@ -1418,6 +1418,12 @@ AGENDA_SOURCES = [
         "categoria_default": "galeria",
         "municipio": "medellin",
     },
+    {
+        "nombre": "Museo de Antioquia - Instagram",
+        "url": "https://www.instagram.com/museodeantioquia/",
+        "categoria_default": "galeria",
+        "municipio": "medellin",
+    },
     # ── INSTITUCIONES CULTURALES PÚBLICAS ─────────────────────
     {
         "nombre": "Alcaldía de Medellín - Agenda Cultural",
@@ -2011,6 +2017,87 @@ AGENDA_SOURCES = [
         "nombre": "Festival Internacional de Poesía de Medellín",
         "url": "https://www.festivaldepoesiademedellin.org/es/agenda/",
         "categoria_default": "poesia",
+        "municipio": "medellin",
+    },
+    # ── COMFAMA — Eventos filtrados por Medellín (URL directa con filtro municipio) ──
+    {
+        "nombre": "Comfama - Eventos Medellín (filtrado)",
+        "url": "https://www.comfama.com/agenda/eventos/?municipio=Medell%C3%ADn",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    # ── COMFAMA — Bibliotecas y Centros Culturales individuales ──
+    {
+        "nombre": "Comfama Biblioteca Medellín Centro",
+        "url": "https://www.comfama.com/cultura-y-ocio/bibliotecas/biblioteca-medellin/",
+        "categoria_default": "libreria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Comfama Biblioteca Itagüí",
+        "url": "https://www.comfama.com/cultura-y-ocio/bibliotecas/biblioteca-itagui/",
+        "categoria_default": "libreria",
+        "municipio": "itagui",
+    },
+    {
+        "nombre": "Comfama Biblioteca Bello",
+        "url": "https://www.comfama.com/cultura-y-ocio/bibliotecas/biblioteca-bello/",
+        "categoria_default": "libreria",
+        "municipio": "bello",
+    },
+    {
+        "nombre": "Comfama Biblioteca Rionegro",
+        "url": "https://www.comfama.com/cultura-y-ocio/bibliotecas/biblioteca-rionegro/",
+        "categoria_default": "libreria",
+        "municipio": "rionegro",
+    },
+    {
+        "nombre": "Comfama Centro Cultural El Poblado",
+        "url": "https://www.comfama.com/cultura-y-ocio/centros-culturales/centro-cultural-el-poblado/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Comfama Centro Cultural La América",
+        "url": "https://www.comfama.com/cultura-y-ocio/centros-culturales/centro-cultural-la-america/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Comfama Centro de los Sueños",
+        "url": "https://www.comfama.com/cultura-y-ocio/centro-de-los-suenos/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Comfama Casa de la Cultura Guayabal",
+        "url": "https://www.comfama.com/cultura-y-ocio/casas-de-la-cultura/guayabal/",
+        "categoria_default": "casa_cultura",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Comfama Casa de la Cultura Castilla",
+        "url": "https://www.comfama.com/cultura-y-ocio/casas-de-la-cultura/castilla/",
+        "categoria_default": "casa_cultura",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Comfama Casa de la Cultura Manrique",
+        "url": "https://www.comfama.com/cultura-y-ocio/casas-de-la-cultura/manrique/",
+        "categoria_default": "casa_cultura",
+        "municipio": "medellin",
+    },
+    # ── MUSEO DE ANTIOQUIA — exposiciones y programación completa ──
+    {
+        "nombre": "Museo de Antioquia - Exposiciones",
+        "url": "https://museodeantioquia.co/exposiciones/",
+        "categoria_default": "galeria",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Museo de Antioquia - Educación y Visitas",
+        "url": "https://museodeantioquia.co/educacion/",
+        "categoria_default": "galeria",
         "municipio": "medellin",
     },
 ]

@@ -4,7 +4,11 @@ Fixes 2026-04:
 - Añadidos filtros colectivo_slug y texto en GET /
 - Nuevo endpoint GET /proximas-semanas?dias=21
 - Resto se mantiene igual (hoy, feed, semana, espacio, slug, publicar).
+2026-05:
+- GET  /para-ti          → feed algorítmico (Instagram-style, basado en vistas)
+- POST /{id}/vista       → registrar vista de un evento
 """
+import hashlib
 from fastapi import APIRouter, Query, HTTPException, Request, Header
 from typing import Annotated, List, Optional
 from datetime import datetime
@@ -225,6 +229,97 @@ def reportar_evento(evento_id: str, body: dict = {}):
         raise HTTPException(status_code=404, detail="Evento no encontrado")
     supabase.table("eventos").update({"reportado": True, "motivo_reporte": motivo}).eq("id", evento_id).execute()
     return {"ok": True, "message": "Reporte recibido. Gracias por ayudar a mantener la agenda limpia."}
+
+
+@router.get("/para-ti")
+def get_feed_para_ti(
+    request: Request,
+    municipio: Optional[str] = None,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    authorization: Optional[str] = Header(default=None),
+):
+    """
+    Feed algorítmico personalizado (Instagram-style).
+
+    Rankea eventos por: urgencia + calidad + trending (vistas 24h) +
+    popularidad acumulada + afinidad del usuario + proximidad geográfica.
+
+    Para usuarios autenticados (Authorization: Bearer <jwt>) el algoritmo
+    también considera las categorías que más han explorado históricamente.
+    """
+    user_id: Optional[str] = None
+    if authorization:
+        token = authorization.removeprefix("Bearer ").strip()
+        parts = token.split(".")
+        if len(parts) == 3:
+            import base64, json as _json
+            try:
+                padding = 4 - len(parts[1]) % 4
+                payload = _json.loads(
+                    base64.urlsafe_b64decode(parts[1] + "=" * padding)
+                )
+                sub = payload.get("sub", "")
+                import re
+                if sub and re.match(r"^[0-9a-f-]{36}$", sub, re.I):
+                    user_id = sub
+            except Exception:
+                pass
+
+    return evento_service.get_feed_para_ti(
+        user_id=user_id,
+        municipio=municipio,
+        lat=lat,
+        lng=lng,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post("/{evento_id}/vista")
+def registrar_vista_evento(
+    evento_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id"),
+):
+    """
+    Registra una vista del evento. Idempotente: la misma sesión no cuenta dos veces.
+
+    - Anónimo: se hashea la IP del cliente
+    - Autenticado: se asocia al user_id del JWT
+    """
+    user_id: Optional[str] = None
+    if authorization:
+        token = authorization.removeprefix("Bearer ").strip()
+        parts = token.split(".")
+        if len(parts) == 3:
+            import base64, json as _json
+            try:
+                padding = 4 - len(parts[1]) % 4
+                payload = _json.loads(
+                    base64.urlsafe_b64decode(parts[1] + "=" * padding)
+                )
+                sub = payload.get("sub", "")
+                import re
+                if sub and re.match(r"^[0-9a-f-]{36}$", sub, re.I):
+                    user_id = sub
+            except Exception:
+                pass
+
+    # Hash the client IP for anonymous tracking (privacy-preserving)
+    client_ip = request.client.host if request.client else "unknown"
+    ip_hash = hashlib.sha256(client_ip.encode()).hexdigest()[:16]
+
+    inserted = evento_service.registrar_vista(
+        evento_id=evento_id,
+        user_id=user_id,
+        ip_hash=ip_hash,
+        session_id=x_session_id,
+    )
+    return {"ok": True, "nueva_vista": inserted}
 
 
 @router.get("/{slug}")

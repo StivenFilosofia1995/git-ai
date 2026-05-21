@@ -647,3 +647,234 @@ def get_eventos_destacados(limit: int = 5) -> List[dict]:
                 break
 
     return result
+
+
+# ══════════════════════════════════════════════════════════════
+# Vistas y feed algorítmico (Instagram-style)
+# ══════════════════════════════════════════════════════════════
+
+def registrar_vista(
+    evento_id: str,
+    user_id: Optional[str] = None,
+    ip_hash: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> bool:
+    """
+    Registra una vista de un evento. Idempotente por (evento_id, session_id):
+    el mismo visitante no cuenta dos veces en la misma sesión.
+    Retorna True si se insertó, False si era duplicada.
+    """
+    try:
+        # Dedup: misma sesión no cuenta dos veces
+        if session_id:
+            dup = (
+                supabase.table("evento_vistas")
+                .select("id")
+                .eq("evento_id", evento_id)
+                .eq("session_id", session_id)
+                .limit(1)
+                .execute()
+            )
+            if dup.data:
+                return False
+
+        row: dict = {"evento_id": evento_id}
+        if user_id:
+            row["user_id"] = user_id
+        if ip_hash:
+            row["ip_hash"] = ip_hash
+        if session_id:
+            row["session_id"] = session_id
+
+        supabase.table("evento_vistas").insert(row).execute()
+
+        # Increment cached counter on the event row (best-effort)
+        supabase.rpc("increment_vista_count", {"p_evento_id": evento_id}).execute()
+        return True
+    except Exception as exc:
+        # Table may not exist yet — fail silently so main app keeps running
+        import logging
+        logging.getLogger(__name__).debug("registrar_vista error: %s", exc)
+        return False
+
+
+def get_vista_counts(evento_ids: list[str]) -> dict[str, int]:
+    """Returns {evento_id: total_vistas} for a list of evento IDs."""
+    if not evento_ids:
+        return {}
+    try:
+        resp = (
+            supabase.table("evento_vistas")
+            .select("evento_id")
+            .in_("evento_id", evento_ids)
+            .execute()
+        )
+        counts: dict[str, int] = {}
+        for row in (resp.data or []):
+            eid = row["evento_id"]
+            counts[eid] = counts.get(eid, 0) + 1
+        return counts
+    except Exception:
+        return {}
+
+
+def get_vista_counts_24h(evento_ids: list[str]) -> dict[str, int]:
+    """Returns {evento_id: vistas_últimas_24h}."""
+    if not evento_ids:
+        return {}
+    try:
+        from datetime import timedelta
+        cutoff = (_now_co() - timedelta(hours=24)).isoformat()
+        resp = (
+            supabase.table("evento_vistas")
+            .select("evento_id")
+            .in_("evento_id", evento_ids)
+            .gte("viewed_at", cutoff)
+            .execute()
+        )
+        counts: dict[str, int] = {}
+        for row in (resp.data or []):
+            eid = row["evento_id"]
+            counts[eid] = counts.get(eid, 0) + 1
+        return counts
+    except Exception:
+        return {}
+
+
+def get_feed_para_ti(
+    user_id: Optional[str] = None,
+    municipio: Optional[str] = None,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> List[dict]:
+    """
+    Feed algorítmico personalizado — similar a Instagram Explore:
+
+    Score compuesto por:
+      f_urgencia    = 4 * e^(-days_until / 3)      — pronto → más relevante
+      f_calidad     = quality_score(ev) ∈ [0,4]    — contenido completo
+      f_popularidad = log1p(vistas_24h) * 2.5      — trending reciente
+      f_total_vistas= log1p(vistas_total) * 0.8    — autoridad acumulada
+      f_afinidad    = categoria_match(user_hist)   — preferencias del usuario
+      f_geo         = e^(-dist_km / 5) * 3.0       — proximidad si coords
+      f_gratuito    = 0.4 bonus si gratis           — accesibilidad
+
+    Para usuarios anónimos: urgencia + calidad + popularidad + geo.
+    Para usuarios autenticados: añade afinidad categórica por historial.
+    """
+    from app.services.ml_utils import haversine_km, geo_score
+    from collections import Counter
+
+    ahora = _now_co()
+    hoy = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    hasta = hoy + timedelta(days=60)
+
+    # Fetch candidate events (próximos 60 días)
+    q = (
+        supabase.table("eventos")
+        .select("*")
+        .gte("fecha_inicio", hoy.isoformat())
+        .lte("fecha_inicio", hasta.isoformat())
+        .order("fecha_inicio")
+        .limit(400)
+    )
+    if municipio:
+        q = q.or_(
+            f"municipio.eq.{municipio},"
+            f"nombre_lugar.ilike.%{municipio}%"
+        )
+    resp = q.execute()
+    pool = resp.data or []
+
+    if not pool:
+        return []
+
+    evento_ids = [ev["id"] for ev in pool]
+
+    # Fetch view counts
+    vistas_24h = get_vista_counts_24h(evento_ids)
+    vistas_total = get_vista_counts(evento_ids)
+
+    # Fetch user category history (last 60 days) if authenticated
+    user_cat_counter: Counter = Counter()
+    if user_id:
+        try:
+            cutoff = (ahora - timedelta(days=60)).isoformat()
+            hist = (
+                supabase.table("evento_vistas")
+                .select("evento_id")
+                .eq("user_id", user_id)
+                .gte("viewed_at", cutoff)
+                .execute()
+            )
+            seen_ids = [r["evento_id"] for r in (hist.data or [])]
+            if seen_ids:
+                ev_data = (
+                    supabase.table("eventos")
+                    .select("categoria_principal")
+                    .in_("id", seen_ids[:100])
+                    .execute()
+                )
+                for r in (ev_data.data or []):
+                    cat = r.get("categoria_principal")
+                    if cat:
+                        user_cat_counter[cat] += 1
+        except Exception:
+            pass
+
+    top_cats = [cat for cat, _ in user_cat_counter.most_common(5)]
+
+    def _score(ev: dict) -> float:
+        # Urgencia
+        fecha_str = ev.get("fecha_inicio") or ""
+        days_until = 0.0
+        try:
+            ev_dt = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
+            ev_dt_co = ev_dt.astimezone(CO_TZ)
+            days_until = max(0.0, (ev_dt_co - ahora).total_seconds() / 86400)
+        except Exception:
+            pass
+        f_urgencia = urgency_score(days_until, weight=4.0, decay=3.0)
+
+        # Calidad
+        f_calidad = quality_score(ev)
+
+        # Popularidad trending (últimas 24h)
+        vistas_hoy = vistas_24h.get(ev["id"], 0)
+        f_popular_24h = log1p_score(vistas_hoy, cap=8.0) * 2.5
+
+        # Autoridad total
+        v_total = vistas_total.get(ev["id"], 0)
+        f_total = log1p_score(v_total, cap=6.0) * 0.8
+
+        # Afinidad categórica del usuario
+        f_afinidad = 0.0
+        if top_cats:
+            cat = ev.get("categoria_principal") or ""
+            if cat in top_cats:
+                rank = top_cats.index(cat)
+                f_afinidad = 4.0 * (1 - rank / len(top_cats))
+
+        # Geografía
+        f_geo = 0.0
+        if lat and lng and ev.get("lat") and ev.get("lng"):
+            dist = haversine_km(lat, lng, float(ev["lat"]), float(ev["lng"]))
+            f_geo = geo_score(dist, sigma_km=5.0, weight=3.0)
+
+        # Accesibilidad
+        f_gratuito = 0.4 if ev.get("es_gratuito") else 0.0
+
+        return f_urgencia + f_calidad + f_popular_24h + f_total + f_afinidad + f_geo + f_gratuito
+
+    # Score and rank
+    scored = sorted(pool, key=_score, reverse=True)
+
+    # Inject vista_count into output
+    for ev in scored:
+        ev["vista_count"] = vistas_total.get(ev["id"], 0)
+        ev["vistas_24h"] = vistas_24h.get(ev["id"], 0)
+
+    return scored[offset: offset + limit]
+

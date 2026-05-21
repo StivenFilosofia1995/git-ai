@@ -81,6 +81,15 @@ async def _run_agenda_alternativa():
         print(f"❌ Agenda alternativa error: {e}")
 
 
+async def _run_comfama_scraper():
+    """Job wrapper for dedicated Comfama scraper (eventos, bibliotecas, centros culturales)."""
+    from app.services.comfama_scraper import run_comfama_scraper
+    try:
+        await run_comfama_scraper()
+    except Exception as e:
+        print(f"❌ Comfama scraper error: {e}")
+
+
 def _run_weekly_digest():
     """Digest tick: sends at most one recipient per execution (Mondays only)."""
     from app.services.email_service import send_weekly_digest_campaign
@@ -188,6 +197,15 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # ── Comfama scraper dedicado: 3 veces al día ───────────────────────────
+    scheduler.add_job(
+        _run_comfama_scraper,
+        trigger=CronTrigger(hour="8,14,20", minute=15, timezone=CO_TZ),
+        id="comfama_scraper",
+        name="Comfama — eventos, bibliotecas, centros culturales (3x día)",
+        replace_existing=True,
+    )
+
     scheduler.add_job(
         _run_weekly_digest,
         trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
@@ -252,6 +270,15 @@ def start_scheduler():
         trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(seconds=180)),
         id="agenda_alternativa_startup",
         name="Agenda alternativa inicial al arrancar",
+        replace_existing=True,
+    )
+
+    # ── Comfama scraper inicial: 4 minutos después de arrancar ─────────────
+    scheduler.add_job(
+        _run_comfama_scraper,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(minutes=4)),
+        id="comfama_scraper_startup",
+        name="Comfama scraper inicial al arrancar",
         replace_existing=True,
     )
 
