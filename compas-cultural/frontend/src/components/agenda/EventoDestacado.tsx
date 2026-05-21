@@ -94,14 +94,14 @@ export default function EventoDestacado(_props: Props = {}) {
   const lugar = [ev.nombre_lugar, ev.barrio].filter(Boolean).join(' · ')
 
   return (
-    /* ── Barra horizontal inferior — fondo blanco ── */
+    /* ── Mobile: barra superior (bajo el header). Desktop: barra inferior ── */
     <div
-      className="fixed bottom-0 left-0 right-0 z-50 select-none"
+      className="fixed top-14 left-0 right-0 z-50 select-none md:top-auto md:bottom-0"
       style={{ fontFamily: "'Space Mono', monospace" }}
     >
-      {/* ── Panel expandido (sube desde la barra) ── */}
+      {/* ── Panel expandido — solo desktop (sube desde la barra) ── */}
       <div
-        className="overflow-hidden transition-all duration-300 ease-in-out bg-white border-t-2 border-x-0"
+        className="hidden md:block overflow-hidden transition-all duration-300 ease-in-out bg-white border-t-2 border-x-0"
         style={{
           maxHeight: open ? 320 : 0,
           borderColor: accent,
@@ -189,8 +189,8 @@ export default function EventoDestacado(_props: Props = {}) {
 
       {/* ── Barra colapsada — siempre visible ── */}
       <div
-        className="flex items-center h-11 sm:h-12 bg-white border-t-2 border-black px-3 sm:px-5 gap-3"
-        style={{ borderTopColor: accent }}
+        className="flex items-center h-11 sm:h-12 bg-white border-b-2 border-t-0 md:border-b-0 md:border-t-2 px-3 sm:px-5 gap-3"
+        style={{ borderTopColor: accent, borderBottomColor: accent }}
       >
         {/* Dot animado */}
         <span
@@ -256,11 +256,11 @@ export default function EventoDestacado(_props: Props = {}) {
           </div>
         )}
 
-        {/* Expand / cerrar */}
+        {/* Expand / cerrar — solo desktop */}
         <button
           type="button"
           onClick={() => setOpen(o => !o)}
-          className="shrink-0 w-8 h-8 flex items-center justify-center border-2 border-black hover:bg-black hover:text-white transition-colors ml-1"
+          className="hidden md:flex shrink-0 w-8 h-8 items-center justify-center border-2 border-black hover:bg-black hover:text-white transition-colors ml-1"
           aria-label={open ? 'Cerrar' : 'Ver detalle'}
         >
           <span className="text-[11px] font-mono font-black">{open ? '▼' : '▲'}</span>

@@ -59,7 +59,7 @@ function Layout() {
   return (
     <div className="min-h-screen bg-white">
       <Header />
-      <main>
+      <main className="pt-11 md:pt-0">
         <ProfileGuard>
           <Outlet />
         </ProfileGuard>
