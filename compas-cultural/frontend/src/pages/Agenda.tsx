@@ -630,7 +630,7 @@ export default function Agenda() {
                 <p className="font-mono text-sm text-gray-400 animate-pulse">Cargando mapa…</p>
               </div>
             }>
-              <CulturalMap />
+              <CulturalMap zonaFilter={zonaFilter || undefined} zonas={zonas} />
             </Suspense>
           </MapErrorBoundary>
         </div>

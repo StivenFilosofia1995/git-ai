@@ -3,7 +3,53 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaf
 import MarkerClusterGroup from '@changey/react-leaflet-markercluster'
 import 'leaflet/dist/leaflet.css'
 import '@changey/react-leaflet-markercluster/dist/styles.min.css'
-import { getEspacios, getEventosTodos, type Espacio, type Evento } from '../../lib/api'
+import { getEspacios, getEventosTodos, type Espacio, type Evento, type Zona } from '../../lib/api'
+
+// ── Zona matching helpers (mirrors Agenda.tsx logic) ─────────────────────────
+function normalizeZonaText(value: string | null | undefined): string {
+  if (!value) return ''
+  return value
+    .normalize('NFD')
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replaceAll(/[_\-\u2013\u2014]+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+}
+
+function buildZonaTokens(zonaNombre: string): string[] {
+  const normalized = (zonaNombre || '')
+    .normalize('NFD')
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replaceAll(/[_\-\u2013\u2014]+/g, ' - ')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+  if (!normalized) return []
+  const noParen = normalized.replaceAll(/\(.*?\)/g, '').trim()
+  const noDash = noParen.replaceAll(/\s+-\s+/g, ' ').trim()
+  const parts = noParen.split(/\s+-\s+/).map((t: string) => t.trim()).filter(Boolean)
+  const candidates = [normalized, noParen, noDash, ...parts]
+    .map((t: string) => normalizeZonaText(t.replace(/^(barrio|comuna|sector|zona)\s+/i, '')))
+    .filter(Boolean)
+  return Array.from(new Set(candidates))
+}
+
+function itemMatchesZona(item: { barrio?: string | null; municipio?: string | null; nombre?: string; titulo?: string; nombre_lugar?: string | null; descripcion?: string | null }, zona: Zona): boolean {
+  const tokens = buildZonaTokens(zona.nombre)
+  if (!tokens.length) return true
+  const municipioZona = normalizeZonaText(zona.municipio)
+  const municipioItem = normalizeZonaText(item.municipio)
+  if (municipioZona && municipioItem && !municipioItem.includes(municipioZona)) return false
+  const fields = [
+    normalizeZonaText(item.barrio),
+    normalizeZonaText(item.nombre_lugar),
+    normalizeZonaText((item as { nombre?: string }).nombre),
+    normalizeZonaText(item.titulo),
+    normalizeZonaText(item.descripcion),
+  ].filter(Boolean)
+  return tokens.some(token => fields.some(field => field.includes(token)))
+}
 
 const CAT_MARKER_COLORS: Record<string, string> = {
   teatro: '#DC2626',
@@ -63,7 +109,14 @@ function FitBounds({ coords }: { coords: [number, number][] }) {
   return null
 }
 
-export default function CulturalMap() {
+interface CulturalMapProps {
+  /** Slug of the zona to highlight/filter (from Agenda page) */
+  zonaFilter?: string
+  /** Full zona list to resolve slug → zona object */
+  zonas?: Zona[]
+}
+
+export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps = {}) {
   const [espacios, setEspacios] = useState<Espacio[]>([])
   const [eventos, setEventos] = useState<Evento[]>([])
   const [activeCats, setActiveCats] = useState<Set<string>>(new Set(ALL_CATS))
@@ -72,6 +125,12 @@ export default function CulturalMap() {
   const [showEventos, setShowEventos] = useState(true)
   // Mobile: panel hidden by default; desktop always shown via CSS
   const [filtersOpen, setFiltersOpen] = useState(false)
+
+  // Resolve zona object from slug
+  const zonaActiva = useMemo(
+    () => (zonaFilter ? zonas.find(z => z.slug === zonaFilter) ?? null : null),
+    [zonaFilter, zonas],
+  )
 
   useEffect(() => {
     getEspacios({ limit: 1000 }).then(setEspacios).catch(console.error)
@@ -90,13 +149,26 @@ export default function CulturalMap() {
       const lng = e.lng ?? e.coordenadas?.lng
       if (!lat || !lng) return false
       if (e.es_equipamiento_publico && !showEquipamientos) return false
-      return activeCats.has(e.categoria_principal) || !ALL_CATS.includes(e.categoria_principal)
+      if (!(activeCats.has(e.categoria_principal) || !ALL_CATS.includes(e.categoria_principal))) return false
+      if (zonaActiva && !itemMatchesZona(e, zonaActiva)) return false
+      return true
     }),
-  [espacios, activeCats, showEquipamientos])
+  [espacios, activeCats, showEquipamientos, zonaActiva])
 
-  const coords = useMemo<[number, number][]>(() =>
-    filtered.map(e => [e.lat ?? e.coordenadas?.lat ?? 0, e.lng ?? e.coordenadas?.lng ?? 0]),
-  [filtered])
+  const filteredEventos = useMemo(() =>
+    eventos.filter(ev => !zonaActiva || itemMatchesZona(ev, zonaActiva)),
+  [eventos, zonaActiva])
+
+  const coords = useMemo<[number, number][]>(() => {
+    const espacioCoords = filtered.map(e => [e.lat ?? e.coordenadas?.lat ?? 0, e.lng ?? e.coordenadas?.lng ?? 0] as [number, number])
+    if (zonaActiva && filteredEventos.length > 0) {
+      const evCoords = filteredEventos
+        .filter(ev => ev.lat && ev.lng)
+        .map(ev => [ev.lat!, ev.lng!] as [number, number])
+      return [...espacioCoords, ...evCoords]
+    }
+    return espacioCoords
+  }, [filtered, filteredEventos, zonaActiva])
 
   const toggleCat = (cat: string) => {
     setActiveCats(prev => {
@@ -165,8 +237,14 @@ export default function CulturalMap() {
           {showEventos && eventos.length > 0 ? `${eventos.length} eventos en el mapa` : 'Hoy y próximos 7 días'}
         </p>
       </div>
-
-      <p className="text-[10px] font-mono font-black mt-3 pt-2 border-t border-black/10 uppercase tracking-wider">
+        {zonaActiva && (
+          <div className="mt-3 pt-2 border-t border-black/10">
+            <span className="text-[10px] font-mono font-black uppercase tracking-wider text-black">
+              Zona: {zonaActiva.nombre}
+            </span>
+            <p className="text-[9px] font-mono opacity-50 mt-0.5">Mostrando solo esta zona</p>
+          </div>
+        )}      <p className="text-[10px] font-mono font-black mt-3 pt-2 border-t border-black/10 uppercase tracking-wider">
         {filtered.length} / {espaciosConCoords} lugares
       </p>
     </div>
@@ -229,7 +307,7 @@ export default function CulturalMap() {
 
         {showEventos && (
           <MarkerClusterGroup chunkedLoading>
-            {eventos.map(ev => {
+            {filteredEventos.map(ev => {
               const lat = ev.lat ?? 0
               const lng = ev.lng ?? 0
               const fecha = ev.fecha_inicio?.slice(0, 10) ?? ''
