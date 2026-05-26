@@ -50,15 +50,33 @@ EVENT_POSITIVE_TERMS = {
     "funcion", "función", "festival", "muestra", "taller", "charla", "conversatorio",
     "foro", "exposicion", "exposición", "cine", "danza", "performance", "boletas",
     "boleteria", "boletería", "entradas", "inscripcion", "inscripción", "cupos", "aforo",
+    "en vivo", "live", "show", "presentacion", "presentación", "espectaculo", "espectáculo",
+    "apertura", "clausura", "estreno", "temporada", "gira",
 }
 
 EVENT_NEGATIVE_TERMS = {
+    # Noticias / comunicados
+    "informó", "informo", "según", "segun", "declaró", "declaro", "reportó", "reporto",
+    "anunció", "anuncio", "publicó", "publico", "aseguró", "aseguro", "manifestó", "manifesto",
+    "últimas noticias", "ultimas noticias", "nota de prensa", "comunicado oficial",
+    "boletín de prensa", "boletin de prensa",
+    # Ofertas de empleo / convocatorias internas
     "equipo", "presentamos al", "bienvenida", "feliz cumple", "cumpleanos", "cumpleaños",
     "comunicado", "pronunciamiento", "vacante", "convocatoria laboral", "hiring", "casting",
     "donacion", "donación", "manifiesto", "biografia", "biografía", "perfil del equipo",
+    # Contenido editorial sin evento
+    "resena", "reseña", "critica", "crítica", "opinion", "opinión", "editorial",
+    "entrevista exclusiva", "behind the scenes",
 }
 
-EVENT_SOURCE_HINTS = ("/event", "/agenda", "/programacion", "/programación", "tuboleta", "eventbrite")
+# URLs con estos patrones indican noticias, no eventos
+EVENT_NEGATIVE_URL_PATTERNS = (
+    "/noticia", "/noticias", "/news", "/blog/", "/post/", "/comunicado",
+    "/articulo", "/artículo", "/prensa", "/reportaje", "/cronica", "/crónica",
+)
+
+EVENT_SOURCE_HINTS = ("/event", "/agenda", "/programacion", "/programación", "tuboleta", "eventbrite",
+                      "/actividad", "/actividades", "/funcion", "/funcion/", "/espectaculo")
 _EVENT_VALIDATION_CACHE: dict[str, bool] = {}
 
 
@@ -152,14 +170,24 @@ def is_likely_cultural_event(
     negatives = sum(1 for term in EVENT_NEGATIVE_TERMS if term in body)
     has_datetime_signal = _has_date_or_time_signal(body)
     has_source_signal = any(hint in url_n for hint in EVENT_SOURCE_HINTS)
+    has_negative_url = any(pat in url_n for pat in EVENT_NEGATIVE_URL_PATTERNS)
     has_category_signal = cat_n in {
         "teatro", "musica_en_vivo", "danza", "cine", "festival", "taller", "conferencia", "galeria", "otro"
     }
 
-    score = positives + (2 if has_datetime_signal else 0) + (1 if has_source_signal else 0) + (1 if has_category_signal else 0)
-    if negatives >= 2 and score <= 2:
+    # Hard reject: URL matches news patterns and no strong event signals
+    if has_negative_url and positives <= 1:
         _EVENT_VALIDATION_CACHE[cache_key] = False
         return False
+
+    score = (
+        positives
+        + (2 if has_datetime_signal else 0)
+        + (2 if has_source_signal else 0)
+        + (1 if has_category_signal else 0)
+        - (2 if has_negative_url else 0)
+        - negatives
+    )
     if score >= 3:
         _EVENT_VALIDATION_CACHE[cache_key] = True
         return True

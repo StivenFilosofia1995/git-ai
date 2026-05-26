@@ -396,3 +396,23 @@ async def trigger_cleanup(x_api_key: str | None = Header(default=None, alias="X-
 
     asyncio.create_task(_run())
     return {"ok": True, "message": "Limpieza iniciada en background"}
+
+
+@router.post("/trigger-cleanup-news")
+async def trigger_cleanup_news(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    batch_size: int = Query(default=200, ge=10, le=1000, description="Máx eventos a revisar"),
+):
+    """Purge upcoming events that are news/blog posts, not real cultural events."""
+    _check_key(x_api_key)
+    import asyncio
+    from app.services.auto_scraper import cleanup_news_events
+
+    async def _run():
+        try:
+            await cleanup_news_events(batch_size=batch_size)
+        except Exception as e:
+            print(f"[admin] cleanup-news error: {e}")
+
+    asyncio.create_task(_run())
+    return {"ok": True, "message": f"Purga de noticias iniciada en background (batch={batch_size})"}

@@ -90,6 +90,15 @@ async def _run_comfama_scraper():
         print(f"❌ Comfama scraper error: {e}")
 
 
+async def _run_fundacion_epm_scraper():
+    """Job wrapper for Fundación EPM scraper (UVAs, Parque Deseos, Biblioteca EPM, Planetario)."""
+    from app.services.fundacion_epm_scraper import run_fundacion_epm_scraper
+    try:
+        await run_fundacion_epm_scraper()
+    except Exception as e:
+        print(f"❌ Fundación EPM scraper error: {e}")
+
+
 def _run_weekly_digest():
     """Digest tick: sends at most one recipient per execution (Mondays only)."""
     from app.services.email_service import send_weekly_digest_campaign
@@ -206,6 +215,15 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # ── Fundación EPM / UVAs scraper: 2 veces al día ───────────────────────
+    scheduler.add_job(
+        _run_fundacion_epm_scraper,
+        trigger=CronTrigger(hour="9,18", minute=45, timezone=CO_TZ),
+        id="fundacion_epm_scraper",
+        name="Fundación EPM — UVAs, Parque Deseos, Biblioteca EPM, Planetario (2x día)",
+        replace_existing=True,
+    )
+
     scheduler.add_job(
         _run_weekly_digest,
         trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
@@ -282,6 +300,15 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # ── Fundación EPM scraper inicial: 6 minutos después de arrancar ───────
+    scheduler.add_job(
+        _run_fundacion_epm_scraper,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(minutes=6)),
+        id="fundacion_epm_scraper_startup",
+        name="Fundación EPM scraper inicial al arrancar",
+        replace_existing=True,
+    )
+
     # ── Social Listener inicial: 3 minutos después de arrancar ─────────────
     scheduler.add_job(
         _run_social_listener,
@@ -309,6 +336,8 @@ def start_scheduler():
     print("   • Discovery: 08:10 y 20:10")
     print("   • Imágenes: 10:20 y 22:20")
     print("   • Agenda alternativa: 07:40, 11:40, 16:40, 21:40")
+    print("   • Comfama scraper: 08:15, 14:15, 20:15 (inicio en 4min)")
+    print("   • Fundación EPM / UVAs: 09:45, 18:45 (inicio en 6min)")
     print("   • Boletín semanal: 1 destinatario cada 4 minutos (solo lunes)")
     print("   • Limpieza de privacidad: diaria a las 3:30am")
     print("   • Limpieza eventos pasados: diaria a las 1:00am")

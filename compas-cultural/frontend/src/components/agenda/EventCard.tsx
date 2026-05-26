@@ -10,6 +10,23 @@ interface EventCardProps {
   compact?: boolean
 }
 
+const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
+  comfama:          { label: 'Comfama',       color: '#E53E3E' },
+  fundacion_epm:    { label: 'Fdción. EPM',   color: '#2B6CB0' },
+  uva_epm:          { label: 'UVA EPM',       color: '#2B6CB0' },
+  parque_deseos:    { label: 'Parque Deseos', color: '#2B6CB0' },
+  biblioteca_epm:   { label: 'Bib. EPM',      color: '#2B6CB0' },
+  planetario_medellin: { label: 'Planetario', color: '#553C9A' },
+  compas_urbano:    { label: 'Compás',        color: '#2D3748' },
+  instagram:        { label: 'Instagram',     color: '#C05621' },
+}
+
+function getSourceBadge(fuente?: string | null): { label: string; color: string } | null {
+  if (!fuente) return null
+  const key = fuente.toLowerCase()
+  return SOURCE_LABELS[key] ?? null
+}
+
 const CAT_COLORS: Record<string, string> = {
   teatro: '#DC2626',
   rock: '#1a1a1a',
@@ -52,6 +69,7 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
 
   const sourceUrl = evento.fuente_url || null
   const isIg = evento.fuente?.includes('instagram')
+  const sourceBadge = getSourceBadge(evento.fuente)
   const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
   const mapsSearchTarget = ubicacionLabel || `${evento.titulo}, Medellin`
   const mapsUrl = evento.lat && evento.lng
@@ -166,6 +184,14 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
             <span className="text-[10px] font-mono font-bold">{fechaLabel}</span>
           </div>
         </div>
+        {sourceBadge && (
+          <span
+            className="inline-block text-[8px] font-mono font-bold uppercase tracking-widest px-1.5 py-0.5 mb-1.5"
+            style={{ backgroundColor: sourceBadge.color, color: '#fff' }}
+          >
+            {sourceBadge.label}
+          </span>
+        )}
         {!horaConfirmada && sourceUrl && (
           <a
             href={sourceUrl}

@@ -159,6 +159,32 @@ async def trigger_zona_scraper_publico(
     }
 
 
+@router.post("/run-comfama", dependencies=[Depends(_verify_scraper_key)])
+async def trigger_comfama_scraper(background_tasks: BackgroundTasks):
+    """Trigger manual del scraper de Comfama."""
+    async def _run():
+        try:
+            from app.services.comfama_scraper import run_comfama_scraper
+            await run_comfama_scraper()
+        except Exception as e:
+            print(f"❌ Comfama scraper error: {e}")
+    background_tasks.add_task(_run)
+    return {"status": "started", "message": "Comfama scraper iniciado en background"}
+
+
+@router.post("/run-epm", dependencies=[Depends(_verify_scraper_key)])
+async def trigger_epm_scraper(background_tasks: BackgroundTasks):
+    """Trigger manual del scraper de Fundación EPM (UVAs, Parque Deseos, Biblioteca EPM, Planetario)."""
+    async def _run():
+        try:
+            from app.services.fundacion_epm_scraper import run_fundacion_epm_scraper
+            await run_fundacion_epm_scraper()
+        except Exception as e:
+            print(f"❌ Fundación EPM scraper error: {e}")
+    background_tasks.add_task(_run)
+    return {"status": "started", "message": "Fundación EPM scraper iniciado en background"}
+
+
 @router.post("/repair-fechas", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_repair_fechas_scraper(
     limit_eventos: int = Query(default=160, ge=20, le=500, description="Eventos próximos a inspeccionar"),

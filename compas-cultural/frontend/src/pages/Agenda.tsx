@@ -397,28 +397,161 @@ export default function Agenda() {
           </div>
         </div>
 
-        {/* Buscador de texto */}
-        <div className="mb-4">
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none">🔍</span>
+        {/* ─── BARRA DE FILTROS STICKY ──────────────────────────────────────── */}
+        <div className="sticky top-0 z-30 bg-white border-b-2 border-black -mx-4 sm:-mx-6 px-4 sm:px-6 pt-3 pb-3 mb-6">
+
+          {/* Buscador */}
+          <div className="relative mb-3">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none select-none">🔍</span>
             <input
               type="text"
               value={textFilter}
               onChange={e => setTextFilter(e.target.value)}
-              placeholder="Filtrar por nombre, lugar, barrio, categoría..."
-              className="w-full pl-9 pr-10 py-2.5 text-xs font-mono border-2 border-black focus:outline-none focus:ring-0 placeholder:text-neutral-400 bg-white"
+              placeholder="Buscar evento, lugar, barrio, categoría..."
+              className="w-full pl-9 pr-10 py-2 text-xs font-mono border-2 border-black focus:outline-none focus:ring-0 placeholder:text-neutral-400 bg-white"
             />
             {textFilter && (
               <button
                 onClick={() => setTextFilter('')}
+                aria-label="Limpiar búsqueda"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold hover:opacity-70"
               >
                 ✕
               </button>
             )}
           </div>
+
+          {/* Fila 1 — Tiempo + Precio (scrollable en mobile) */}
+          <div className="flex gap-0 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible sm:pb-0 mb-2" style={{ scrollbarWidth: 'none' }}>
+            {/* Time */}
+            <div className="flex flex-shrink-0">
+              {(Object.keys(TIME_LABELS) as TimeFilter[]).map((key) => (
+                <button
+                  key={key}
+                  onClick={() => setTimeFilter(key)}
+                  className={`px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all -ml-[2px] first:ml-0 whitespace-nowrap ${
+                    timeFilter === key ? 'bg-black text-white z-10' : 'bg-white text-black hover:bg-gray-100'
+                  }`}
+                >
+                  {TIME_LABELS[key]}
+                </button>
+              ))}
+            </div>
+            {/* Precio */}
+            <div className="flex flex-shrink-0 ml-2">
+              {([ ['', 'PRECIO'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setPrecioFilter(val)}
+                  className={`px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all -ml-[2px] first:ml-0 whitespace-nowrap ${
+                    precioFilter === val ? 'bg-black text-white z-10' : 'bg-white text-black hover:bg-gray-100'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* Municipio */}
+            <select
+              value={municipioFilter}
+              onChange={e => setMunicipioFilter(e.target.value)}
+              className="flex-shrink-0 ml-2 px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
+            >
+              {MUNICIPIOS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {/* Zona */}
+            {(municipioFilter === '' || municipioFilter === 'medellin') && (
+              <select
+                value={zonaFilter}
+                onChange={e => setZonaFilter(e.target.value)}
+                className="flex-shrink-0 ml-2 px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
+              >
+                <option value="">Todas las zonas</option>
+                {zonasDisponibles.map(z => (
+                  <option key={z.id} value={z.slug}>{z.nombre}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Fila 2 — Categorías scrollables */}
+          <div className="relative">
+            <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-white to-transparent z-10" aria-hidden="true" />
+            <div
+              className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0"
+              style={{ scrollbarWidth: 'none' }}
+            >
+              {CAT_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setCatFilter(opt.value)}
+                  className={`flex-shrink-0 px-3 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black whitespace-nowrap transition-all ${
+                    catFilter === opt.value ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'
+                  }`}
+                >
+                  {opt.value === '' ? '★ TODAS' : opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Chips de filtros activos */}
+          {(catFilter || zonaFilter || textFilter || municipioFilter || precioFilter) && (
+            <div className="flex items-center gap-2 flex-wrap mt-2 pt-2 border-t border-black/10">
+              <span className="text-[9px] font-mono font-bold uppercase tracking-widest opacity-50">Activos:</span>
+              {textFilter && (
+                <button
+                  onClick={() => setTextFilter('')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
+                >
+                  "{textFilter.slice(0, 20)}{textFilter.length > 20 ? '…' : ''}" ✕
+                </button>
+              )}
+              {catFilter && (
+                <button
+                  onClick={() => setCatFilter('')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
+                >
+                  {CAT_OPTIONS.find(o => o.value === catFilter)?.label ?? catFilter} ✕
+                </button>
+              )}
+              {municipioFilter && (
+                <button
+                  onClick={() => setMunicipioFilter('')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
+                >
+                  {MUNICIPIOS.find(o => o.value === municipioFilter)?.label ?? municipioFilter} ✕
+                </button>
+              )}
+              {zonaFilter && (
+                <button
+                  onClick={() => setZonaFilter('')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
+                >
+                  {zonasDisponibles.find(z => z.slug === zonaFilter)?.nombre ?? zonaFilter} ✕
+                </button>
+              )}
+              {precioFilter && (
+                <button
+                  onClick={() => setPrecioFilter('')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
+                >
+                  {precioFilter === 'gratuito' ? 'Gratis' : 'Pago'} ✕
+                </button>
+              )}
+              <button
+                onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setPrecioFilter('') }}
+                className="text-[9px] font-mono font-bold uppercase tracking-wider underline hover:no-underline ml-auto"
+              >
+                Limpiar todo
+              </button>
+            </div>
+          )}
         </div>
 
+        {/* Web search banner — movido debajo de filtros */}
         <div className="mb-6 border-2 border-black p-4 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -435,91 +568,6 @@ export default function Agenda() {
           >
             Abrir web search
           </Link>
-        </div>
-
-        {/* Filtros — Fila 1: Tiempo + Precio + Municipio */}
-        <div className="flex flex-wrap gap-0 mb-3 items-center">
-          {/* Time */}
-          <div className="flex">
-            {(Object.keys(TIME_LABELS) as TimeFilter[]).map((key) => (
-              <button
-                key={key}
-                onClick={() => setTimeFilter(key)}
-                className={`px-4 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all -ml-[2px] first:ml-0 ${
-                  timeFilter === key ? 'bg-black text-white z-10' : 'bg-white text-black hover:bg-gray-100'
-                }`}
-              >
-                {TIME_LABELS[key]}
-              </button>
-            ))}
-          </div>
-          {/* Precio */}
-          <div className="flex ml-2">
-            {([ ['', 'TODOS'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
-              <button
-                key={val}
-                onClick={() => setPrecioFilter(val)}
-                className={`px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all -ml-[2px] first:ml-0 ${
-                  precioFilter === val ? 'bg-black text-white z-10' : 'bg-white text-black hover:bg-gray-100'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {/* Municipio */}
-          <select
-            value={municipioFilter}
-            onChange={e => setMunicipioFilter(e.target.value)}
-            className="ml-2 px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
-          >
-            {MUNICIPIOS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          {/* Zona — only visible when Medellín or no specific city is selected */}
-          {(municipioFilter === '' || municipioFilter === 'medellin') && (
-            <select
-              value={zonaFilter}
-              onChange={e => setZonaFilter(e.target.value)}
-              className="ml-2 px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
-            >
-              <option value="">Todas las zonas</option>
-              {zonasDisponibles.map(z => (
-                <option key={z.id} value={z.slug}>{z.nombre}</option>
-              ))}
-            </select>
-          )}
-          {(catFilter || zonaFilter || textFilter || municipioFilter || precioFilter) && (
-            <button
-              onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setPrecioFilter('') }}
-              className="text-[11px] font-mono font-bold uppercase tracking-wider ml-3 underline hover:no-underline"
-            >
-              ✕ Limpiar
-            </button>
-          )}
-        </div>
-
-        {/* Filtros — Fila 2: Categorías scrollables */}
-        <div className="relative mb-6">
-          {/* Gradient fade on the right to hint there are more items */}
-          <div className="pointer-events-none absolute right-0 top-0 bottom-2 w-12 bg-gradient-to-l from-white to-transparent z-10" aria-hidden="true" />
-        <div
-          className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0"
-          style={{ scrollbarWidth: 'thin', msOverflowStyle: 'auto' }}
-        >
-          {CAT_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => setCatFilter(opt.value)}
-              className={`flex-shrink-0 px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black whitespace-nowrap transition-all ${
-                catFilter === opt.value ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'
-              }`}
-            >
-              {opt.value === '' ? '★ TODAS' : opt.label}
-            </button>
-          ))}
-        </div>
         </div>
 
         {/* Loading skeleton */}

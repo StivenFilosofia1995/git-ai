@@ -20,6 +20,7 @@ import httpx
 
 from app.database import supabase
 from app.services.ml_utils import is_likely_duplicate
+from app.services.data_quality import is_likely_cultural_event
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -261,8 +262,9 @@ async def _try_html_scrape() -> list[dict]:
                 "div[class*='evento']",
                 "article[class*='event']",
                 "li[class*='tribe']",
-                # Generic fallback
-                "article",
+                "div[class*='tribe']",
+                "li[class*='event']",
+                # NOTE: Generic "article" intentionally omitted — too broad, catches blog posts
             ]
             cards = []
             for sel in card_selectors:
@@ -362,6 +364,11 @@ async def _try_html_scrape() -> list[dict]:
                     except Exception:
                         pass
 
+                precio_tag = card.find(class_=re.compile(r"precio|price|costo|valor|tarifa", re.I))
+                precio_raw = precio_tag.get_text(strip=True) if precio_tag else ""
+                es_gratuito = any(w in precio_raw.lower() for w in ("gratis", "gratuito", "free", "$0"))
+                precio_display = "Gratis" if es_gratuito else (precio_raw or "Consultar")
+
                 events.append({
                     "titulo": titulo[:200],
                     "fecha_inicio": fecha_iso,
@@ -370,8 +377,8 @@ async def _try_html_scrape() -> list[dict]:
                     "nombre_lugar": (lugar or "Comfama")[:200],
                     "barrio": None,
                     "municipio": "medellin",
-                    "precio": "Consultar",
-                    "es_gratuito": False,
+                    "precio": precio_display,
+                    "es_gratuito": es_gratuito,
                     "categoria_principal": _map_categoria(cat_raw),
                     "categorias": [cat_raw] if cat_raw else [],
                     "imagen_url": imagen_url,
@@ -413,6 +420,16 @@ async def _save_comfama_events(events: list[dict]) -> dict:
     for ev in events:
         try:
             if not ev.get("titulo") or not ev.get("fecha_inicio"):
+                stats["descartados"] += 1
+                continue
+
+            # Filter out non-events (blog posts, news, etc.)
+            if not is_likely_cultural_event(
+                ev.get("titulo"),
+                ev.get("descripcion"),
+                fuente_url=ev.get("fuente_url"),
+                categoria=ev.get("categoria_principal"),
+            ):
                 stats["descartados"] += 1
                 continue
 

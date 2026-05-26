@@ -3083,3 +3083,70 @@ async def cleanup_past_events() -> dict:
         detalle={"eliminados": removed},
     )
     return {"eliminados": removed}
+
+
+# Fuentes verificadas que nunca se purifican con el filtro de noticias.
+_TRUSTED_SOURCES = frozenset({
+    "comfama", "fundacion_epm", "uva_epm", "parque_deseos",
+    "biblioteca_epm", "planetario_medellin", "compas_urbano", "instagram",
+})
+
+
+async def cleanup_news_events(batch_size: int = 200) -> dict:
+    """
+    Purge upcoming events that are likely blog posts or news articles
+    (not real cultural events) using the improved is_likely_cultural_event filter.
+
+    - Skips events from trusted scrapers (Comfama, EPM, etc.).
+    - Processes up to `batch_size` events per call to stay within DB limits.
+    """
+    from app.services.data_quality import is_likely_cultural_event
+
+    print("\n🧹 Purga de noticias/entradas no-culturales en agenda...")
+    now_co = _now_co()
+    hoy_iso = now_co.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    try:
+        resp = (
+            supabase.table("eventos")
+            .select("id,titulo,descripcion,fuente,fuente_url,categoria_principal")
+            .gte("fecha_inicio", hoy_iso)
+            .order("fecha_inicio", desc=False)
+            .limit(batch_size)
+            .execute()
+        )
+        events = resp.data or []
+    except Exception as e:
+        print(f"  ⚠ Error fetching events for news cleanup: {e}")
+        return {"eliminados": 0, "revisados": 0, "error": str(e)}
+
+    eliminados = 0
+    revisados = 0
+    for ev in events:
+        fuente = (ev.get("fuente") or "").lower()
+        if fuente in _TRUSTED_SOURCES:
+            continue
+        revisados += 1
+        es_evento = is_likely_cultural_event(
+            ev.get("titulo"),
+            ev.get("descripcion"),
+            fuente_url=ev.get("fuente_url"),
+            categoria=ev.get("categoria_principal"),
+        )
+        if not es_evento:
+            try:
+                supabase.table("eventos").delete().eq("id", ev["id"]).execute()
+                eliminados += 1
+                print(f"  🗑 Eliminado: {ev.get('titulo', '?')[:60]}")
+            except Exception as e:
+                print(f"  ⚠ Error deleting {ev['id']}: {e}")
+        await asyncio.sleep(0)
+
+    print(f"  ✅ Purga completada: {eliminados} eliminados de {revisados} revisados")
+    _log_scraping(
+        fuente="cleanup_news_events",
+        registros_nuevos=0,
+        errores=0,
+        detalle={"eliminados": eliminados, "revisados": revisados},
+    )
+    return {"eliminados": eliminados, "revisados": revisados}
