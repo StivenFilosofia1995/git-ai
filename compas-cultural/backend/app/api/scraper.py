@@ -185,6 +185,22 @@ async def trigger_epm_scraper(background_tasks: BackgroundTasks):
     return {"status": "started", "message": "Fundación EPM scraper iniciado en background"}
 
 
+@router.post("/run-bibliotecas", dependencies=[Depends(_verify_scraper_key)])
+async def trigger_bibliotecas_scraper(
+    background_tasks: BackgroundTasks,
+    pages: int = Query(default=6, ge=1, le=20, description="Páginas WP REST a scrapear (100 eventos/pág)"),
+):
+    """Trigger manual del scraper de Bibliotecas Públicas de Medellín."""
+    async def _run():
+        try:
+            from app.services.bibliotecas_mde_scraper import run_bibliotecas_mde_scraper
+            await run_bibliotecas_mde_scraper(pages=pages)
+        except Exception as e:
+            print(f"❌ Bibliotecas MDE scraper error: {e}")
+    background_tasks.add_task(_run)
+    return {"status": "started", "message": f"Bibliotecas MDE scraper iniciado en background (pages={pages})"}
+
+
 @router.post("/repair-fechas", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_repair_fechas_scraper(
     limit_eventos: int = Query(default=160, ge=20, le=500, description="Eventos próximos a inspeccionar"),

@@ -99,6 +99,15 @@ async def _run_fundacion_epm_scraper():
         print(f"❌ Fundación EPM scraper error: {e}")
 
 
+async def _run_bibliotecas_mde_scraper():
+    """Job wrapper para la Red de Bibliotecas Públicas de Medellín."""
+    from app.services.bibliotecas_mde_scraper import run_bibliotecas_mde_scraper
+    try:
+        await run_bibliotecas_mde_scraper()
+    except Exception as e:
+        print(f"❌ Bibliotecas MDE scraper error: {e}")
+
+
 def _run_weekly_digest():
     """Digest tick: sends at most one recipient per execution (Mondays only)."""
     from app.services.email_service import send_weekly_digest_campaign
@@ -224,6 +233,15 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # ── Bibliotecas Públicas de Medellín: 2 veces al día ───────────────────
+    scheduler.add_job(
+        _run_bibliotecas_mde_scraper,
+        trigger=CronTrigger(hour="7,19", minute=30, timezone=CO_TZ),
+        id="bibliotecas_mde_scraper",
+        name="Red de Bibliotecas Públicas Medellín (07:30, 19:30)",
+        replace_existing=True,
+    )
+
     scheduler.add_job(
         _run_weekly_digest,
         trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
@@ -309,6 +327,15 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # ── Bibliotecas MDE scraper inicial: 8 minutos después de arrancar ─────
+    scheduler.add_job(
+        _run_bibliotecas_mde_scraper,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(minutes=8)),
+        id="bibliotecas_mde_scraper_startup",
+        name="Bibliotecas Públicas MDE inicial al arrancar",
+        replace_existing=True,
+    )
+
     # ── Social Listener inicial: 3 minutos después de arrancar ─────────────
     scheduler.add_job(
         _run_social_listener,
@@ -338,6 +365,7 @@ def start_scheduler():
     print("   • Agenda alternativa: 07:40, 11:40, 16:40, 21:40")
     print("   • Comfama scraper: 08:15, 14:15, 20:15 (inicio en 4min)")
     print("   • Fundación EPM / UVAs: 09:45, 18:45 (inicio en 6min)")
+    print("   • Bibliotecas Públicas MDE: 07:30, 19:30 (inicio en 8min)")
     print("   • Boletín semanal: 1 destinatario cada 4 minutos (solo lunes)")
     print("   • Limpieza de privacidad: diaria a las 3:30am")
     print("   • Limpieza eventos pasados: diaria a las 1:00am")

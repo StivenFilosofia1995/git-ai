@@ -264,7 +264,8 @@ async def _try_html_scrape() -> list[dict]:
                 "li[class*='tribe']",
                 "div[class*='tribe']",
                 "li[class*='event']",
-                # NOTE: Generic "article" intentionally omitted — too broad, catches blog posts
+                # Generic fallback: kept but results are filtered by is_likely_cultural_event
+                "article",
             ]
             cards = []
             for sel in card_selectors:

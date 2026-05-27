@@ -90,7 +90,7 @@ def get_dashboard(x_api_key: str | None = Header(default=None, alias="X-API-Key"
     # ── Email blast ───────────────────────────────────────────────────────────
     try:
         from app.services.email_service import _kv_get
-        BLAST_KEY = "blast:2026-05b"
+        BLAST_KEY = "blast:2026-05c"
         blast_cursor = int(_kv_get(f"cursor:{BLAST_KEY}") or "0")
     except Exception:
         blast_cursor = 0
@@ -220,7 +220,7 @@ def get_dashboard(x_api_key: str | None = Header(default=None, alias="X-API-Key"
             "con_instagram": con_instagram,
         },
         "email": {
-            "blast_key": "blast:2026-05b",
+            "blast_key": "blast:2026-05c",
             "blast_cursor": blast_cursor,
             "destinatarios_estimados": auth_users,
         },
@@ -381,6 +381,18 @@ def trigger_blast_tick(x_api_key: str | None = Header(default=None, alias="X-API
     return {"ok": True, "stats": stats}
 
 
+@router.post("/reset-blast")
+def reset_blast(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Reset blast campaign cursor so it starts over from recipient 0.
+    Use this after bumping BLAST_KEY or to re-send to all users.
+    """
+    _check_key(x_api_key)
+    from app.services.email_service import _kv_upsert
+    BLAST_KEY = "blast:2026-05c"
+    _kv_upsert(f"cursor:{BLAST_KEY}", "0")
+    return {"ok": True, "message": f"Blast cursor reseteado para {BLAST_KEY}. El próximo tick arranca desde el recipient 0."}
+
+
 @router.post("/trigger-cleanup")
 async def trigger_cleanup(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
     """Remove fully-past events."""
@@ -416,3 +428,50 @@ async def trigger_cleanup_news(
 
     asyncio.create_task(_run())
     return {"ok": True, "message": f"Purga de noticias iniciada en background (batch={batch_size})"}
+
+
+@router.post("/full-reset")
+async def full_reset(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Limpia noticias + corre todos los scrapers clave en background.
+    Orden: cleanup_news → comfama → bibliotecas_mde → fundacion_epm → agenda_alternativa
+    """
+    _check_key(x_api_key)
+    import asyncio
+
+    async def _run():
+        try:
+            from app.services.auto_scraper import cleanup_news_events
+            await cleanup_news_events(batch_size=500)
+        except Exception as e:
+            print(f"[full-reset] cleanup_news error: {e}")
+        await asyncio.sleep(2)
+        try:
+            from app.services.comfama_scraper import run_comfama_scraper
+            await run_comfama_scraper()
+        except Exception as e:
+            print(f"[full-reset] comfama error: {e}")
+        await asyncio.sleep(2)
+        try:
+            from app.services.bibliotecas_mde_scraper import run_bibliotecas_mde_scraper
+            await run_bibliotecas_mde_scraper(pages=6)
+        except Exception as e:
+            print(f"[full-reset] bibliotecas error: {e}")
+        await asyncio.sleep(2)
+        try:
+            from app.services.fundacion_epm_scraper import run_fundacion_epm_scraper
+            await run_fundacion_epm_scraper()
+        except Exception as e:
+            print(f"[full-reset] epm error: {e}")
+        await asyncio.sleep(2)
+        try:
+            from app.services.auto_scraper import scrape_agenda_sources, scrape_compas_urbano
+            await scrape_agenda_sources()
+            await scrape_compas_urbano()
+        except Exception as e:
+            print(f"[full-reset] agenda_sources error: {e}")
+
+    asyncio.create_task(_run())
+    return {
+        "ok": True,
+        "message": "Full reset iniciado: cleanup_news → comfama → bibliotecas → epm → agenda_sources",
+    }
