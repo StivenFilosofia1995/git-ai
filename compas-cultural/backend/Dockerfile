@@ -10,10 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://ollama.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
-# Python deps + Playwright chromium
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && playwright install --with-deps chromium \
+# Python deps (prod — sin torch/easyocr/playwright para imagen ligera)
+COPY requirements-prod.txt .
+RUN pip install --no-cache-dir -r requirements-prod.txt \
     && mkdir -p ${EASYOCR_MODULE_PATH}
 
 COPY . .
