@@ -241,7 +241,7 @@ def get_eventos(
     """
     Listar eventos con filtros robustos.
     """
-    query = supabase.table("eventos").select("*").filter("oculto", "not.is", "true")
+    query = supabase.table("eventos").select("*")
 
     if fecha_desde:
         # Use date-only format to match DB rows that store date without timezone.
@@ -312,6 +312,9 @@ def get_eventos(
     )
     eventos = response.data or []
 
+    # Filtrar eventos ocultos en Python (compatibilidad si columna aún no existe en DB)
+    eventos = [ev for ev in eventos if ev.get("oculto") is not True]
+
     # Post-retrieval ML ranking: reordenar por score compuesto
     # (urgencia + calidad + coincidencia textual)
     now = _now_co()
@@ -341,7 +344,6 @@ def get_eventos_hoy(
     # Events that START today
     q_inicio = (
         supabase.table("eventos").select("*")
-        .filter("oculto", "not.is", "true")
         .eq("fecha_inicio", hoy_str)
     )
     resp_inicio = q_inicio.order("fecha_inicio").execute()
@@ -352,7 +354,6 @@ def get_eventos_hoy(
     q_en_curso = (
         supabase.table("eventos")
         .select("*")
-        .filter("oculto", "not.is", "true")
         .gte("fecha_inicio", hace_30_dias)
         .lt("fecha_inicio", hoy_str)
         .gte("fecha_fin", hoy_str)
@@ -367,6 +368,8 @@ def get_eventos_hoy(
 
     # Final strict validation in Colombia timezone to avoid wrong-day leaks.
     eventos = [ev for ev in eventos if _is_event_happening_today(ev, hoy_inicio, hoy_fin)]
+    # Filtrar eventos ocultos (compatible si columna aún no existe en DB)
+    eventos = [ev for ev in eventos if ev.get("oculto") is not True]
 
     result = _filter_events(
         eventos,
@@ -461,7 +464,6 @@ def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
     response = (
         supabase.table("eventos")
         .select("*")
-        .filter("oculto", "not.is", "true")
         .eq("espacio_id", espacio_id)
         .gte("fecha_inicio", hoy_iso)
         .order("fecha_inicio")
@@ -486,7 +488,7 @@ def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
             eventos.insert(0, ev)
             seen_ids.add(ev["id"])
 
-    return eventos
+    return [ev for ev in eventos if ev.get("oculto") is not True]
 
 
 # ══════════════════════════════════════════════════════════════
