@@ -282,11 +282,31 @@ export async function getEventosFeed(limit = 20): Promise<Evento[]> {
 }
 
 export async function getEventosSemana(filters?: EventosTemporalFilters): Promise<Evento[]> {
-  // Usa endpoint backend que cubre hasta el domingo de la próxima semana
-  // (7-14 días). Antes usaba Supabase directo con ventana fija de 7 días,
-  // lo que dejaba fuera vie-sáb-dom al consultar miércoles-jueves.
   const qs = buildTemporalFiltersQS(filters)
-  return apiGet<Evento[]>(`/eventos/semana${qs}`)
+  try {
+    return await apiGet<Evento[]>(`/eventos/semana${qs}`)
+  } catch {
+    // Supabase fallback: this week + next week (hoy → próximo domingo + 7 días)
+    const bogotaDate = (offset = 0) => {
+      const d = new Date()
+      d.setDate(d.getDate() + offset)
+      return d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+    }
+    const hoy = bogotaDate(0)
+    const hasta = bogotaDate(14)
+    let q = supabase
+      .from('eventos')
+      .select('*')
+      .gte('fecha_inicio', hoy)
+      .lte('fecha_inicio', hasta)
+      .order('fecha_inicio')
+      .limit(500)
+    if (filters?.municipio) q = q.ilike('municipio', `%${filters.municipio}%`)
+    if (filters?.categoria) q = q.eq('categoria_principal', filters.categoria)
+    if (typeof filters?.es_gratuito === 'boolean') q = q.eq('es_gratuito', filters.es_gratuito)
+    const { data } = await q
+    return (data ?? []) as Evento[]
+  }
 }
 
 export async function getEventosProximasSemanas(
@@ -301,7 +321,30 @@ export async function getEventosProximasSemanas(
   if (filters?.barrio) search.set('barrio', filters.barrio)
   if (filters?.categoria) search.set('categoria', filters.categoria)
   if (typeof filters?.es_gratuito === 'boolean') search.set('es_gratuito', String(filters.es_gratuito))
-  return apiGet<Evento[]>(`/eventos/proximas-semanas?${search.toString()}`)
+  try {
+    return await apiGet<Evento[]>(`/eventos/proximas-semanas?${search.toString()}`)
+  } catch {
+    // Supabase fallback: desdeDias → desdeDias+dias range
+    const bogotaDate = (offset: number) => {
+      const d = new Date()
+      d.setDate(d.getDate() + offset)
+      return d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+    }
+    const desde = bogotaDate(desdeDias)
+    const hasta = bogotaDate(desdeDias + dias)
+    let q = supabase
+      .from('eventos')
+      .select('*')
+      .gte('fecha_inicio', desde)
+      .lte('fecha_inicio', hasta)
+      .order('fecha_inicio')
+      .limit(500)
+    if (filters?.municipio) q = q.ilike('municipio', `%${filters.municipio}%`)
+    if (filters?.categoria) q = q.eq('categoria_principal', filters.categoria)
+    if (typeof filters?.es_gratuito === 'boolean') q = q.eq('es_gratuito', filters.es_gratuito)
+    const { data } = await q
+    return (data ?? []) as Evento[]
+  }
 }
 
 export async function getEventosTodos(params?: {
