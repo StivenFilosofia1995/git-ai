@@ -1,5 +1,5 @@
 """Admin dashboard — aggregated metrics for platform health."""
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Query
 from app.config import settings
 
 router = APIRouter()

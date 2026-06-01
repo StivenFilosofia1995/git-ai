@@ -3134,7 +3134,13 @@ async def cleanup_past_events() -> dict:
     return {"eliminados": removed}
 
 
-# Fuentes verificadas que nunca se purifican con el filtro de noticias.
+# Prefijos de fuente verificados que nunca se purifican con el filtro de noticias.
+_TRUSTED_SOURCE_PREFIXES = (
+    "comfama", "fundacion_epm", "uva_epm", "parque_deseos",
+    "biblioteca_epm", "planetario_medellin", "compas_urbano", "instagram",
+    "bibliotecas_mde", "precision_scraper",
+)
+# Compat: set para comparación exacta (legacy)
 _TRUSTED_SOURCES = frozenset({
     "comfama", "fundacion_epm", "uva_epm", "parque_deseos",
     "biblioteca_epm", "planetario_medellin", "compas_urbano", "instagram",
@@ -3173,7 +3179,7 @@ async def cleanup_news_events(batch_size: int = 200) -> dict:
     revisados = 0
     for ev in events:
         fuente = (ev.get("fuente") or "").lower()
-        if fuente in _TRUSTED_SOURCES:
+        if fuente in _TRUSTED_SOURCES or any(fuente.startswith(p) for p in _TRUSTED_SOURCE_PREFIXES):
             continue
         revisados += 1
         es_evento = is_likely_cultural_event(

@@ -52,21 +52,30 @@ EVENT_POSITIVE_TERMS = {
     "boleteria", "boletería", "entradas", "inscripcion", "inscripción", "cupos", "aforo",
     "en vivo", "live", "show", "presentacion", "presentación", "espectaculo", "espectáculo",
     "apertura", "clausura", "estreno", "temporada", "gira",
+    # frases de convocatoria / programación
+    "se realizara", "se realizará", "llevara a cabo", "llevará a cabo",
+    "invita a", "te invitamos", "participa en", "ven a", "asiste a",
+    "disfruta de", "no te pierdas", "abierto al publico", "abierto al público",
+    "gratis", "gratuito", "entrada libre", "entrada gratuita",
+    "teatro", "galeria", "museo", "biblioteca", "festival", "circo", "hip hop",
+    "jazz", "rock", "electronica", "electrónica", "danza", "poesia", "poesía",
 }
 
 EVENT_NEGATIVE_TERMS = {
-    # Noticias / comunicados
-    "informó", "informo", "según", "segun", "declaró", "declaro", "reportó", "reporto",
-    "anunció", "anuncio", "publicó", "publico", "aseguró", "aseguro", "manifestó", "manifesto",
+    # Noticias / comunicados con verbos de cita
+    "informó que", "informo que", "según dijo", "declaró que", "declaro que",
+    "reportó que", "reporto que", "anunció que", "anuncio que", "publicó que",
+    "aseguró que", "aseguro que", "manifestó que", "manifesto que",
     "últimas noticias", "ultimas noticias", "nota de prensa", "comunicado oficial",
-    "boletín de prensa", "boletin de prensa",
+    "boletín de prensa", "boletin de prensa", "rueda de prensa",
     # Ofertas de empleo / convocatorias internas
-    "equipo", "presentamos al", "bienvenida", "feliz cumple", "cumpleanos", "cumpleaños",
-    "comunicado", "pronunciamiento", "vacante", "convocatoria laboral", "hiring", "casting",
-    "donacion", "donación", "manifiesto", "biografia", "biografía", "perfil del equipo",
+    "presentamos al equipo", "bienvenida al equipo", "feliz cumple", "cumpleanos cumpleaños",
+    "pronunciamiento", "vacante de empleo", "convocatoria laboral", "hiring", "we are hiring",
+    "donacion", "donación", "manifiesto politico", "biografia del artista", "perfil del equipo",
     # Contenido editorial sin evento
-    "resena", "reseña", "critica", "crítica", "opinion", "opinión", "editorial",
-    "entrevista exclusiva", "behind the scenes",
+    "resena de", "reseña de", "critica de", "crítica de", "opinion sobre", "opinión sobre",
+    "entrevista exclusiva", "behind the scenes", "asi fue como", "así fue como",
+    "mira como", "mira cómo", "les contamos", "te contamos", "lo que debes saber",
 }
 
 # URLs con estos patrones indican noticias, no eventos
@@ -191,12 +200,14 @@ def is_likely_cultural_event(
     if score >= 3:
         _EVENT_VALIDATION_CACHE[cache_key] = True
         return True
-    if score <= 0:
+    if score <= -1:
         _EVENT_VALIDATION_CACHE[cache_key] = False
         return False
 
+    # Ambiguous (score 0-2): ask Ollama if available; otherwise accept
+    # (false positives are cleaned up later by cleanup_news_events)
     ai_result = _validate_event_with_local_ai(title_n, desc_n, url_n)
-    final = bool(ai_result) if ai_result is not None else False
+    final = bool(ai_result) if ai_result is not None else (score >= 0)
     _EVENT_VALIDATION_CACHE[cache_key] = final
     return final
 
