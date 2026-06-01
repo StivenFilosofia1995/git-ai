@@ -21,9 +21,11 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 }
 
 // Coordenadas aproximadas de los municipios del Valle de Aburrá
+const MEDELLIN_CENTER = { lat: 6.2442, lng: -75.5812 }
+
 const MUNICIPIO_COORDS: Record<string, { lat: number; lng: number }> = {
-  medellin: { lat: 6.2442, lng: -75.5812 },
-  medellín: { lat: 6.2442, lng: -75.5812 },
+  medellin: MEDELLIN_CENTER,
+  medellín: MEDELLIN_CENTER,
   envigado: { lat: 6.1752, lng: -75.5928 },
   itagui: { lat: 6.1848, lng: -75.5990 },
   itagüí: { lat: 6.1848, lng: -75.5990 },
@@ -34,6 +36,16 @@ const MUNICIPIO_COORDS: Record<string, { lat: number; lng: number }> = {
   copacabana: { lat: 6.3494, lng: -75.5090 },
   caldas: { lat: 6.0944, lng: -75.6362 },
   girardota: { lat: 6.3783, lng: -75.4491 },
+}
+
+/** Sunday of next week in Colombia tz — same window as "Semana + Próxima" */
+function sundayOfNextWeek(): string {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }))
+  const dayOfWeek = now.getDay() // 0=Sun, 6=Sat
+  const daysUntilNextSun = dayOfWeek === 0 ? 7 : (7 - dayOfWeek) + 7
+  const d = new Date(now)
+  d.setDate(d.getDate() + daysUntilNextSun)
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
 }
 
 
@@ -51,38 +63,35 @@ export default function CercaDeTi() {
     setEventosProximos([])
 
     try {
-      const eventosData = await getEventosTodos({ municipio: undefined, maxRows: 500 })
+      const eventosData = await getEventosTodos({ municipio: undefined, maxRows: 800 })
 
-      // Use Bogotá timezone for today's date
       const hoyStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
-      // Also include next 7 days so we have more events to show
-      const en7dias = new Date()
-      en7dias.setDate(en7dias.getDate() + 7)
-      const en7diasStr = en7dias.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+      // Ventana: hoy → domingo de la próxima semana (igual que pestaña "Semana + Próxima")
+      const hastaStr = sundayOfNextWeek()
 
       const conDistancia = eventosData
         .filter(e => {
           const fechaInicio = e.fecha_inicio?.slice(0, 10) ?? ''
           const fechaFin = e.fecha_fin?.slice(0, 10) ?? fechaInicio
-          // Eventos de hoy, en curso o próximos 7 días
-          return fechaInicio <= en7diasStr && (fechaFin >= hoyStr || fechaInicio >= hoyStr)
+          return fechaInicio <= hastaStr && (fechaFin >= hoyStr || fechaInicio >= hoyStr)
         })
         .map(e => {
-          // Primero intentar coordenadas exactas del evento
+          // 1. Coordenadas exactas del evento
           if (e.lat != null && e.lng != null) {
             return { ...e, distKm: haversineKm(userLat, userLng, e.lat, e.lng) }
           }
-          // Fallback: coordenadas aproximadas del municipio
+          // 2. Centro del municipio
           const muni = (e.municipio ?? '').toLowerCase().trim()
-          const muniCoords = MUNICIPIO_COORDS[muni]
+          const muniCoords = MUNICIPIO_COORDS[muni] ?? (muni.includes('medellin') || muni.includes('medellín') ? MEDELLIN_CENTER : null)
           if (muniCoords) {
             return { ...e, distKm: haversineKm(userLat, userLng, muniCoords.lat, muniCoords.lng) }
           }
-          return null
+          // 3. Sin municipio → asumir Medellín (la mayoría de eventos son ahí)
+          return { ...e, distKm: haversineKm(userLat, userLng, MEDELLIN_CENTER.lat, MEDELLIN_CENTER.lng) }
         })
-        .filter((e): e is (typeof eventosData[0] & { distKm: number }) => e !== null && e.distKm <= radio)
+        .filter(e => e.distKm <= radio)
         .sort((a, b) => a.distKm - b.distKm)
-        .slice(0, 20)
+        .slice(0, 30)
 
       setEventosProximos(conDistancia)
       setGeoState('done')
@@ -130,7 +139,7 @@ export default function CercaDeTi() {
           <span className="w-4 h-4 bg-black rounded-full animate-pulse" />
           <h2 className="text-lg font-heading font-black uppercase tracking-wider">CERCA DE TI</h2>
           <span className="text-[9px] font-mono font-bold opacity-50 uppercase tracking-wider">
-            Eventos de hoy en tu zona
+            Agenda de esta semana en tu zona
           </span>
         </div>
 
@@ -187,7 +196,7 @@ export default function CercaDeTi() {
         <div className="px-5 py-12 text-center">
           <div className="text-4xl mb-3">📍</div>
           <p className="text-sm font-mono opacity-60 max-w-sm mx-auto">
-            Compartí tu ubicación y te mostramos los eventos culturales de hoy a menos de {radioKm} km de vos.
+            Compartí tu ubicación y te mostramos los eventos culturales de esta semana a menos de {radioKm} km de vos.
           </p>
         </div>
       )}
@@ -206,7 +215,7 @@ export default function CercaDeTi() {
         <div className="px-5 py-6">
           {!hayResultados && (
             <p className="text-sm font-mono opacity-60 text-center py-8">
-              No encontramos eventos de hoy con coordenadas a {radioKm} km de tu ubicación. Probá aumentar el radio.
+              No encontramos eventos de esta semana a {radioKm} km de tu ubicación. Probá aumentar el radio.
             </p>
           )}
 
@@ -216,7 +225,7 @@ export default function CercaDeTi() {
               <div className="flex items-center gap-3 mb-4">
                 <span className="w-3 h-3 bg-red-500 animate-pulse" />
                 <h3 className="text-sm font-heading font-black uppercase tracking-wider">
-                  Eventos de hoy cerca de ti
+                  Esta semana cerca de ti
                 </h3>
                 <span className="text-[9px] font-mono font-bold opacity-50">
                   {eventosProximos.length} a menos de {radioKm} km

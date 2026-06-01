@@ -22,7 +22,7 @@ export default function CercaDeTiPage() {
         </h1>
 
         <p className="text-sm font-mono leading-relaxed max-w-lg mb-10 text-neutral-600">
-          Poné tu ubicación y te mostramos los eventos y espacios culturales más cercanos — teatro, música, arte y más.
+          Poné tu ubicación y te mostramos la agenda cultural de esta semana en tu zona — teatro, música, arte y más, ordenados por cercanía.
         </p>
 
         <CercaDeTi />
