@@ -148,10 +148,6 @@ export default function EventoDetalle() {
                 <p className="text-lg capitalize">{fechaStr}</p>
               </div>
               <div>
-                <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">FECHA</h3>
-                <p className="text-lg">{fechaStr}</p>
-              </div>
-              <div>
                 <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">PRECIO</h3>
                 <p className="text-lg">
                   {evento.es_gratuito ? (
@@ -177,6 +173,43 @@ export default function EventoDetalle() {
               )}
             </div>
           </div>
+
+          {/* Embedded map */}
+          {evento.lat && evento.lng ? (
+            <div className="border-t-2 border-black pt-6">
+              <h3 className="font-mono font-bold text-xs mb-3 uppercase tracking-wider">DÓNDE ES</h3>
+              <div className="border-2 border-black overflow-hidden">
+                <iframe
+                  title="Mapa del evento"
+                  width="100%"
+                  height="260"
+                  loading="lazy"
+                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${evento.lng - 0.006},${evento.lat - 0.006},${evento.lng + 0.006},${evento.lat + 0.006}&layer=mapnik&marker=${evento.lat},${evento.lng}`}
+                  className="block"
+                />
+              </div>
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 mt-2 text-[10px] font-mono font-bold uppercase tracking-wider underline hover:no-underline"
+              >
+                Abrir en Google Maps →
+              </a>
+            </div>
+          ) : ubicacionLabel ? (
+            <div className="border-t-2 border-black pt-6">
+              <h3 className="font-mono font-bold text-xs mb-3 uppercase tracking-wider">DÓNDE ES</h3>
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 hover:bg-black hover:text-white transition-all"
+              >
+                📍 Ver "{ubicacionLabel}" en Google Maps
+              </a>
+            </div>
+          ) : null}
 
           <div className="border-t-2 border-black pt-6">
             <h3 className="font-mono font-bold text-xs mb-3 uppercase tracking-wider">ACCIONES RÁPIDAS</h3>

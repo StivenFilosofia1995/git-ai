@@ -101,56 +101,67 @@ export default function EspacioDetalle() {
         </Link>
 
         <div className="space-y-8">
+          {/* Header */}
           <div>
-            <h1 className="text-4xl font-mono font-bold mb-2 uppercase">{espacio.nombre}</h1>
-            <p className="text-lg font-mono">
-              {espacio.categoria_principal} · {espacio.nivel_actividad} · {espacio.barrio ?? 'Sin barrio'}, {espacio.municipio}
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="inline-block px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black">
+                {espacio.categoria_principal?.replaceAll('_', ' ')}
+              </span>
+              {espacio.nivel_actividad && (
+                <span className="inline-block px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider border border-black/40 text-black/60">
+                  {espacio.nivel_actividad}
+                </span>
+              )}
+              {eventos.length > 0 && (
+                <span className="inline-block px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider bg-black text-white">
+                  {eventos.length} evento{eventos.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <h1 className="text-3xl md:text-4xl font-black tracking-tight uppercase mb-2" style={{ fontFamily: "'Sora', 'Arial Black', sans-serif" }}>
+              {espacio.nombre}
+            </h1>
+            <p className="text-sm font-mono text-black/60">
+              {[espacio.barrio, espacio.municipio].filter(Boolean).join(', ')}
             </p>
           </div>
 
-          <div className="border-t-2 border-black pt-8">
-            {espacio.descripcion_corta ? <p className="text-lg mb-6">{espacio.descripcion_corta}</p> : null}
-            <p>{espacio.descripcion ?? 'Sin descripcion ampliada.'}</p>
-          </div>
+          {/* Descripción */}
+          {(espacio.descripcion_corta || espacio.descripcion) && (
+            <div className="border-t-2 border-black pt-6">
+              {espacio.descripcion_corta && <p className="text-base font-medium mb-3">{espacio.descripcion_corta}</p>}
+              {espacio.descripcion && espacio.descripcion !== espacio.descripcion_corta && (
+                <p className="text-sm leading-relaxed text-black/80">{espacio.descripcion}</p>
+              )}
+            </div>
+          )}
 
-          <div className="border-t-2 border-black pt-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="font-mono font-bold mb-2 uppercase tracking-wider text-xs">CONTACTO</h3>
+          {/* Contacto + Mapa */}
+          <div className="border-t-2 border-black pt-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Contacto */}
+            <div>
+              <h3 className="font-mono font-bold mb-3 uppercase tracking-wider text-xs">CONTACTO</h3>
+              <div className="flex flex-wrap gap-2">
                 {espacio.instagram_handle && (
-                  <p>
-                    <a
-                      href={`https://instagram.com/${espacio.instagram_handle.replace(/^@/, '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all mb-2"
-                    >
-                      📸 @{espacio.instagram_handle.replace(/^@/, '')}
-                    </a>
-                  </p>
+                  <a
+                    href={`https://instagram.com/${espacio.instagram_handle.replace(/^@/, '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
+                  >
+                    📸 @{espacio.instagram_handle.replace(/^@/, '')}
+                  </a>
                 )}
                 {espacio.sitio_web && (
-                  <p>
-                    <a
-                      href={espacio.sitio_web}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
-                    >
-                      🌐 {espacio.sitio_web.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                    </a>
-                  </p>
+                  <a
+                    href={espacio.sitio_web}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
+                  >
+                    🌐 {espacio.sitio_web.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  </a>
                 )}
-              </div>
-              <div>
-                <h3 className="font-mono font-bold mb-2 uppercase tracking-wider text-xs">UBICACIÓN</h3>
-                {espacio.direccion && (
-                  <p className="font-mono text-sm">{espacio.direccion}</p>
-                )}
-                {espacio.barrio && espacio.barrio !== 'Sin barrio' && (
-                  <p className="font-mono text-sm">{espacio.barrio}</p>
-                )}
-                <p className="font-mono text-sm capitalize">{espacio.municipio}</p>
                 <a
                   href={
                     espacio.lat && espacio.lng
@@ -159,12 +170,36 @@ export default function EspacioDetalle() {
                   }
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 mt-2 hover:bg-black hover:text-white transition-all"
+                  className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
                 >
-                  📍 Ver en Google Maps
+                  📍 {[espacio.direccion, espacio.barrio].filter(Boolean).join(', ') || 'Ver en mapa'}
                 </a>
               </div>
             </div>
+
+            {/* Mapa embebido */}
+            {espacio.lat && espacio.lng ? (
+              <div>
+                <h3 className="font-mono font-bold mb-3 uppercase tracking-wider text-xs">DÓNDE ESTÁ</h3>
+                <div className="border-2 border-black overflow-hidden">
+                  <iframe
+                    title={`Mapa ${espacio.nombre}`}
+                    width="100%"
+                    height="200"
+                    loading="lazy"
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${espacio.lng - 0.006},${espacio.lat - 0.006},${espacio.lng + 0.006},${espacio.lat + 0.006}&layer=mapnik&marker=${espacio.lat},${espacio.lng}`}
+                    className="block"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div>
+                <h3 className="font-mono font-bold mb-3 uppercase tracking-wider text-xs">UBICACIÓN</h3>
+                {espacio.direccion && <p className="font-mono text-sm">{espacio.direccion}</p>}
+                {espacio.barrio && espacio.barrio !== 'Sin barrio' && <p className="font-mono text-sm">{espacio.barrio}</p>}
+                <p className="font-mono text-sm capitalize">{espacio.municipio}</p>
+              </div>
+            )}
           </div>
 
           <div className="border-t-2 border-black pt-8">
@@ -237,24 +272,37 @@ export default function EspacioDetalle() {
                           <Link
                             key={ev.id}
                             to={`/evento/${ev.slug}`}
-                            className="block border-b-2 border-black last:border-b-0 p-4 hover:bg-black hover:text-white transition-all duration-300"
+                            className="flex items-stretch border-b-2 border-black last:border-b-0 hover:bg-black hover:text-white transition-all duration-300 group"
                           >
-                            <div className="flex items-start justify-between gap-4">
-                              <div>
-                                {enCurso && (
-                                  <span className="text-[9px] font-mono font-bold bg-red-600 text-white px-1.5 py-0.5 mr-2 uppercase">EN CURSO</span>
-                                )}
-                                <p className="font-heading font-bold uppercase tracking-wider text-sm">{ev.titulo}</p>
-                                <p className="text-xs font-mono mt-1">
-                                  {renderHorarioEvento(horaConfirmada, ev.fuente_url)}
-                                  {ev.fecha_fin && (
-                                    <> → {formatEventDate(ev.fecha_fin, { day: 'numeric', month: 'short' })}</>
-                                  )}
-                                </p>
+                            {ev.imagen_url && (
+                              <div className="w-16 shrink-0 border-r-2 border-black overflow-hidden">
+                                <img
+                                  src={ev.imagen_url}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                />
                               </div>
-                              {ev.es_gratuito && (
-                                <span className="text-[10px] font-mono font-bold border-2 border-current px-2 py-0.5 uppercase shrink-0">Gratis</span>
-                              )}
+                            )}
+                            <div className="flex-1 p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  {enCurso && (
+                                    <span className="text-[9px] font-mono font-bold bg-red-600 text-white px-1.5 py-0.5 mr-2 uppercase">EN CURSO</span>
+                                  )}
+                                  <p className="font-heading font-bold uppercase tracking-wider text-sm truncate">{ev.titulo}</p>
+                                  <p className="text-xs font-mono mt-1 opacity-70">
+                                    {renderHorarioEvento(horaConfirmada, ev.fuente_url)}
+                                    {ev.fecha_fin && (
+                                      <> → {formatEventDate(ev.fecha_fin, { day: 'numeric', month: 'short' })}</>
+                                    )}
+                                  </p>
+                                </div>
+                                {ev.es_gratuito && (
+                                  <span className="text-[10px] font-mono font-bold border-2 border-current px-2 py-0.5 uppercase shrink-0">Gratis</span>
+                                )}
+                              </div>
                             </div>
                           </Link>
                         )

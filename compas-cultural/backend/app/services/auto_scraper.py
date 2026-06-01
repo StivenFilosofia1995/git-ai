@@ -2770,6 +2770,55 @@ AGENDA_SOURCES = [
         "categoria_default": "festival",
         "municipio": "medellin",
     },
+    # ── ESPACIOS INDEPENDIENTES ADICIONALES ─────────────────────────────
+    {
+        "nombre": "Taller 7 - Arte Contemporáneo",
+        "url": "https://www.taller7.com.co/exposiciones/",
+        "categoria_default": "arte_contemporaneo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Corporación Picacho con Futuro - Eventos",
+        "url": "https://www.instagram.com/picachocf/",
+        "categoria_default": "hip_hop",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Festival Internacional de Tango - Medellín",
+        "url": "https://festivaldetangomedellin.com/programacion/",
+        "categoria_default": "musica_en_vivo",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Teatro Libre de Medellín - Agenda",
+        "url": "https://www.instagram.com/teatrolibre_medellin/",
+        "categoria_default": "teatro",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "La Sala MDE - Espacio Cultural",
+        "url": "https://www.instagram.com/lasamde/",
+        "categoria_default": "espacio_hibrido",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Claustro de San Agustín - Eventos",
+        "url": "https://www.instagram.com/claustrosanagustin_mde/",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Asab Medellín - Agenda Cultural",
+        "url": "https://www.instagram.com/corpodanza_medellin/",
+        "categoria_default": "danza",
+        "municipio": "medellin",
+    },
+    {
+        "nombre": "Estación del Metro - Arte y Cultura",
+        "url": "https://www.metrodemedellin.gov.co/viaje-con-nosotros/arte-y-cultura",
+        "categoria_default": "centro_cultural",
+        "municipio": "medellin",
+    },
 ]
 
 AGENDA_EXTRACTION_PROMPT = """Eres un experto en cultura urbana del Valle de Aburrá (Medellín, Colombia).

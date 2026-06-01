@@ -44,6 +44,25 @@ function useColombiaClock() {
 
 type TimeFilter = 'hoy' | 'semana' | 'proximas' | 'todos'
 type PrecioFilter = '' | 'gratuito' | 'pago'
+type FuenteFilter = '' | 'comfama' | 'fundacion_epm' | 'bibliotecas_mde' | 'independiente'
+
+const FUENTE_OPTIONS: { value: FuenteFilter; label: string }[] = [
+  { value: '', label: 'Todas las fuentes' },
+  { value: 'comfama', label: 'Comfama' },
+  { value: 'fundacion_epm', label: 'Fdción. EPM / UVAs' },
+  { value: 'bibliotecas_mde', label: 'Bibliotecas MDE' },
+  { value: 'independiente', label: 'Independiente' },
+]
+
+function matchesFuente(fuente: string | undefined | null, filter: FuenteFilter): boolean {
+  if (!filter) return true
+  const f = fuente ?? ''
+  if (filter === 'comfama') return f.startsWith('comfama')
+  if (filter === 'fundacion_epm') return ['fundacion_epm', 'uva_epm', 'parque_deseos', 'biblioteca_epm', 'planetario_medellin'].some(p => f.startsWith(p))
+  if (filter === 'bibliotecas_mde') return f.startsWith('bibliotecas_mde')
+  if (filter === 'independiente') return f.startsWith('auto_scraper') || f.startsWith('compas_urbano') || f.startsWith('instagram')
+  return true
+}
 
 const MUNICIPIOS = [
   { value: '', label: 'Todos los municipios' },
@@ -93,6 +112,51 @@ function normalizeText(value: string | null | undefined): string {
     .replaceAll(/\s+/g, ' ')
     .trim()
 }
+
+// ── Sinónimos culturales ──────────────────────────────────────────────────
+const SEARCH_SYNONYMS: Record<string, string[]> = {
+  musica: ['concierto', 'show', 'en vivo', 'live', 'banda', 'artista'],
+  concierto: ['musica', 'show', 'en vivo', 'live'],
+  rock: ['metal', 'punk', 'grunge', 'indie'],
+  metal: ['rock', 'punk', 'hardcore'],
+  jazz: ['improvisacion', 'blues', 'swing'],
+  hiphop: ['rap', 'freestyle', 'hip hop', 'urbano'],
+  rap: ['freestyle', 'urbano'],
+  danza: ['baile', 'coreografia', 'movimiento', 'ballet'],
+  teatro: ['obra', 'actuacion', 'escena'],
+  arte: ['galeria', 'exposicion', 'pintura', 'escultura', 'muestra'],
+  cine: ['pelicula', 'film', 'corto', 'documental', 'proyeccion'],
+  poesia: ['poema', 'spoken word', 'verso'],
+  gratuito: ['gratis', 'libre', 'entrada libre', 'sin costo'],
+  gratis: ['gratuito', 'libre', 'entrada libre'],
+  taller: ['curso', 'clase', 'workshop', 'formacion'],
+  festival: ['fiesta', 'celebracion', 'feria'],
+  electronica: ['techno', 'house', 'dj', 'electro'],
+  fotografia: ['foto', 'imagen', 'visual'],
+  muralismo: ['graffiti', 'arte urbano', 'street art'],
+}
+
+function expandSearchTerms(raw: string): string[] {
+  const base = normalizeText(raw)
+  const terms = [base]
+  for (const [key, syns] of Object.entries(SEARCH_SYNONYMS)) {
+    if (base.includes(key)) terms.push(...syns)
+  }
+  return Array.from(new Set(terms))
+}
+
+const QUICK_SEARCHES = [
+  { label: '🎸 Rock', q: 'rock' },
+  { label: '🎷 Jazz', q: 'jazz' },
+  { label: '💃 Danza', q: 'danza' },
+  { label: '🎭 Teatro', q: 'teatro' },
+  { label: '🖼 Arte', q: 'arte' },
+  { label: '🎤 Hip-Hop', q: 'hip hop' },
+  { label: '📖 Poesía', q: 'poesia' },
+  { label: '🆓 Gratis', q: 'gratis' },
+  { label: '🎬 Cine', q: 'cine' },
+  { label: '🎪 Festival', q: 'festival' },
+]
 
 function buildZonaTokens(zonaNombre: string): string[] {
   const normalized = (zonaNombre || '')
@@ -153,6 +217,7 @@ export default function Agenda() {
   const [textFilter, setTextFilter] = useState('')
   const [municipioFilter, setMunicipioFilter] = useState('')
   const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('')
+  const [fuenteFilter, setFuenteFilter] = useState<FuenteFilter>('')
   const [page, setPage] = useState(1)
   const fechaActual = useColombiaClock()
 
@@ -219,19 +284,25 @@ export default function Agenda() {
         result = result.filter(e => eventoMatchesZona(e, zona))
       }
     }
+    if (fuenteFilter) {
+      result = result.filter(e => matchesFuente(e.fuente, fuenteFilter))
+    }
     if (textFilter.trim()) {
-      const q = textFilter.trim().toLowerCase()
-      result = result.filter(e =>
-        e.titulo?.toLowerCase().includes(q) ||
-        e.nombre_lugar?.toLowerCase().includes(q) ||
-        e.barrio?.toLowerCase().includes(q) ||
-        e.municipio?.toLowerCase().includes(q) ||
-        e.descripcion?.toLowerCase().includes(q) ||
-        e.categoria_principal?.toLowerCase().includes(q)
-      )
+      const terms = expandSearchTerms(textFilter.trim())
+      result = result.filter(e => {
+        const searchable = [
+          normalizeText(e.titulo),
+          normalizeText(e.nombre_lugar),
+          normalizeText(e.barrio),
+          normalizeText(e.municipio),
+          normalizeText(e.descripcion),
+          normalizeText(e.categoria_principal),
+        ].join(' ')
+        return terms.some(term => searchable.includes(term))
+      })
     }
     return result
-  }, [eventos, catFilter, zonaFilter, zonas, textFilter, municipioFilter, precioFilter])
+  }, [eventos, catFilter, zonaFilter, zonas, textFilter, municipioFilter, precioFilter, fuenteFilter])
 
   const zonasDisponibles = useMemo(() => {
     return zonas.filter(zona => eventos.some(evento => eventoMatchesZona(evento, zona)))
@@ -244,7 +315,7 @@ export default function Agenda() {
   }, [zonaFilter, zonasDisponibles])
 
   // Reset to page 1 whenever filters change
-  useEffect(() => { setPage(1) }, [catFilter, zonaFilter, textFilter, municipioFilter, precioFilter, timeFilter])
+  useEffect(() => { setPage(1) }, [catFilter, zonaFilter, textFilter, municipioFilter, precioFilter, fuenteFilter, timeFilter])
 
   function getTimeLabel(t: TimeFilter): string {
     if (t === 'hoy') return ' hoy'
@@ -401,13 +472,13 @@ export default function Agenda() {
         <div className="sticky top-0 z-30 bg-white border-b-2 border-black -mx-4 sm:-mx-6 px-4 sm:px-6 pt-3 pb-3 mb-6">
 
           {/* Buscador */}
-          <div className="relative mb-3">
+          <div className="relative mb-2">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none select-none">🔍</span>
             <input
               type="text"
               value={textFilter}
               onChange={e => setTextFilter(e.target.value)}
-              placeholder="Buscar evento, lugar, barrio, categoría..."
+              placeholder="Busca: rock gratis hoy, danza teatro, artista lugar..."
               className="w-full pl-9 pr-10 py-2 text-xs font-mono border-2 border-black focus:outline-none focus:ring-0 placeholder:text-neutral-400 bg-white"
             />
             {textFilter && (
@@ -420,6 +491,21 @@ export default function Agenda() {
               </button>
             )}
           </div>
+
+          {/* Quick-search chips — solo cuando el buscador está vacío */}
+          {!textFilter && (
+            <div className="flex gap-1.5 overflow-x-auto pb-1.5 -mx-4 px-4 sm:mx-0 sm:px-0 mb-2" style={{ scrollbarWidth: 'none' }}>
+              {QUICK_SEARCHES.map(({ label, q }) => (
+                <button
+                  key={q}
+                  onClick={() => setTextFilter(q)}
+                  className="flex-shrink-0 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wide border border-black/30 bg-gray-50 hover:bg-black hover:text-white hover:border-black whitespace-nowrap transition-all"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Fila 1 — Tiempo + Precio (scrollable en mobile) */}
           <div className="flex gap-0 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible sm:pb-0 mb-2" style={{ scrollbarWidth: 'none' }}>
@@ -474,6 +560,16 @@ export default function Agenda() {
                 ))}
               </select>
             )}
+            {/* Fuente */}
+            <select
+              value={fuenteFilter}
+              onChange={e => setFuenteFilter(e.target.value as FuenteFilter)}
+              className="flex-shrink-0 ml-2 px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
+            >
+              {FUENTE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
 
           {/* Fila 2 — Categorías scrollables */}
@@ -498,7 +594,7 @@ export default function Agenda() {
           </div>
 
           {/* Chips de filtros activos */}
-          {(catFilter || zonaFilter || textFilter || municipioFilter || precioFilter) && (
+          {(catFilter || zonaFilter || textFilter || municipioFilter || precioFilter || fuenteFilter) && (
             <div className="flex items-center gap-2 flex-wrap mt-2 pt-2 border-t border-black/10">
               <span className="text-[9px] font-mono font-bold uppercase tracking-widest opacity-50">Activos:</span>
               {textFilter && (
@@ -541,8 +637,16 @@ export default function Agenda() {
                   {precioFilter === 'gratuito' ? 'Gratis' : 'Pago'} ✕
                 </button>
               )}
+              {fuenteFilter && (
+                <button
+                  onClick={() => setFuenteFilter('')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
+                >
+                  {FUENTE_OPTIONS.find(o => o.value === fuenteFilter)?.label ?? fuenteFilter} ✕
+                </button>
+              )}
               <button
-                onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setPrecioFilter('') }}
+                onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setPrecioFilter(''); setFuenteFilter('') }}
                 className="text-[9px] font-mono font-bold uppercase tracking-wider underline hover:no-underline ml-auto"
               >
                 Limpiar todo

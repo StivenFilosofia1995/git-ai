@@ -136,91 +136,112 @@ def _parse_comfama_date(date_str: str) -> Optional[str]:
 
 async def _try_wp_api(municipio: str = "Medellín") -> list[dict]:
     """
-    Fetch events from Comfama's The Events Calendar REST API v1.
-    Endpoint: /wp-json/tribe/events/v1/events
+    Fetch events from Comfama's The Events Calendar REST API v1 with full pagination.
     Falls back to wp/v2/tribe_events if v1 is unavailable.
     """
-    events = []
+    events: list[dict] = []
     apis_to_try = [
-        (_COMFAMA_API_EVENTS_V1, True),   # The Events Calendar v1
-        (_COMFAMA_API_EVENTS_V2, False),  # Legacy WP REST fallback
+        (_COMFAMA_API_EVENTS_V1, True),
+        (_COMFAMA_API_EVENTS_V2, False),
     ]
     now_co = datetime.now(CO_TZ)
+    # Start 1 day back to catch events that started today/yesterday and are ongoing
+    start_date = (now_co - timedelta(days=1)).strftime("%Y-%m-%d")
+    MAX_PAGES = 10
+    PER_PAGE = 50
 
     try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=_HEADERS) as client:
+        async with httpx.AsyncClient(timeout=25, follow_redirects=True, headers=_HEADERS) as client:
             for api_url, is_v1 in apis_to_try:
-                params: dict = {"per_page": 50, "page": 1}
-                if is_v1:
-                    params["start_date"] = now_co.strftime("%Y-%m-%d")
-                else:
-                    params.update(_COMFAMA_API_PARAMS_BASE)
+                page_events: list[dict] = []
 
-                resp = await client.get(api_url, params=params)
-                if resp.status_code != 200:
-                    print(f"  [comfama_scraper] {api_url} → HTTP {resp.status_code}, skipping")
-                    continue
-
-                data = resp.json()
-                # v1 wraps in {"events": [...], "total": N}
-                items = data.get("events", data) if is_v1 else data
-                if not isinstance(items, list) or not items:
-                    print(f"  [comfama_scraper] {api_url} → empty list")
-                    continue
-
-                print(f"  [comfama_scraper] {api_url} → {len(items)} items")
-                for item in items:
-                    # Field names differ between v1 and v2
+                for page in range(1, MAX_PAGES + 1):
                     if is_v1:
-                        titulo = item.get("title", "").strip()
-                        fecha_inicio = item.get("start_date", "") or item.get("start_date_details", {}).get("date", "")
-                        fecha_fin = item.get("end_date") or None
-                        descripcion = re.sub(r"<[^>]+>", "", item.get("description", ""))[:500]
-                        venue = item.get("venue") or {}
-                        lugar = venue.get("venue", "") or venue.get("address", "") or "Comfama"
-                        imagen_url = (item.get("image") or {}).get("url")
-                        link = item.get("url", "")
-                        categorias_raw = [c.get("name", "") for c in item.get("categories", []) if isinstance(c, dict)]
+                        params: dict = {
+                            "per_page": PER_PAGE,
+                            "page": page,
+                            "start_date": start_date,
+                        }
                     else:
-                        meta = item.get("meta", {}) or {}
-                        acf = item.get("acf", {}) or {}
-                        titulo = (item.get("title", {}) or {}).get("rendered", "").strip()
-                        fecha_inicio = meta.get("_EventStartDate") or acf.get("fecha_inicio") or item.get("date", "")
-                        fecha_fin = meta.get("_EventEndDate") or acf.get("fecha_fin") or None
-                        descripcion = re.sub(r"<[^>]+>", "", (item.get("excerpt", {}) or {}).get("rendered", ""))[:500]
-                        lugar = meta.get("_EventVenue", "") or acf.get("lugar", "") or "Comfama"
-                        imagen_url = None
-                        embedded = item.get("_embedded", {}) or {}
-                        if embedded.get("wp:featuredmedia"):
-                            media = embedded["wp:featuredmedia"][0] or {}
-                            imagen_url = media.get("source_url")
-                        link = item.get("link", "")
-                        categorias_raw = [
-                            t.get("name", "") for t in
-                            embedded.get("wp:term", [[]])[0] if isinstance(t, dict)
-                        ]
+                        params = {**_COMFAMA_API_PARAMS_BASE, "page": page, "per_page": PER_PAGE}
 
-                    if not titulo:
-                        continue
+                    resp = await client.get(api_url, params=params)
+                    if resp.status_code == 400:
+                        # page out of range — stop pagination
+                        break
+                    if resp.status_code != 200:
+                        print(f"  [comfama_scraper] {api_url} p{page} → HTTP {resp.status_code}")
+                        break
 
-                    cat_principal = _map_categoria(categorias_raw[0] if categorias_raw else "")
-                    ev = {
-                        "titulo": titulo[:200],
-                        "fecha_inicio": _parse_comfama_date(str(fecha_inicio)) if fecha_inicio else None,
-                        "fecha_fin": _parse_comfama_date(str(fecha_fin)) if fecha_fin else None,
-                        "descripcion": descripcion,
-                        "nombre_lugar": (lugar or "Comfama Medellín")[:200],
-                        "barrio": None,
-                        "municipio": "medellin",
-                        "precio": "Consultar",
-                        "es_gratuito": False,
-                        "categoria_principal": cat_principal,
-                        "categorias": categorias_raw[:5],
-                        "imagen_url": imagen_url,
-                        "fuente_url": link or "https://www.comfama.com/agenda/",
-                    }
-                    events.append(ev)
-                break  # Got results from this API, stop trying others
+                    data = resp.json()
+                    items = data.get("events", data) if is_v1 else data
+                    if not isinstance(items, list) or not items:
+                        break  # no more pages
+
+                    print(f"  [comfama_scraper] {api_url} p{page} → {len(items)} items")
+
+                    for item in items:
+                        if is_v1:
+                            titulo = (item.get("title") or "").strip()
+                            fecha_inicio = item.get("start_date") or (item.get("start_date_details") or {}).get("date", "")
+                            fecha_fin = item.get("end_date") or None
+                            descripcion = re.sub(r"<[^>]+>", "", item.get("description") or "")[:500]
+                            venue = item.get("venue") or {}
+                            lugar = venue.get("venue") or venue.get("address") or "Comfama"
+                            imagen_url = (item.get("image") or {}).get("url")
+                            link = item.get("url") or ""
+                            categorias_raw = [c.get("name", "") for c in item.get("categories", []) if isinstance(c, dict)]
+                        else:
+                            meta = item.get("meta") or {}
+                            acf = item.get("acf") or {}
+                            titulo = ((item.get("title") or {}).get("rendered") or "").strip()
+                            fecha_inicio = meta.get("_EventStartDate") or acf.get("fecha_inicio") or item.get("date", "")
+                            fecha_fin = meta.get("_EventEndDate") or acf.get("fecha_fin") or None
+                            descripcion = re.sub(r"<[^>]+>", "", ((item.get("excerpt") or {}).get("rendered") or ""))[:500]
+                            lugar = meta.get("_EventVenue") or acf.get("lugar") or "Comfama"
+                            embedded = item.get("_embedded") or {}
+                            imagen_url = None
+                            if embedded.get("wp:featuredmedia"):
+                                media = (embedded["wp:featuredmedia"] or [{}])[0] or {}
+                                imagen_url = media.get("source_url")
+                            link = item.get("link") or ""
+                            categorias_raw = [
+                                t.get("name", "") for t in
+                                (embedded.get("wp:term") or [[]])[0] if isinstance(t, dict)
+                            ]
+
+                        if not titulo:
+                            continue
+                        # Guard: skip events without a parseable date
+                        fecha_iso = _parse_comfama_date(str(fecha_inicio)) if fecha_inicio else None
+                        if not fecha_iso:
+                            continue
+
+                        cat_principal = _map_categoria(categorias_raw[0] if categorias_raw else "")
+                        page_events.append({
+                            "titulo": titulo[:200],
+                            "fecha_inicio": fecha_iso,
+                            "fecha_fin": _parse_comfama_date(str(fecha_fin)) if fecha_fin else None,
+                            "descripcion": descripcion,
+                            "nombre_lugar": (lugar or "Comfama Medellín")[:200],
+                            "barrio": None,
+                            "municipio": "medellin",
+                            "precio": "Consultar",
+                            "es_gratuito": False,
+                            "categoria_principal": cat_principal,
+                            "categorias": categorias_raw[:5],
+                            "imagen_url": imagen_url,
+                            "fuente_url": link or "https://www.comfama.com/agenda/",
+                        })
+
+                    # If fewer results than requested, we've reached the last page
+                    if len(items) < PER_PAGE:
+                        break
+
+                if page_events:
+                    print(f"  [comfama_scraper] API total: {len(page_events)} eventos en {page} página(s)")
+                    events.extend(page_events)
+                    break  # Got results from this API, don't try fallback
     except Exception as exc:
         print(f"[comfama_scraper] WP API error: {exc}")
     return events
