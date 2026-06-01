@@ -52,6 +52,8 @@ export interface Evento {
   lat?: number | null
   lng?: number | null
   hora_confirmada?: boolean | null
+  oculto?: boolean | null
+  duracion_minutos?: number | null
 }
 
 export interface Zona {
@@ -1209,5 +1211,156 @@ export async function getEventosDestacados(limit = 5): Promise<Evento[]> {
   } catch {
     return apiGet<Evento[]>(`/eventos/?limit=${limit}`)
   }
+}
+
+// ─── Admin: Event Upload ───────────────────────────────────────────────────────
+
+export interface EventoAdminCreate {
+  titulo: string
+  fecha_inicio: string
+  hora_inicio?: string
+  fecha_fin?: string
+  duracion_minutos?: number
+  descripcion?: string
+  categoria_principal: string
+  municipio: string
+  barrio?: string
+  nombre_lugar?: string
+  espacio_id?: string
+  precio?: string
+  es_gratuito: boolean
+  imagen_url?: string
+  oculto: boolean
+}
+
+export interface EventoAdminUpdate {
+  titulo?: string
+  fecha_inicio?: string
+  hora_inicio?: string
+  fecha_fin?: string
+  duracion_minutos?: number
+  descripcion?: string
+  categoria_principal?: string
+  municipio?: string
+  barrio?: string
+  nombre_lugar?: string
+  precio?: string
+  es_gratuito?: boolean
+  imagen_url?: string
+  oculto?: boolean
+}
+
+export interface FeatureImportance {
+  name: string
+  weight: number
+}
+
+export interface ModeloIAStatus {
+  status: 'trained' | 'untrained'
+  trained_at: string | null
+  training_count: number
+  n_positivos: number
+  n_negativos: number
+  metrics: {
+    accuracy: number | null
+    precision: number | null
+    recall: number | null
+    f1: number | null
+  }
+  feature_importances: FeatureImportance[]
+  recent_predictions: Array<{ titulo: string; prob: number; result: boolean; ts: string }>
+}
+
+function adminHeaders(apiKey: string): HeadersInit {
+  return { 'X-API-Key': apiKey, 'Content-Type': 'application/json' }
+}
+
+export async function adminUploadEventImage(
+  apiKey: string,
+  file: File,
+  slug = 'evento',
+): Promise<{ url: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(
+    `${API_BASE_URL}/admin/eventos/imagen?slug=${encodeURIComponent(slug)}`,
+    { method: 'POST', headers: { 'X-API-Key': apiKey }, body: form },
+  )
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error((err as { detail?: string }).detail ?? String(response.status))
+  }
+  return response.json() as Promise<{ url: string }>
+}
+
+export async function adminCrearEvento(apiKey: string, data: EventoAdminCreate): Promise<Evento> {
+  const response = await fetch(`${API_BASE_URL}/admin/eventos/crear`, {
+    method: 'POST',
+    headers: adminHeaders(apiKey),
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error((err as { detail?: string }).detail ?? String(response.status))
+  }
+  return response.json() as Promise<Evento>
+}
+
+export async function adminActualizarEvento(
+  apiKey: string,
+  id: string,
+  data: EventoAdminUpdate,
+): Promise<Evento> {
+  const response = await fetch(`${API_BASE_URL}/admin/eventos/${id}`, {
+    method: 'PATCH',
+    headers: adminHeaders(apiKey),
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) throw new Error(String(response.status))
+  return response.json() as Promise<Evento>
+}
+
+export async function adminGetEventosManuales(
+  apiKey: string,
+  page = 1,
+): Promise<{ data: Evento[]; total: number }> {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/eventos/manuales?page=${page}&per_page=50`,
+    { headers: { 'X-API-Key': apiKey } },
+  )
+  if (!response.ok) throw new Error(String(response.status))
+  return response.json() as Promise<{ data: Evento[]; total: number }>
+}
+
+export async function adminDeleteEvento(apiKey: string, id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/admin/eventos/${id}`, {
+    method: 'DELETE',
+    headers: { 'X-API-Key': apiKey },
+  })
+  if (!response.ok) throw new Error(String(response.status))
+}
+
+// ─── Admin: ML Model ──────────────────────────────────────────────────────────
+
+export async function adminGetModeloIA(apiKey: string): Promise<ModeloIAStatus> {
+  const response = await fetch(`${API_BASE_URL}/admin/modelo-ia`, {
+    headers: { 'X-API-Key': apiKey },
+  })
+  if (!response.ok) throw new Error(String(response.status))
+  return response.json() as Promise<ModeloIAStatus>
+}
+
+export async function adminReentrenarModelo(
+  apiKey: string,
+): Promise<{ ok: boolean; metrics: ModeloIAStatus['metrics'] }> {
+  const response = await fetch(`${API_BASE_URL}/admin/modelo-ia/retrain`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error((err as { detail?: string }).detail ?? String(response.status))
+  }
+  return response.json() as Promise<{ ok: boolean; metrics: ModeloIAStatus['metrics'] }>
 }
 

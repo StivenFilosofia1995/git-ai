@@ -142,6 +142,17 @@ def _run_blast_tick():
         print(f"❌ Blast tick error: {e}")
 
 
+def _reset_weekly_digest_cursor():
+    """Every Monday 6am: reset the weekly digest cursor so the drip restarts."""
+    from app.services.email_service import _week_start_iso, _kv_upsert
+    try:
+        week_start = _week_start_iso()
+        _kv_upsert(f"weekly_digest_cursor:{week_start}", "0")
+        print(f"📬 Digest cursor reiniciado para semana {week_start}")
+    except Exception as e:
+        print(f"❌ Digest cursor reset error: {e}")
+
+
 def _run_privacy_cleanup():
     """Job wrapper for automatic privacy/data retention cleanup."""
     from app.services.privacy_cleanup import run_privacy_cleanup
@@ -256,6 +267,15 @@ def start_scheduler():
         trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
         id="blast_campaign",
         name="Blast campaign — goteo a todos los usuarios (cada 4min)",
+        replace_existing=True,
+    )
+
+    # ── Digest reset: cada lunes 6:00 AM Colombia → reinicia cursor ──────
+    scheduler.add_job(
+        _reset_weekly_digest_cursor,
+        trigger=CronTrigger(day_of_week="mon", hour=6, minute=0, timezone=CO_TZ),
+        id="weekly_digest_reset_monday",
+        name="Reinicio cursor boletín semanal (lunes 6am)",
         replace_existing=True,
     )
 

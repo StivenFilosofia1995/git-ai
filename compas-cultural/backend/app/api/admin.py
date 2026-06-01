@@ -1,5 +1,12 @@
 """Admin dashboard — aggregated metrics for platform health."""
-from fastapi import APIRouter, HTTPException, Header, Query
+from __future__ import annotations
+
+import re
+import unicodedata
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Header, Query, UploadFile, File
+from pydantic import BaseModel
 from app.config import settings
 
 router = APIRouter()
@@ -475,3 +482,225 @@ async def full_reset(x_api_key: str | None = Header(default=None, alias="X-API-K
         "ok": True,
         "message": "Full reset iniciado: cleanup_news → comfama → bibliotecas → epm → agenda_sources",
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# ADMIN EVENT UPLOAD
+# ═══════════════════════════════════════════════════════════════
+
+def _slugify(text: str) -> str:
+    t = unicodedata.normalize("NFD", text.lower())
+    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+    t = re.sub(r"[^a-z0-9]+", "-", t).strip("-")
+    return t[:80]
+
+
+class EventoAdminCreate(BaseModel):
+    titulo: str
+    fecha_inicio: str               # ISO date or datetime
+    hora_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+    duracion_minutos: Optional[int] = None
+    descripcion: Optional[str] = None
+    categoria_principal: str = "otro"
+    municipio: str = "medellin"
+    barrio: Optional[str] = None
+    nombre_lugar: Optional[str] = None
+    espacio_id: Optional[str] = None
+    precio: Optional[str] = None
+    es_gratuito: bool = True
+    imagen_url: Optional[str] = None
+    oculto: bool = False
+
+
+class EventoAdminUpdate(BaseModel):
+    titulo: Optional[str] = None
+    fecha_inicio: Optional[str] = None
+    hora_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+    duracion_minutos: Optional[int] = None
+    descripcion: Optional[str] = None
+    categoria_principal: Optional[str] = None
+    municipio: Optional[str] = None
+    barrio: Optional[str] = None
+    nombre_lugar: Optional[str] = None
+    precio: Optional[str] = None
+    es_gratuito: Optional[bool] = None
+    imagen_url: Optional[str] = None
+    oculto: Optional[bool] = None
+
+
+@router.post("/eventos/imagen")
+async def upload_evento_imagen(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    file: UploadFile = File(...),
+    slug: str = Query(default="evento"),
+):
+    """Upload a poster/image to Supabase Storage. Returns the public URL."""
+    _check_key(x_api_key)
+    from app.services.storage_service import upload_event_image
+
+    file_bytes = await file.read()
+    try:
+        url = upload_event_image(file_bytes, file.filename or "image", slug)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"url": url}
+
+
+@router.post("/eventos/crear")
+def admin_crear_evento(
+    body: EventoAdminCreate,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Create a manually-curated event (verificado=True, fuente='admin_manual')."""
+    _check_key(x_api_key)
+    from app.database import supabase
+    import time
+
+    base_slug = _slugify(body.titulo)
+    slug = f"{base_slug}-{int(time.time()) % 100000}"
+
+    # Check slug uniqueness
+    existing = supabase.table("eventos").select("id").eq("slug", slug).maybe_single().execute()
+    if existing.data:
+        slug = f"{slug}-{int(time.time()) % 9999}"
+
+    data: dict = {
+        "titulo": body.titulo,
+        "slug": slug,
+        "fecha_inicio": body.fecha_inicio,
+        "categoria_principal": body.categoria_principal,
+        "municipio": body.municipio,
+        "verificado": True,
+        "fuente": "admin_manual",
+        "es_gratuito": body.es_gratuito,
+        "oculto": body.oculto,
+    }
+    if body.hora_inicio:
+        data["hora_inicio"] = body.hora_inicio
+    if body.fecha_fin:
+        data["fecha_fin"] = body.fecha_fin
+    if body.duracion_minutos is not None:
+        data["duracion_minutos"] = body.duracion_minutos
+    if body.descripcion:
+        data["descripcion"] = body.descripcion
+    if body.barrio:
+        data["barrio"] = body.barrio
+    if body.nombre_lugar:
+        data["nombre_lugar"] = body.nombre_lugar
+    if body.espacio_id:
+        data["espacio_id"] = body.espacio_id
+    if body.precio:
+        data["precio"] = body.precio
+    if body.imagen_url:
+        data["imagen_url"] = body.imagen_url
+
+    res = supabase.table("eventos").insert(data).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Error creando evento")
+    return res.data[0]
+
+
+@router.patch("/eventos/{evento_id}")
+def admin_update_evento(
+    evento_id: str,
+    body: EventoAdminUpdate,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Partially update an event (any field, including oculto toggle)."""
+    _check_key(x_api_key)
+    from app.database import supabase
+
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    # Allow explicitly setting oculto=False
+    if body.oculto is not None:
+        updates["oculto"] = body.oculto
+    if not updates:
+        raise HTTPException(status_code=400, detail="No hay campos para actualizar")
+
+    res = supabase.table("eventos").update(updates).eq("id", evento_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    return res.data[0]
+
+
+@router.get("/eventos/manuales")
+def admin_get_eventos_manuales(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    page: int = 1,
+    per_page: int = 50,
+):
+    """List manually-uploaded events with their oculto status."""
+    _check_key(x_api_key)
+    from app.database import supabase
+    offset = (max(page, 1) - 1) * per_page
+    res = (
+        supabase.table("eventos")
+        .select(
+            "id,titulo,slug,fecha_inicio,hora_inicio,fecha_fin,duracion_minutos,"
+            "categoria_principal,municipio,barrio,nombre_lugar,imagen_url,"
+            "es_gratuito,precio,oculto,verificado,created_at",
+            count="exact",
+        )
+        .eq("fuente", "admin_manual")
+        .order("created_at", desc=True)
+        .range(offset, offset + per_page - 1)
+        .execute()
+    )
+    return {"data": res.data or [], "total": res.count or 0, "page": page, "per_page": per_page}
+
+
+@router.delete("/eventos/{evento_id}")
+def admin_delete_evento(
+    evento_id: str,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Delete an event by ID."""
+    _check_key(x_api_key)
+    from app.database import supabase
+    res = supabase.table("eventos").delete().eq("id", evento_id).execute()
+    return {"ok": True, "deleted": len(res.data or [])}
+
+
+# ═══════════════════════════════════════════════════════════════
+# ML MODEL MONITORING
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/modelo-ia")
+def get_modelo_ia(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Return current ML classifier status, metrics and feature importances."""
+    _check_key(x_api_key)
+    from app.services.ml_classifier import get_model_status
+    return get_model_status()
+
+
+@router.post("/modelo-ia/retrain")
+def retrain_modelo_ia(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Retrain the logistic regression classifier from current DB data."""
+    _check_key(x_api_key)
+    from app.services.ml_classifier import train_classifier
+    metrics = train_classifier()
+    if "error" in metrics:
+        raise HTTPException(status_code=400, detail=metrics["error"])
+    return {"ok": True, "metrics": metrics}
+
+
+@router.post("/modelo-ia/feedback")
+def add_ml_feedback(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    titulo: str = Query(...),
+    descripcion: str = Query(default=""),
+    fuente_url: str = Query(default=""),
+    label: bool = Query(..., description="true = es evento, false = no es evento"),
+):
+    """Add a manually-labelled example to the ML training feedback table."""
+    _check_key(x_api_key)
+    from app.database import supabase
+    res = supabase.table("ml_training_feedback").insert({
+        "titulo": titulo[:500],
+        "descripcion": descripcion[:1000],
+        "fuente_url": fuente_url[:500],
+        "label": label,
+    }).execute()
+    return {"ok": True, "id": (res.data or [{}])[0].get("id")}

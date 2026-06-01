@@ -402,6 +402,8 @@ def _build_weekly_digest_html(
     eventos_semana: list[dict],
     eventos_hoy: list[dict] | None = None,
     unsubscribe_url: str = "",
+    municipio: str | None = None,
+    preferencias: list[str] | None = None,
 ) -> str:
     frontend_url = settings.frontend_url.rstrip("/")
     now_co = datetime.now(CO_TZ)
@@ -421,6 +423,56 @@ def _build_weekly_digest_html(
         left = semana_evs[i]
         right = semana_evs[i + 1] if i + 1 < len(semana_evs) else None
         semana_rows += _build_event_row_compact(left, right, frontend_url)
+
+    # CERCA DE TI section — events from user's municipio (if different from general)
+    cerca_section = ""
+    if municipio and municipio.lower() not in ("", "medellin"):
+        cerca_evs = _fetch_weekly_events(municipio, limit=4)
+        if cerca_evs:
+            rows_cerca = ""
+            for i in range(0, len(cerca_evs[:4]), 2):
+                l = cerca_evs[i]
+                r_ev = cerca_evs[i + 1] if i + 1 < len(cerca_evs) else None
+                rows_cerca += _build_event_row_compact(l, r_ev, frontend_url)
+            muni_label = escape(municipio.replace("_", " ").title())
+            cerca_section = f"""
+  <tr>
+    <td style="padding:8px 32px 8px;">
+      <div style="font-family:'Courier New',Courier,monospace;font-size:9px;font-weight:700;letter-spacing:3px;color:#ffffff;text-transform:uppercase;border-bottom:1px solid #1a1a1a;padding-bottom:10px;margin-bottom:16px;">
+        📍 CERCA DE TI · {muni_label}
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0">{rows_cerca}</table>
+    </td>
+  </tr>"""
+
+    # PARA TI section — events matching the user's category preferences
+    para_ti_section = ""
+    if preferencias:
+        pref_evs: list[dict] = []
+        seen_slugs: set[str] = {ev.get("slug", "") for ev in eventos_semana}
+        for cat in preferencias[:3]:
+            cat_evs = _fetch_weekly_events(None, cat, limit=2)
+            for ev in cat_evs:
+                s = ev.get("slug", "")
+                if s not in seen_slugs:
+                    pref_evs.append(ev)
+                    seen_slugs.add(s)
+        if pref_evs:
+            rows_pref = ""
+            for i in range(0, min(len(pref_evs), 4), 2):
+                l = pref_evs[i]
+                r_ev = pref_evs[i + 1] if i + 1 < len(pref_evs) else None
+                rows_pref += _build_event_row_compact(l, r_ev, frontend_url)
+            cats_label = escape(" · ".join(p.replace("_", " ").title() for p in preferencias[:3]))
+            para_ti_section = f"""
+  <tr>
+    <td style="padding:8px 32px 8px;">
+      <div style="font-family:'Courier New',Courier,monospace;font-size:9px;font-weight:700;letter-spacing:3px;color:#ffffff;text-transform:uppercase;border-bottom:1px solid #1a1a1a;padding-bottom:10px;margin-bottom:16px;">
+        ⭐ PARA TI · {cats_label}
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0">{rows_pref}</table>
+    </td>
+  </tr>"""
 
     no_eventos_msg = "" if (hoy_cards or semana_rows) else """
 <tr><td style="padding:24px;text-align:center;">
@@ -490,6 +542,9 @@ def _build_weekly_digest_html(
       </table>
     </td>
   </tr>
+
+  {cerca_section}
+  {para_ti_section}
 
   <!-- CTA -->
   <tr>
@@ -762,6 +817,21 @@ def _set_digest_cursor(week_start_iso: str, idx: int) -> None:
     _kv_upsert(_digest_cursor_key(week_start_iso), str(max(idx, 0)))
 
 
+def _get_profile_for_email(email: str) -> dict:
+    """Fetch user profile (municipio, preferencias) from perfiles table by email."""
+    try:
+        resp = (
+            supabase.table("perfiles_usuario")
+            .select("municipio,preferencias")
+            .eq("email", email.strip().lower())
+            .maybe_single()
+            .execute()
+        )
+        return resp.data or {}
+    except Exception:
+        return {}
+
+
 # ─── Weekly digest campaign (Monday drip) ─────────────────────────────────────
 
 def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict:
@@ -823,7 +893,13 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict
 
         context_label = r.get("context_label") or VALLE_LABEL
         unsub_url = f"{settings.frontend_url.rstrip('/')}/api/v1/email/unsubscribe?email={_url_quote(email)}&token={_unsub_token(email)}"
-        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy, unsubscribe_url=unsub_url)
+        profile = _get_profile_for_email(email)
+        user_muni = profile.get("municipio") or r.get("municipio")
+        user_prefs = profile.get("preferencias") or []
+        html = _build_weekly_digest_html(
+            r["nombre"], context_label, eventos_semana, eventos_hoy,
+            unsubscribe_url=unsub_url, municipio=user_muni, preferencias=user_prefs or None,
+        )
         text = _build_weekly_digest_text(r["nombre"], context_label, eventos_semana)
         subject = f"Tu agenda cultural esta semana — ETÉREA"
 
@@ -892,7 +968,13 @@ def send_blast_campaign_tick() -> dict:
         context_label = r.get("context_label") or VALLE_LABEL
         stats["target_email"] = email
         unsub_url = f"{settings.frontend_url.rstrip('/')}/api/v1/email/unsubscribe?email={_url_quote(email)}&token={_unsub_token(email)}"
-        html = _build_weekly_digest_html(r["nombre"], context_label, eventos_semana, eventos_hoy, unsubscribe_url=unsub_url)
+        profile = _get_profile_for_email(email)
+        user_muni = profile.get("municipio") or r.get("municipio")
+        user_prefs = profile.get("preferencias") or []
+        html = _build_weekly_digest_html(
+            r["nombre"], context_label, eventos_semana, eventos_hoy,
+            unsubscribe_url=unsub_url, municipio=user_muni, preferencias=user_prefs or None,
+        )
         text = _build_weekly_digest_text(r["nombre"], context_label, eventos_semana)
 
         if _send_email(email, "Tu agenda cultural esta semana — ETÉREA", html, text):

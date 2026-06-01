@@ -241,7 +241,7 @@ def get_eventos(
     """
     Listar eventos con filtros robustos.
     """
-    query = supabase.table("eventos").select("*")
+    query = supabase.table("eventos").select("*").or_("oculto.eq.false,oculto.is.null")
 
     if fecha_desde:
         # Use date-only format to match DB rows that store date without timezone.
@@ -339,16 +339,20 @@ def get_eventos_hoy(
     hoy_str = hoy_inicio.strftime("%Y-%m-%d")
 
     # Events that START today
-    q_inicio = supabase.table("eventos").select("*").eq("fecha_inicio", hoy_str)
+    q_inicio = (
+        supabase.table("eventos").select("*")
+        .or_("oculto.eq.false,oculto.is.null")
+        .eq("fecha_inicio", hoy_str)
+    )
     resp_inicio = q_inicio.order("fecha_inicio").execute()
     eventos = resp_inicio.data or []
 
     # Multi-day events that started within the last 2 days and end today or later
-    # Strict 2-day window: only "yesterday started" events qualify as "en curso hoy"
     hace_30_dias = (hoy_inicio - timedelta(days=2)).strftime("%Y-%m-%d")
     q_en_curso = (
         supabase.table("eventos")
         .select("*")
+        .or_("oculto.eq.false,oculto.is.null")
         .gte("fecha_inicio", hace_30_dias)
         .lt("fecha_inicio", hoy_str)
         .gte("fecha_fin", hoy_str)
@@ -457,6 +461,7 @@ def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
     response = (
         supabase.table("eventos")
         .select("*")
+        .or_("oculto.eq.false,oculto.is.null")
         .eq("espacio_id", espacio_id)
         .gte("fecha_inicio", hoy_iso)
         .order("fecha_inicio")

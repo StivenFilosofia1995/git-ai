@@ -1,15 +1,17 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { Helmet } from 'react-helmet-async'
 import {
   getAdminDashboard, adminTriggerScraper, adminTriggerBlastTick, adminTriggerCleanup,
-  type AdminDashboard,
+  adminUploadEventImage, adminCrearEvento, adminActualizarEvento, adminDeleteEvento,
+  adminGetEventosManuales, adminGetModeloIA, adminReentrenarModelo,
+  type AdminDashboard, type EventoAdminCreate, type ModeloIAStatus,
 } from '../lib/api'
 
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 const KEY_STORAGE = 'admin:apikey'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
-type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa'
+type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia'
 
 const CAT_LABEL: Record<string, string> = {
   teatro: 'Teatro', hip_hop: 'Hip Hop', jazz: 'Jazz', galeria: 'Galería',
@@ -503,6 +505,434 @@ function TabLogs({ apiKey }: { apiKey: string }) {
   )
 }
 
+// ── TAB: SUBIR EVENTO ────────────────────────────────────────────────────────
+
+const CATS_ADMIN = [
+  'teatro','musica_en_vivo','rock','jazz','hip_hop','electronica','danza','cine',
+  'galeria','arte_contemporaneo','poesia','festival','taller','conferencia',
+  'filosofia','circo','fotografia','libreria','editorial','otro',
+]
+const MUNICIPIOS_ADMIN = [
+  'medellin','bello','itagui','envigado','sabaneta','caldas',
+  'la_estrella','copacabana','girardota','barbosa',
+]
+
+const BLANK_FORM: EventoAdminCreate = {
+  titulo: '', fecha_inicio: '', hora_inicio: '', fecha_fin: '',
+  duracion_minutos: undefined, descripcion: '',
+  categoria_principal: 'otro', municipio: 'medellin',
+  barrio: '', nombre_lugar: '', precio: '',
+  es_gratuito: true, imagen_url: '', oculto: false,
+}
+
+function TabSubirEvento({ apiKey }: { apiKey: string }) {
+  const [form, setForm] = useState<EventoAdminCreate>({ ...BLANK_FORM })
+  const [imgPreview, setImgPreview] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const [manuales, setManuales] = useState<import('../lib/api').Evento[]>([])
+  const [loadingList, setLoadingList] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const loadManuales = useCallback(async () => {
+    setLoadingList(true)
+    try {
+      const res = await adminGetEventosManuales(apiKey)
+      setManuales(res.data)
+    } catch { /* ignore */ } finally { setLoadingList(false) }
+  }, [apiKey])
+
+  useEffect(() => { void loadManuales() }, [loadManuales])
+
+  function f(k: keyof EventoAdminCreate) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+      const v = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked
+        : e.target.type === 'number' ? (e.target.value ? Number(e.target.value) : undefined)
+        : e.target.value
+      setForm(prev => ({ ...prev, [k]: v }))
+    }
+  }
+
+  async function handleFile(file: File) {
+    if (!file.type.startsWith('image/')) { setMsg({ text: 'Solo se aceptan imágenes', ok: false }); return }
+    setUploading(true); setMsg(null)
+    try {
+      const slug = form.titulo ? form.titulo.toLowerCase().replace(/\s+/g, '-').slice(0, 40) : 'evento'
+      const res = await adminUploadEventImage(apiKey, file, slug)
+      setForm(prev => ({ ...prev, imagen_url: res.url }))
+      setImgPreview(res.url)
+      setMsg({ text: 'Imagen subida correctamente', ok: true })
+    } catch (e: unknown) {
+      setMsg({ text: `Error: ${e instanceof Error ? e.message : String(e)}`, ok: false })
+    } finally { setUploading(false) }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.titulo || !form.fecha_inicio) { setMsg({ text: 'Título y fecha son obligatorios', ok: false }); return }
+    setSubmitting(true); setMsg(null)
+    try {
+      await adminCrearEvento(apiKey, form)
+      setMsg({ text: '✓ Evento creado correctamente', ok: true })
+      setForm({ ...BLANK_FORM }); setImgPreview('')
+      void loadManuales()
+    } catch (e: unknown) {
+      setMsg({ text: `Error: ${e instanceof Error ? e.message : String(e)}`, ok: false })
+    } finally { setSubmitting(false) }
+  }
+
+  async function toggleOculto(ev: import('../lib/api').Evento) {
+    try {
+      await adminActualizarEvento(apiKey, ev.id, { oculto: !ev.oculto })
+      void loadManuales()
+    } catch { /* ignore */ }
+  }
+
+  async function handleDelete(ev: import('../lib/api').Evento) {
+    if (!confirm(`¿Eliminar "${ev.titulo}"?`)) return
+    try { await adminDeleteEvento(apiKey, ev.id); void loadManuales() } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Form */}
+      <form onSubmit={handleSubmit} className="border-2 border-black p-6">
+        <h2 className="font-mono font-bold uppercase tracking-widest text-xs mb-6">Subir evento manualmente</h2>
+
+        {/* Image upload */}
+        <div
+          className={`border-2 ${isDragging ? 'border-yellow-400 bg-yellow-50' : 'border-black border-dashed'} p-6 text-center cursor-pointer mb-6 transition-colors`}
+          onClick={() => fileRef.current?.click()}
+          onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={e => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) void handleFile(f) }}
+        >
+          {imgPreview ? (
+            <img src={imgPreview} alt="preview" className="max-h-40 mx-auto object-contain" />
+          ) : (
+            <p className="font-mono text-xs text-neutral-400 uppercase tracking-wider">
+              {uploading ? 'Subiendo imagen...' : 'Arrastra un poster/imagen aquí o haz clic para seleccionar'}
+            </p>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) void handleFile(f) }} />
+        </div>
+
+        {/* URL manual override */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">URL de imagen (opcional)</span>
+            <input value={form.imagen_url ?? ''} onChange={f('imagen_url')}
+              placeholder="https://... o dejar vacío si subiste archivo"
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Título *</span>
+            <input value={form.titulo} onChange={f('titulo')} required
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Fecha inicio *</span>
+            <input type="date" value={form.fecha_inicio} onChange={f('fecha_inicio')} required
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Hora inicio</span>
+            <input type="time" value={form.hora_inicio ?? ''} onChange={f('hora_inicio')}
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Duración (min)</span>
+            <input type="number" min={1} max={1440} value={form.duracion_minutos ?? ''} onChange={f('duracion_minutos')}
+              placeholder="ej: 90"
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Fecha fin (opcional)</span>
+            <input type="date" value={form.fecha_fin ?? ''} onChange={f('fecha_fin')}
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Categoría</span>
+            <select value={form.categoria_principal} onChange={f('categoria_principal')}
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400">
+              {CATS_ADMIN.map(c => <option key={c} value={c}>{CAT_LABEL[c] ?? c}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Municipio</span>
+            <select value={form.municipio} onChange={f('municipio')}
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400">
+              {MUNICIPIOS_ADMIN.map(m => <option key={m} value={m}>{m.replace(/_/g, ' ')}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Barrio</span>
+            <input value={form.barrio ?? ''} onChange={f('barrio')}
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Nombre del lugar</span>
+            <input value={form.nombre_lugar ?? ''} onChange={f('nombre_lugar')}
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+          <label className="block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Precio</span>
+            <input value={form.precio ?? ''} onChange={f('precio')} placeholder="ej: $25.000 o Gratis"
+              className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
+          </label>
+        </div>
+
+        <label className="block mb-4">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Descripción</span>
+          <textarea value={form.descripcion ?? ''} onChange={f('descripcion')} rows={3}
+            className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400 resize-none" />
+        </label>
+
+        <div className="flex flex-wrap items-center gap-6 mb-6">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.es_gratuito} onChange={f('es_gratuito')}
+              className="w-4 h-4 border-2 border-black accent-black" />
+            <span className="font-mono text-xs uppercase tracking-wider font-bold">Gratuito</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.oculto} onChange={f('oculto')}
+              className="w-4 h-4 border-2 border-black accent-black" />
+            <span className="font-mono text-xs uppercase tracking-wider font-bold">Ocultar (no publicar)</span>
+          </label>
+        </div>
+
+        {msg && (
+          <p className={`font-mono text-xs mb-4 ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>{msg.text}</p>
+        )}
+
+        <button type="submit" disabled={submitting || uploading}
+          className="px-6 py-3 bg-black text-white font-mono font-bold uppercase tracking-widest text-sm hover:bg-yellow-300 hover:text-black transition-colors disabled:opacity-50">
+          {submitting ? 'Guardando...' : 'Publicar evento →'}
+        </button>
+      </form>
+
+      {/* List of manual events */}
+      <div className="border-2 border-black p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-mono font-bold uppercase tracking-widest text-xs">Eventos subidos manualmente</h2>
+          <button onClick={loadManuales} className="font-mono text-[10px] uppercase tracking-wider hover:underline">↺ Actualizar</button>
+        </div>
+        {loadingList ? (
+          <p className="font-mono text-xs text-neutral-400 animate-pulse">Cargando...</p>
+        ) : manuales.length === 0 ? (
+          <p className="font-mono text-xs text-neutral-400">No hay eventos subidos manualmente aún.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] font-mono border-collapse">
+              <thead>
+                <tr className="bg-black text-white">
+                  {['Título','Fecha','Categoría','Lugar','Visible','Acciones'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 font-bold uppercase tracking-wider whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {manuales.map(ev => (
+                  <tr key={ev.id} className={`border-b border-black/10 ${ev.oculto ? 'opacity-50' : ''}`}>
+                    <td className="px-3 py-2 max-w-[180px] truncate font-medium">{ev.titulo}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{(ev.fecha_inicio ?? '').slice(0, 10)}</td>
+                    <td className="px-3 py-2">{CAT_LABEL[ev.categoria_principal] ?? ev.categoria_principal}</td>
+                    <td className="px-3 py-2 max-w-[140px] truncate">{ev.nombre_lugar ?? ev.barrio ?? '—'}</td>
+                    <td className="px-3 py-2">
+                      <button onClick={() => void toggleOculto(ev)}
+                        className={`px-2 py-0.5 border font-bold text-[9px] uppercase tracking-wider transition-colors ${ev.oculto ? 'border-red-400 text-red-600 hover:bg-red-50' : 'border-green-500 text-green-700 hover:bg-green-50'}`}>
+                        {ev.oculto ? 'Oculto' : 'Visible'}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap space-x-2">
+                      {ev.imagen_url && (
+                        <img src={ev.imagen_url} alt="" className="w-8 h-8 object-cover inline-block border border-black/20" />
+                      )}
+                      <button onClick={() => void handleDelete(ev)}
+                        className="text-red-600 hover:text-red-800 font-bold text-[10px] uppercase tracking-wider">
+                        Borrar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── TAB: MODELO IA ────────────────────────────────────────────────────────────
+
+function TabModeloIA({ apiKey }: { apiKey: string }) {
+  const [status, setStatus] = useState<ModeloIAStatus | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [training, setTraining] = useState(false)
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setStatus(await adminGetModeloIA(apiKey)) }
+    catch { /* ignore */ } finally { setLoading(false) }
+  }, [apiKey])
+
+  useEffect(() => { void load() }, [load])
+
+  async function retrain() {
+    setTraining(true); setMsg(null)
+    try {
+      const res = await adminReentrenarModelo(apiKey)
+      setMsg({ text: `✓ Modelo entrenado — F1: ${res.metrics.f1 ?? '?'}`, ok: true })
+      void load()
+    } catch (e: unknown) {
+      setMsg({ text: `Error: ${e instanceof Error ? e.message : String(e)}`, ok: false })
+    } finally { setTraining(false) }
+  }
+
+  if (loading) return <p className="font-mono text-sm animate-pulse">Cargando estado del modelo...</p>
+  if (!status) return <p className="font-mono text-sm text-red-600">No se pudo cargar el estado del modelo.</p>
+
+  const m = status.metrics
+  const isTrained = status.status === 'trained'
+
+  return (
+    <div className="space-y-8">
+      {/* Status header */}
+      <div className="border-2 border-black p-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-[9px] font-mono font-bold uppercase tracking-[0.2em] text-neutral-500 mb-1">Estado del modelo</p>
+          <div className="flex items-center gap-3">
+            <span className={`text-xs font-mono font-bold uppercase tracking-wider px-2 py-0.5 border-2 ${isTrained ? 'border-green-500 text-green-700' : 'border-red-400 text-red-600'}`}>
+              {isTrained ? '● Entrenado' : '○ Sin entrenar'}
+            </span>
+            {isTrained && status.trained_at && (
+              <span className="text-[10px] font-mono text-neutral-400">
+                {new Date(status.trained_at).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+          {isTrained && (
+            <p className="text-[10px] font-mono text-neutral-500 mt-2">
+              {status.training_count} ejemplos de entrenamiento · {status.n_positivos} positivos · {status.n_negativos} negativos
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <ActionBtn label={training ? 'Entrenando...' : 'Reentrenar modelo'} onClick={() => void retrain()} loading={training} variant="yellow" />
+          <p className="text-[9px] font-mono text-neutral-400 text-right max-w-[200px]">
+            Extrae eventos de fuentes confiables de la BD y mejora la precisión del clasificador.
+          </p>
+        </div>
+      </div>
+
+      {msg && <p className={`font-mono text-xs ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>{msg.text}</p>}
+
+      {/* Metrics */}
+      {isTrained && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Stat label="Exactitud" value={m.accuracy != null ? `${(m.accuracy * 100).toFixed(1)}%` : '—'} sub="accuracy" />
+          <Stat label="Precisión" value={m.precision != null ? `${(m.precision * 100).toFixed(1)}%` : '—'} sub="precision" />
+          <Stat label="Recall" value={m.recall != null ? `${(m.recall * 100).toFixed(1)}%` : '—'} sub="recall" />
+          <Stat label="F1 Score" value={m.f1 != null ? `${(m.f1 * 100).toFixed(1)}%` : '—'} sub="f1" />
+        </div>
+      )}
+
+      {/* Feature importances */}
+      {isTrained && status.feature_importances.length > 0 && (
+        <div className="border-2 border-black p-4">
+          <p className="text-[9px] font-mono font-bold uppercase tracking-[0.2em] text-neutral-500 mb-4">Importancia de características</p>
+          <div className="space-y-2">
+            {status.feature_importances.slice(0, 8).map(feat => {
+              const maxW = Math.max(...status.feature_importances.map(f => Math.abs(f.weight)))
+              const pct = Math.round((Math.abs(feat.weight) / (maxW || 1)) * 100)
+              const isPos = feat.weight > 0
+              return (
+                <div key={feat.name} className="flex items-center gap-3">
+                  <span className="font-mono text-[10px] w-40 shrink-0 text-neutral-600 truncate">{feat.name.replace(/_/g, ' ')}</span>
+                  <div className="flex-1 h-4 bg-neutral-100 border border-black/10 overflow-hidden">
+                    <div
+                      className={`h-full ${isPos ? 'bg-green-500' : 'bg-red-400'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className={`font-mono text-[10px] w-12 text-right font-bold ${isPos ? 'text-green-700' : 'text-red-600'}`}>
+                    {feat.weight > 0 ? '+' : ''}{feat.weight.toFixed(2)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Recent predictions */}
+      {isTrained && status.recent_predictions.length > 0 && (
+        <div className="border-2 border-black p-4">
+          <p className="text-[9px] font-mono font-bold uppercase tracking-[0.2em] text-neutral-500 mb-4">Últimas clasificaciones</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] font-mono">
+              <thead>
+                <tr className="bg-black text-white">
+                  <th className="text-left px-3 py-2 font-bold uppercase tracking-wider">Título</th>
+                  <th className="text-left px-3 py-2 font-bold uppercase tracking-wider w-20">Prob.</th>
+                  <th className="text-left px-3 py-2 font-bold uppercase tracking-wider w-24">Resultado</th>
+                  <th className="text-left px-3 py-2 font-bold uppercase tracking-wider w-32">Hora</th>
+                </tr>
+              </thead>
+              <tbody>
+                {status.recent_predictions.slice().reverse().map((p, i) => (
+                  <tr key={i} className="border-b border-black/10 hover:bg-yellow-50">
+                    <td className="px-3 py-1.5 max-w-[250px] truncate">{p.titulo}</td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex-1 h-2 bg-neutral-100 border border-black/10">
+                          <div className={`h-full ${p.prob >= 0.5 ? 'bg-green-400' : 'bg-red-300'}`} style={{ width: `${p.prob * 100}%` }} />
+                        </div>
+                        <span className="text-[9px]">{(p.prob * 100).toFixed(0)}%</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 ${p.result ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                        {p.result ? '✓ Evento' : '✗ No evento'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-neutral-400">{p.ts.slice(11, 16)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!isTrained && (
+        <div className="border-2 border-black/20 border-dashed p-8 text-center">
+          <p className="font-mono text-sm text-neutral-400 uppercase tracking-wider">
+            El modelo no ha sido entrenado aún.
+          </p>
+          <p className="font-mono text-xs text-neutral-300 mt-2">
+            Haz clic en "Reentrenar modelo" para entrenar con los eventos actuales de la BD.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -555,6 +985,8 @@ export default function Admin() {
     { id: 'espacios', label: 'Espacios' },
     { id: 'usuarios', label: 'Usuarios' },
     { id: 'logs', label: 'Logs' },
+    { id: 'subir_evento', label: '+ Subir Evento' },
+    { id: 'modelo_ia', label: 'Modelo IA' },
     { id: 'mapa', label: 'Mapa' },
   ]
 
@@ -607,6 +1039,8 @@ export default function Admin() {
         {activeTab === 'espacios' && <TabEspacios apiKey={apiKey} />}
         {activeTab === 'usuarios' && <TabUsuarios apiKey={apiKey} />}
         {activeTab === 'logs' && <TabLogs apiKey={apiKey} />}
+        {activeTab === 'subir_evento' && <TabSubirEvento apiKey={apiKey} />}
+        {activeTab === 'modelo_ia' && <TabModeloIA apiKey={apiKey} />}
         {activeTab === 'mapa' && (
           <div className="border-2 border-black overflow-hidden">
             <Suspense fallback={<div className="h-[600px] flex items-center justify-center font-mono text-sm text-neutral-400 animate-pulse">Cargando mapa...</div>}>

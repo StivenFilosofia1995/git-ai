@@ -204,8 +204,16 @@ def is_likely_cultural_event(
         _EVENT_VALIDATION_CACHE[cache_key] = False
         return False
 
-    # Ambiguous (score 0-2): ask Ollama if available; otherwise accept
-    # (false positives are cleaned up later by cleanup_news_events)
+    # Ambiguous (score 0-2): try ML classifier first, then Ollama, then accept.
+    try:
+        from app.services.ml_classifier import classify_event as _ml_classify
+        ml_result, ml_conf = _ml_classify(titulo, descripcion, fuente_url)
+        if ml_conf >= 0.65 or ml_conf <= 0.35:  # confident enough to decide
+            _EVENT_VALIDATION_CACHE[cache_key] = ml_result
+            return ml_result
+    except Exception:
+        pass
+
     ai_result = _validate_event_with_local_ai(title_n, desc_n, url_n)
     final = bool(ai_result) if ai_result is not None else (score >= 0)
     _EVENT_VALIDATION_CACHE[cache_key] = final
