@@ -4,10 +4,9 @@ WORKDIR /app
 
 ENV EASYOCR_MODULE_PATH=/opt/easyocr-models
 
-# System deps + Ollama (para desarrollo local; en Railway usa Groq/Gemini)
+# System deps (Ollama omitido en Docker — Railway usa Groq/Gemini como IA)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev curl ca-certificates \
-    && curl -fsSL https://ollama.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps (prod — sin torch/easyocr/playwright para imagen ligera)
