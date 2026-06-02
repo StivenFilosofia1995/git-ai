@@ -76,6 +76,15 @@ EVENT_NEGATIVE_TERMS = {
     "resena de", "reseña de", "critica de", "crítica de", "opinion sobre", "opinión sobre",
     "entrevista exclusiva", "behind the scenes", "asi fue como", "así fue como",
     "mira como", "mira cómo", "les contamos", "te contamos", "lo que debes saber",
+    # Artículos de recap/listas/perfiles típicos de medios
+    "estos son los", "estas son las", "así fue", "asi fue", "conoce a", "conoce los",
+    "todo lo que debes saber", "lo que necesitas saber", "por que debes", "razones para",
+    "el mejor", "la mejor", "los mejores", "las mejores", "ranking de", "top 10", "top 5",
+    "en imagenes", "en imágenes", "en fotos", "fotos del", "fotos de la",
+    "falleció", "fallecio", "murió", "murio", "homenaje a", "recordamos a",
+    "lanzamiento de libro", "nuevo album", "nuevo álbum", "nuevo sencillo",
+    "piden que", "exigen que", "protesta", "marcha", "manifestacion", "manifestación",
+    "emergencia", "alerta", "cierre vial", "suspensión", "suspension de clases",
 }
 
 # URLs con estos patrones indican noticias, no eventos
@@ -215,7 +224,7 @@ def is_likely_cultural_event(
         pass
 
     ai_result = _validate_event_with_local_ai(title_n, desc_n, url_n)
-    final = bool(ai_result) if ai_result is not None else (score >= 0)
+    final = bool(ai_result) if ai_result is not None else (score >= 2)
     _EVENT_VALIDATION_CACHE[cache_key] = final
     return final
 
