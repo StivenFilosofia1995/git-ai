@@ -261,27 +261,31 @@ def admin_list_eventos(
 ):
     _check_key(x_api_key)
     from app.database import supabase
-    offset = (max(page, 1) - 1) * per_page
-    q = (
-        supabase.table("eventos")
-        .select(
-            "id,titulo,slug,fecha_inicio,categoria_principal,municipio,barrio,"
-            "verificado,reportado,fuente,imagen_url,es_gratuito,created_at",
-            count="exact",
+    try:
+        offset = (max(page, 1) - 1) * per_page
+        q = (
+            supabase.table("eventos")
+            .select(
+                "id,titulo,slug,fecha_inicio,categoria_principal,municipio,barrio,"
+                "verificado,reportado,fuente,imagen_url,es_gratuito,created_at",
+                count="exact",
+            )
+            .order("fecha_inicio", desc=False)
+            .range(offset, offset + per_page - 1)
         )
-        .order("fecha_inicio", desc=False)
-        .range(offset, offset + per_page - 1)
-    )
-    if search:
-        q = q.ilike("titulo", f"%{search}%")
-    if categoria:
-        q = q.eq("categoria_principal", categoria)
-    if municipio:
-        q = q.eq("municipio", municipio)
-    if reportados:
-        q = q.eq("reportado", True)
-    resp = q.execute()
-    return {"data": resp.data or [], "total": resp.count or 0, "page": page, "per_page": per_page}
+        if search:
+            q = q.ilike("titulo", f"%{search}%")
+        if categoria:
+            q = q.eq("categoria_principal", categoria)
+        if municipio:
+            q = q.eq("municipio", municipio)
+        if reportados:
+            q = q.eq("reportado", True)
+        resp = q.execute()
+        return {"data": resp.data or [], "total": resp.count or 0, "page": page, "per_page": per_page}
+    except Exception as exc:
+        print(f"[admin/eventos ERROR] {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail=f"admin/eventos error: {type(exc).__name__}: {exc}")
 
 
 @router.get("/espacios")
@@ -312,8 +316,12 @@ def admin_list_espacios(
         q = q.eq("tipo", tipo)
     if municipio:
         q = q.eq("municipio", municipio)
-    resp = q.execute()
-    return {"data": resp.data or [], "total": resp.count or 0, "page": page, "per_page": per_page}
+    try:
+        resp = q.execute()
+        return {"data": resp.data or [], "total": resp.count or 0, "page": page, "per_page": per_page}
+    except Exception as exc:
+        print(f"[admin/espacios ERROR] {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail=f"admin/espacios error: {type(exc).__name__}: {exc}")
 
 
 @router.get("/usuarios")
@@ -342,14 +350,18 @@ def admin_scraping_logs(
 ):
     _check_key(x_api_key)
     from app.database import supabase
-    resp = (
-        supabase.table("scraping_log")
-        .select("*")
-        .order("created_at", desc=True)
-        .limit(min(limit, 200))
-        .execute()
-    )
-    return {"data": resp.data or [], "total": len(resp.data or [])}
+    try:
+        resp = (
+            supabase.table("scraping_log")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(min(limit, 200))
+            .execute()
+        )
+        return {"data": resp.data or [], "total": len(resp.data or [])}
+    except Exception as exc:
+        print(f"[admin/logs ERROR] {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail=f"admin/logs error: {type(exc).__name__}: {exc}")
 
 
 @router.post("/trigger-scraper")
