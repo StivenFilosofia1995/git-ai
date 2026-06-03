@@ -173,13 +173,15 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Captura cualquier excepción no controlada en rutas /api/ y retorna JSON."""
+    from fastapi import HTTPException as _HTTPException
+    if isinstance(exc, _HTTPException):
+        return _JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     if request.url.path.startswith("/api/"):
         print(f"[ERROR 500] {request.method} {request.url.path} — {type(exc).__name__}: {exc}")
         return _JSONResponse(
             status_code=500,
             content={"detail": "Error interno del servidor. Intenta de nuevo más tarde."},
         )
-    # Para rutas no-API, dejar que FastAPI maneje normalmente
     raise exc
 
 

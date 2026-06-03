@@ -595,9 +595,12 @@ def admin_crear_evento(
     slug = f"{base_slug}-{int(time.time()) % 100000}"
 
     # Check slug uniqueness
-    existing = supabase.table("eventos").select("id").eq("slug", slug).maybe_single().execute()
-    if existing.data:
-        slug = f"{slug}-{int(time.time()) % 9999}"
+    try:
+        existing = supabase.table("eventos").select("id").eq("slug", slug).limit(1).execute()
+        if existing.data:
+            slug = f"{slug}-{int(time.time()) % 9999}"
+    except Exception:
+        pass  # slug collision check is best-effort
 
     data: dict = {
         "titulo": body.titulo,
@@ -611,7 +614,7 @@ def admin_crear_evento(
         "oculto": body.oculto,
     }
     if body.hora_inicio:
-        data["hora_inicio"] = body.hora_inicio
+        data["hora_confirmada"] = body.hora_inicio  # columna real en DB
     if body.fecha_fin:
         data["fecha_fin"] = body.fecha_fin
     if body.duracion_minutos is not None:
