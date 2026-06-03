@@ -602,19 +602,40 @@ def admin_crear_evento(
     except Exception:
         pass  # slug collision check is best-effort
 
+    # Combine fecha_inicio + hora_inicio into full datetime if time provided
+    fecha_inicio = body.fecha_inicio
+    if body.hora_inicio:
+        # Normalize time: "12:00 p. m." → "12:00", "3:00 p.m." → "15:00", etc.
+        hora = body.hora_inicio.lower().replace(" ", "").replace(".", "")
+        try:
+            from datetime import datetime as _dt
+            for fmt in ("%I:%M%p", "%H:%M", "%I%p"):
+                try:
+                    t = _dt.strptime(hora, fmt)
+                    hora_iso = t.strftime("%H:%M")
+                    break
+                except ValueError:
+                    continue
+            else:
+                hora_iso = hora[:5]  # fallback: take first 5 chars
+            # Attach time to date
+            date_part = body.fecha_inicio[:10]
+            fecha_inicio = f"{date_part}T{hora_iso}:00"
+        except Exception:
+            pass  # keep original fecha_inicio if parsing fails
+
     data: dict = {
         "titulo": body.titulo,
         "slug": slug,
-        "fecha_inicio": body.fecha_inicio,
+        "fecha_inicio": fecha_inicio,
         "categoria_principal": body.categoria_principal,
         "municipio": body.municipio,
         "verificado": True,
         "fuente": "admin_manual",
         "es_gratuito": body.es_gratuito,
         "oculto": body.oculto,
+        "hora_confirmada": bool(body.hora_inicio),  # boolean: was a time provided?
     }
-    if body.hora_inicio:
-        data["hora_confirmada"] = body.hora_inicio  # columna real en DB
     if body.fecha_fin:
         data["fecha_fin"] = body.fecha_fin
     if body.duracion_minutos is not None:
