@@ -5,7 +5,7 @@ import re
 import unicodedata
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Header, Query, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Query, UploadFile, File
 from pydantic import BaseModel
 from app.config import settings
 
@@ -380,34 +380,36 @@ async def trigger_scraper(x_api_key: str | None = Header(default=None, alias="X-
 
 
 @router.post("/trigger-weekly-digest")
-def trigger_weekly_digest(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+def trigger_weekly_digest(
+    background_tasks: BackgroundTasks,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Force-send the weekly digest to ALL pending users right now (bypasses Monday restriction).
+    Runs in background — returns immediately. Check Railway logs for progress.
     Safe to call multiple times — each user is only sent once per week via digest markers.
     """
     _check_key(x_api_key)
-    from app.services.email_service import send_weekly_digest_campaign
-    total_sent = 0
-    total_skipped = 0
-    total_failed = 0
-    rounds = 0
-    # Call in a loop until no more recipients are pending (tick_limit=1 per call)
-    for _ in range(500):
-        stats = send_weekly_digest_campaign(dry_run=True)
-        total_sent += stats.get("sent", 0)
-        total_skipped += stats.get("skipped", 0)
-        total_failed += stats.get("failed", 0)
-        rounds += 1
-        # Stop when no recipient was targeted this round (all done or all skipped)
-        if stats.get("sent", 0) == 0 and stats.get("failed", 0) == 0:
-            break
-    return {
-        "ok": True,
-        "rounds": rounds,
-        "total_sent": total_sent,
-        "total_skipped": total_skipped,
-        "total_failed": total_failed,
-        "week_start": stats.get("week_start"),
-    }
+
+    def _run():
+        from app.services.email_service import send_weekly_digest_campaign
+        total_sent = 0
+        total_skipped = 0
+        total_failed = 0
+        for i in range(500):
+            stats = send_weekly_digest_campaign(dry_run=True)
+            total_sent += stats.get("sent", 0)
+            total_skipped += stats.get("skipped", 0)
+            total_failed += stats.get("failed", 0)
+            if stats.get("sent", 0) == 0 and stats.get("failed", 0) == 0:
+                break
+        print(
+            f"📬 Manual digest completado — enviados={total_sent} "
+            f"omitidos={total_skipped} fallidos={total_failed} "
+            f"semana={stats.get('week_start')}"
+        )
+
+    background_tasks.add_task(_run)
+    return {"ok": True, "message": "Digest iniciado en background — revisa los logs de Railway para ver el progreso"}
 
 
 @router.post("/trigger-blast-tick")
