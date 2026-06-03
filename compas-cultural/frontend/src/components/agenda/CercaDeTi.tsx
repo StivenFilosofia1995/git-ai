@@ -72,8 +72,8 @@ export default function CercaDeTi() {
       const conDistancia = eventosData
         .filter(e => {
           const fechaInicio = e.fecha_inicio?.slice(0, 10) ?? ''
-          const fechaFin = e.fecha_fin?.slice(0, 10) ?? fechaInicio
-          return fechaInicio <= hastaStr && (fechaFin >= hoyStr || fechaInicio >= hoyStr)
+          // Solo eventos que EMPIEZAN hoy o en el futuro, dentro de la ventana semanal
+          return fechaInicio >= hoyStr && fechaInicio <= hastaStr
         })
         .map(e => {
           // 1. Coordenadas exactas del evento

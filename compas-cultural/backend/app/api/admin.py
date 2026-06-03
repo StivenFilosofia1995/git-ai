@@ -257,7 +257,6 @@ def admin_list_eventos(
     search: str = "",
     categoria: str = "",
     municipio: str = "",
-    reportados: bool = False,
 ):
     _check_key(x_api_key)
     from app.database import supabase
@@ -265,11 +264,7 @@ def admin_list_eventos(
         offset = (max(page, 1) - 1) * per_page
         q = (
             supabase.table("eventos")
-            .select(
-                "id,titulo,slug,fecha_inicio,categoria_principal,municipio,barrio,"
-                "verificado,reportado,fuente,imagen_url,es_gratuito,created_at",
-                count="exact",
-            )
+            .select("*", count="exact")
             .order("fecha_inicio", desc=False)
             .range(offset, offset + per_page - 1)
         )
@@ -279,8 +274,6 @@ def admin_list_eventos(
             q = q.eq("categoria_principal", categoria)
         if municipio:
             q = q.eq("municipio", municipio)
-        if reportados:
-            q = q.eq("reportado", True)
         resp = q.execute()
         return {"data": resp.data or [], "total": resp.count or 0, "page": page, "per_page": per_page}
     except Exception as exc:
@@ -302,11 +295,7 @@ def admin_list_espacios(
     offset = (max(page, 1) - 1) * per_page
     q = (
         supabase.table("lugares")
-        .select(
-            "id,nombre,slug,tipo,categoria_principal,municipio,barrio,"
-            "instagram_handle,sitio_web,nivel_actividad,verificado,created_at",
-            count="exact",
-        )
+        .select("*", count="exact")
         .order("nombre", desc=False)
         .range(offset, offset + per_page - 1)
     )
@@ -354,7 +343,6 @@ def admin_scraping_logs(
         resp = (
             supabase.table("scraping_log")
             .select("*")
-            .order("created_at", desc=True)
             .limit(min(limit, 200))
             .execute()
         )
