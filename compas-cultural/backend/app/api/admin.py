@@ -379,6 +379,37 @@ async def trigger_scraper(x_api_key: str | None = Header(default=None, alias="X-
     return {"ok": True, "message": "Scraper (auto + comfama) iniciado en background"}
 
 
+@router.post("/trigger-weekly-digest")
+def trigger_weekly_digest(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Force-send the weekly digest to ALL pending users right now (bypasses Monday restriction).
+    Safe to call multiple times — each user is only sent once per week via digest markers.
+    """
+    _check_key(x_api_key)
+    from app.services.email_service import send_weekly_digest_campaign
+    total_sent = 0
+    total_skipped = 0
+    total_failed = 0
+    rounds = 0
+    # Call in a loop until no more recipients are pending (tick_limit=1 per call)
+    for _ in range(500):
+        stats = send_weekly_digest_campaign(dry_run=True)
+        total_sent += stats.get("sent", 0)
+        total_skipped += stats.get("skipped", 0)
+        total_failed += stats.get("failed", 0)
+        rounds += 1
+        # Stop when no recipient was targeted this round (all done or all skipped)
+        if stats.get("sent", 0) == 0 and stats.get("failed", 0) == 0:
+            break
+    return {
+        "ok": True,
+        "rounds": rounds,
+        "total_sent": total_sent,
+        "total_skipped": total_skipped,
+        "total_failed": total_failed,
+        "week_start": stats.get("week_start"),
+    }
+
+
 @router.post("/trigger-blast-tick")
 def trigger_blast_tick(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
     """Send to next pending email recipient."""
