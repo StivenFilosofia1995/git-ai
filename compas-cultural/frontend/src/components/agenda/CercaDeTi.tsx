@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import EventCard from './EventCard'
 import {
-  getEventosTodos,
+  getEventosSemana,
+  getEventosProximasSemanas,
   type Evento,
 } from '../../lib/api'
 
@@ -38,17 +39,6 @@ const MUNICIPIO_COORDS: Record<string, { lat: number; lng: number }> = {
   girardota: { lat: 6.3783, lng: -75.4491 },
 }
 
-/** Sunday of next week in Colombia tz — same window as "Semana + Próxima" */
-function sundayOfNextWeek(): string {
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }))
-  const dayOfWeek = now.getDay() // 0=Sun, 6=Sat
-  const daysUntilNextSun = dayOfWeek === 0 ? 7 : (7 - dayOfWeek) + 7
-  const d = new Date(now)
-  d.setDate(d.getDate() + daysUntilNextSun)
-  return d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
-}
-
-
 
 export default function CercaDeTi() {
   const [geoState, setGeoState] = useState<GeoState>('idle')
@@ -63,18 +53,16 @@ export default function CercaDeTi() {
     setEventosProximos([])
 
     try {
-      const eventosData = await getEventosTodos({ municipio: undefined, maxRows: 800 })
-
-      const hoyStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
-      // Ventana: hoy → domingo de la próxima semana (igual que pestaña "Semana + Próxima")
-      const hastaStr = sundayOfNextWeek()
+      // Traer eventos de esta semana + próxima semana (ya filtrados por fecha en el servidor)
+      const [semana, proxima] = await Promise.all([
+        getEventosSemana(),
+        getEventosProximasSemanas(7, undefined, 1),
+      ])
+      const eventosData: Evento[] = [...semana, ...proxima].filter(
+        (e, i, arr) => arr.findIndex(x => x.id === e.id) === i  // dedup
+      )
 
       const conDistancia = eventosData
-        .filter(e => {
-          const fechaInicio = e.fecha_inicio?.slice(0, 10) ?? ''
-          // Solo eventos que EMPIEZAN hoy o en el futuro, dentro de la ventana semanal
-          return fechaInicio >= hoyStr && fechaInicio <= hastaStr
-        })
         .map(e => {
           // 1. Coordenadas exactas del evento
           if (e.lat != null && e.lng != null) {
