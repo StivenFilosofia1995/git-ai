@@ -629,9 +629,13 @@ def admin_crear_evento(
     if body.imagen_url:
         data["imagen_url"] = body.imagen_url
 
-    res = supabase.table("eventos").insert(data).execute()
+    try:
+        res = supabase.table("eventos").insert(data).execute()
+    except Exception as exc:
+        print(f"[admin/crear ERROR] {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Error DB: {type(exc).__name__}: {exc}")
     if not res.data:
-        raise HTTPException(status_code=500, detail="Error creando evento")
+        raise HTTPException(status_code=500, detail="Error creando evento — insert sin datos")
     return res.data[0]
 
 
