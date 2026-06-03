@@ -1273,6 +1273,7 @@ export interface EventoAdminCreate {
   precio?: string
   es_gratuito: boolean
   imagen_url?: string
+  link_externo?: string
   oculto: boolean
 }
 

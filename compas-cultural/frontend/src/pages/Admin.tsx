@@ -519,7 +519,7 @@ const MUNICIPIOS_ADMIN = [
 
 const BLANK_FORM: EventoAdminCreate = {
   titulo: '', fecha_inicio: '', hora_inicio: '', fecha_fin: '',
-  duracion_minutos: undefined, descripcion: '',
+  duracion_minutos: undefined, descripcion: '', link_externo: '',
   categoria_principal: 'otro', municipio: 'medellin',
   barrio: '', nombre_lugar: '', precio: '',
   es_gratuito: true, imagen_url: '', oculto: false,
@@ -698,6 +698,13 @@ function TabSubirEvento({ apiKey }: { apiKey: string }) {
           <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Descripción</span>
           <textarea value={form.descripcion ?? ''} onChange={f('descripcion')} rows={3}
             className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400 resize-none" />
+        </label>
+
+        <label className="block mb-4">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-wider">Link / Más información (opcional)</span>
+          <input value={form.link_externo ?? ''} onChange={f('link_externo')}
+            placeholder="https://... (registro, web del evento, redes sociales)"
+            className="w-full border-2 border-black px-3 py-2 font-mono text-sm mt-1 outline-none focus:border-yellow-400" />
         </label>
 
         <div className="flex flex-wrap items-center gap-6 mb-6">

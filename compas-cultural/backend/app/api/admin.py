@@ -543,6 +543,7 @@ class EventoAdminCreate(BaseModel):
     precio: Optional[str] = None
     es_gratuito: bool = True
     imagen_url: Optional[str] = None
+    link_externo: Optional[str] = None
     oculto: bool = False
 
 
@@ -652,6 +653,8 @@ def admin_crear_evento(
         data["precio"] = body.precio
     if body.imagen_url:
         data["imagen_url"] = body.imagen_url
+    if body.link_externo:
+        data["fuente_url"] = body.link_externo
 
     try:
         res = supabase.table("eventos").insert(data).execute()
