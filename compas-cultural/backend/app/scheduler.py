@@ -142,6 +142,79 @@ def _run_blast_tick():
         print(f"❌ Blast tick error: {e}")
 
 
+_WEB_SEARCH_QUERIES = [
+    # Instituciones clave
+    "comfama agenda cultural {mes} 2026",
+    "fundacion epm eventos culturales {mes} 2026",
+    "bibliotecas medellin agenda {mes} 2026",
+    "teatro pablo tobón uribe agenda 2026",
+    "teatro metropolitano medellin 2026",
+    "museo de antioquia eventos 2026",
+    "museo arte moderno medellin 2026",
+    "parque explora programacion 2026",
+    "jardín botanico medellin eventos 2026",
+    "universidad de antioquia eventos culturales 2026",
+    "casa de la cultura medellin agenda 2026",
+    # Categorías
+    "teatro medellin {mes} 2026",
+    "danza contemporanea medellin 2026",
+    "jazz medellin conciertos {mes} 2026",
+    "hip hop freestyle medellin 2026",
+    "tango medellin {mes} 2026",
+    "festival cultural medellin 2026",
+    "exposicion arte medellin {mes} 2026",
+    "cine arte medellin 2026",
+    "literatura poesia medellin 2026",
+    "musica en vivo medellin {mes} 2026",
+    # Zonas
+    "eventos culturales el poblado medellin 2026",
+    "eventos culturales laureles medellin 2026",
+    "eventos culturales envigado 2026",
+    "eventos gratuitos medellin {mes} 2026",
+    "colectivos culturales medellin eventos 2026",
+    "que hacer medellin {mes} 2026",
+]
+
+
+async def _run_daily_web_search():
+    """Daily 6am: sweep web for new cultural events across all presets."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    CO_TZ_local = ZoneInfo("America/Bogota")
+    mes_actual = datetime.now(CO_TZ_local).strftime("%B").lower()  # e.g. "junio"
+    # Map English month names to Spanish
+    _EN_ES = {
+        "january": "enero", "february": "febrero", "march": "marzo",
+        "april": "abril", "may": "mayo", "june": "junio",
+        "july": "julio", "august": "agosto", "september": "septiembre",
+        "october": "octubre", "november": "noviembre", "december": "diciembre",
+    }
+    mes = _EN_ES.get(mes_actual, mes_actual)
+
+    try:
+        from app.services.event_fallback_discovery import discover_events_for_filters
+        total_nuevos = 0
+        for query_tpl in _WEB_SEARCH_QUERIES:
+            query = query_tpl.replace("{mes}", mes)
+            try:
+                result = await discover_events_for_filters(
+                    texto=query,
+                    max_queries=2,
+                    max_results_per_query=4,
+                    days_ahead=45,
+                    auto_insert=True,
+                )
+                nuevos = result.get("nuevos", 0)
+                total_nuevos += nuevos
+                if nuevos:
+                    print(f"🌐 Web search '{query}': {nuevos} nuevos")
+            except Exception as eq:
+                print(f"⚠️  Web search error for '{query}': {eq}")
+        print(f"🌐 Daily web search completado — {total_nuevos} eventos nuevos en total")
+    except Exception as e:
+        print(f"❌ Daily web search error: {e}")
+
+
 def _reset_weekly_digest_cursor():
     """Every Monday 6am: reset the weekly digest cursor so the drip restarts."""
     from app.services.email_service import _week_start_iso, _kv_upsert
@@ -298,6 +371,15 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # ── Web search diario: 6:15 AM Colombia — barre internet por eventos ─────
+    scheduler.add_job(
+        _run_daily_web_search,
+        trigger=CronTrigger(hour=6, minute=15, timezone=CO_TZ),
+        id="daily_web_search",
+        name="Búsqueda web diaria de eventos culturales (6:15am)",
+        replace_existing=True,
+    )
+
     # ── Limpieza inicial 30 segundos después de arrancar ────────────────────
     # Elimina eventos pasados ANTES de que corra el scraper.
     scheduler.add_job(
@@ -389,6 +471,7 @@ def start_scheduler():
     print("   • Boletín semanal: 1 destinatario cada 4 minutos (solo lunes)")
     print("   • Limpieza de privacidad: diaria a las 3:30am")
     print("   • Limpieza eventos pasados: diaria a las 1:00am")
+    print("   • Búsqueda web diaria: 6:15am (27 consultas × internet)")
 
 
 def stop_scheduler():
