@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { publicarEvento } from '../lib/api'
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 const CATEGORIAS = [
   { value: 'teatro', label: 'Teatro' },
@@ -48,6 +50,40 @@ export default function PublicarEvento() {
   })
   const [enviando, setEnviando] = useState(false)
   const [resultado, setResultado] = useState<{ ok: boolean; mensaje: string } | null>(null)
+  const [extracting, setExtracting] = useState(false)
+  const [extractMsg, setExtractMsg] = useState<string | null>(null)
+  const imgInputRef = useRef<HTMLInputElement>(null)
+
+  const handleExtractFromPoster = async (file: File) => {
+    setExtracting(true); setExtractMsg(null)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const res = await fetch(`${API_BASE}/admin/eventos/extraer-de-imagen`, {
+        method: 'POST',
+        headers: { 'X-API-Key': '854596+44' },
+        body: fd,
+      })
+      if (!res.ok) throw new Error(`Error ${res.status}`)
+      const json = await res.json() as { ok: boolean; data: Record<string, unknown> }
+      const d = json.data
+      setForm(prev => ({
+        ...prev,
+        titulo: (d.titulo as string) ?? prev.titulo,
+        fecha_inicio: (d.fecha_inicio as string) ?? prev.fecha_inicio,
+        hora_inicio: (d.hora_inicio as string) ?? prev.hora_inicio,
+        descripcion: (d.descripcion as string) ?? prev.descripcion,
+        categoria_principal: (d.categoria_principal as string) ?? prev.categoria_principal,
+        municipio: (d.municipio as string) ?? prev.municipio,
+        barrio: (d.barrio as string) ?? prev.barrio,
+        nombre_lugar: (d.nombre_lugar as string) ?? prev.nombre_lugar,
+        precio: (d.precio as string) ?? prev.precio,
+        es_gratuito: typeof d.es_gratuito === 'boolean' ? d.es_gratuito : prev.es_gratuito,
+        contacto_instagram: (d.link_externo as string)?.includes('instagram') ? (d.link_externo as string) : prev.contacto_instagram,
+      }))
+      setExtractMsg('✨ Datos extraídos del afiche — revisa y ajusta antes de enviar')
+    } catch { setExtractMsg('No se pudo leer el afiche. Llena el formulario manualmente.') }
+    finally { setExtracting(false) }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -107,10 +143,30 @@ export default function PublicarEvento() {
         </Link>
 
         <h1 className="text-3xl font-mono font-bold mb-2 uppercase">Publicar evento</h1>
-        <p className="font-mono text-sm text-neutral-600 mb-8">
+        <p className="font-mono text-sm text-neutral-600 mb-6">
           ¿Sos colectivo, artista o espacio cultural? Publicá tu evento y aparecerá en la agenda de Cultura ETÉREA.
           No necesitás cuenta.
         </p>
+
+        {/* AI poster extractor */}
+        <div className="border-2 border-black border-dashed p-5 mb-8 bg-yellow-50">
+          <p className="font-mono font-bold text-xs uppercase tracking-wider mb-3">✨ ¿Tenés el afiche? Súbelo y lo llenamos automáticamente</p>
+          <div
+            className="border-2 border-black p-4 text-center cursor-pointer hover:bg-yellow-100 transition-colors"
+            onClick={() => imgInputRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) void handleExtractFromPoster(f) }}
+          >
+            <p className="font-mono text-xs text-neutral-500">
+              {extracting ? '⏳ Analizando afiche con IA...' : 'Arrastrá la imagen del evento aquí o hacé clic para seleccionar'}
+            </p>
+            <input ref={imgInputRef} type="file" accept="image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) void handleExtractFromPoster(f) }} />
+          </div>
+          {extractMsg && (
+            <p className={`font-mono text-xs mt-2 ${extractMsg.startsWith('✨') ? 'text-green-700 font-bold' : 'text-neutral-500'}`}>{extractMsg}</p>
+          )}
+        </div>
 
         {resultado && (
           <div className={`border-2 px-4 py-3 mb-6 font-mono text-sm ${resultado.ok ? 'border-green-600 bg-green-50 text-green-800' : 'border-red-600 bg-red-50 text-red-800'}`}>

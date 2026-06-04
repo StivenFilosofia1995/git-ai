@@ -79,6 +79,13 @@ export default function Colectivos() {
 
             <div className="flex flex-wrap gap-4">
               <Link
+                to="/publicar"
+                className="inline-flex items-center gap-2 bg-yellow-300 text-black px-6 py-3 font-mono text-xs font-bold uppercase tracking-wider border-2 border-black hover:bg-yellow-400 transition-all duration-300"
+              >
+                ✨ Publicar un evento
+                <span>→</span>
+              </Link>
+              <Link
                 to="/registrar"
                 className="inline-flex items-center gap-2 bg-black text-white px-6 py-3 font-mono text-xs font-bold uppercase tracking-wider hover:bg-white hover:text-black border-2 border-black transition-all duration-300"
               >

@@ -93,7 +93,7 @@ export default function ChatWidget() {
 
   if (!isOpen) {
     return (
-      <div className="fixed bottom-6 right-6 z-50">
+      <div className="fixed bottom-24 md:bottom-16 right-6 z-[60]">
         <button
           onClick={toggleChat}
           aria-label="Abrir asistente cultural ETÉREA"
@@ -107,7 +107,7 @@ export default function ChatWidget() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 w-80 h-[28rem] bg-white border-2 border-black z-50 flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+    <div className="fixed bottom-24 md:bottom-16 right-6 w-80 h-[28rem] bg-white border-2 border-black z-[60] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
       <div className="px-4 py-3 border-b-2 border-black flex justify-between items-center bg-black text-white">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 bg-white" />
