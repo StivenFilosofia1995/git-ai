@@ -12,7 +12,7 @@ const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 const KEY_STORAGE = 'admin:apikey'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
-type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia'
+type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web'
 
 const CAT_LABEL: Record<string, string> = {
   teatro: 'Teatro', hip_hop: 'Hip Hop', jazz: 'Jazz', galeria: 'Galería',
@@ -305,6 +305,128 @@ function TabResumen({ d, apiKey }: { d: AdminDashboard; apiKey: string }) {
   )
 }
 
+// ── EDIT EVENTO PANEL ─────────────────────────────────────────────────────────
+
+function EditEventoPanel({ row, apiKey, onClose, onSaved }: {
+  row: Record<string, unknown>; apiKey: string; onClose: () => void; onSaved: () => void
+}) {
+  const [form, setForm] = useState({
+    titulo: String(row.titulo ?? ''),
+    fecha_inicio: String(row.fecha_inicio ?? '').slice(0, 10),
+    fecha_fin: String(row.fecha_fin ?? '').slice(0, 10),
+    hora_inicio: row.hora_confirmada ? String(row.fecha_inicio ?? '').slice(11, 16) : '',
+    categoria_principal: String(row.categoria_principal ?? 'otro'),
+    municipio: String(row.municipio ?? 'medellin'),
+    barrio: String(row.barrio ?? ''),
+    nombre_lugar: String(row.nombre_lugar ?? ''),
+    descripcion: String(row.descripcion ?? ''),
+    precio: String(row.precio ?? ''),
+    es_gratuito: Boolean(row.es_gratuito),
+    imagen_url: String(row.imagen_url ?? ''),
+    fuente_url: String(row.fuente_url ?? ''),
+    oculto: Boolean(row.oculto),
+  })
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const inp = 'w-full border-2 border-black px-2 py-1.5 font-mono text-xs outline-none focus:border-yellow-400'
+  const lbl = 'font-mono text-[10px] font-bold uppercase tracking-wider mb-1 block'
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMsg(null)
+    try {
+      let fechaInicio = form.fecha_inicio
+      if (form.hora_inicio && form.fecha_inicio) fechaInicio = `${form.fecha_inicio}T${form.hora_inicio}:00`
+      const body: Record<string, unknown> = {
+        titulo: form.titulo, fecha_inicio: fechaInicio,
+        categoria_principal: form.categoria_principal, municipio: form.municipio,
+        es_gratuito: form.es_gratuito, oculto: form.oculto,
+        hora_confirmada: Boolean(form.hora_inicio),
+      }
+      if (form.fecha_fin) body.fecha_fin = form.fecha_fin
+      if (form.barrio) body.barrio = form.barrio
+      if (form.nombre_lugar) body.nombre_lugar = form.nombre_lugar
+      if (form.descripcion) body.descripcion = form.descripcion
+      if (form.precio) body.precio = form.precio
+      if (form.imagen_url) body.imagen_url = form.imagen_url
+      if (form.fuente_url) body.fuente_url = form.fuente_url
+      const res = await fetch(`${API_BASE}/admin/eventos/${row.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json() as { detail?: string }
+      if (!res.ok) throw new Error(json.detail ?? String(res.status))
+      setMsg({ text: '✓ Guardado correctamente', ok: true }); onSaved()
+    } catch (e: unknown) {
+      setMsg({ text: `Error: ${e instanceof Error ? e.message : String(e)}`, ok: false })
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex">
+      <div className="flex-1 bg-black/40" onClick={onClose} />
+      <div className="w-full max-w-lg bg-white border-l-2 border-black overflow-y-auto flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b-2 border-black bg-black text-white sticky top-0">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-widest opacity-60">Editar evento</p>
+            <p className="font-mono text-sm font-bold truncate max-w-[280px]">{form.titulo}</p>
+          </div>
+          <button onClick={onClose} className="text-white hover:opacity-60 text-lg font-black">✕</button>
+        </div>
+        <form onSubmit={handleSave} className="p-5 space-y-3 flex-1">
+          <div><label className={lbl}>Título *</label>
+            <input value={form.titulo} onChange={e => setForm(p => ({...p, titulo: e.target.value}))} required className={inp} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={lbl}>Fecha inicio *</label>
+              <input type="date" value={form.fecha_inicio} onChange={e => setForm(p => ({...p, fecha_inicio: e.target.value}))} required className={inp} /></div>
+            <div><label className={lbl}>Hora</label>
+              <input type="time" value={form.hora_inicio} onChange={e => setForm(p => ({...p, hora_inicio: e.target.value}))} className={inp} /></div>
+          </div>
+          <div><label className={lbl}>Fecha fin</label>
+            <input type="date" value={form.fecha_fin} onChange={e => setForm(p => ({...p, fecha_fin: e.target.value}))} className={inp} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={lbl}>Categoría</label>
+              <select value={form.categoria_principal} onChange={e => setForm(p => ({...p, categoria_principal: e.target.value}))} className={inp}>
+                {CATS_ADMIN.map(c => <option key={c} value={c}>{CAT_LABEL[c] ?? c}</option>)}</select></div>
+            <div><label className={lbl}>Municipio</label>
+              <select value={form.municipio} onChange={e => setForm(p => ({...p, municipio: e.target.value}))} className={inp}>
+                {MUNICIPIOS_ADMIN.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={lbl}>Barrio</label>
+              <input value={form.barrio} onChange={e => setForm(p => ({...p, barrio: e.target.value}))} className={inp} /></div>
+            <div><label className={lbl}>Lugar</label>
+              <input value={form.nombre_lugar} onChange={e => setForm(p => ({...p, nombre_lugar: e.target.value}))} className={inp} /></div>
+          </div>
+          <div><label className={lbl}>Descripción</label>
+            <textarea value={form.descripcion} onChange={e => setForm(p => ({...p, descripcion: e.target.value}))} rows={3} className={`${inp} resize-none`} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={lbl}>Precio</label>
+              <input value={form.precio} onChange={e => setForm(p => ({...p, precio: e.target.value}))} placeholder="$20.000" className={inp} /></div>
+            <div className="flex flex-col justify-end gap-2 pb-1">
+              <label className="flex items-center gap-2 cursor-pointer font-mono text-xs">
+                <input type="checkbox" checked={form.es_gratuito} onChange={e => setForm(p => ({...p, es_gratuito: e.target.checked}))} />Gratuito</label>
+              <label className="flex items-center gap-2 cursor-pointer font-mono text-xs">
+                <input type="checkbox" checked={form.oculto} onChange={e => setForm(p => ({...p, oculto: e.target.checked}))} />Ocultar</label>
+            </div>
+          </div>
+          <div><label className={lbl}>URL imagen</label>
+            <input value={form.imagen_url} onChange={e => setForm(p => ({...p, imagen_url: e.target.value}))} placeholder="https://..." className={inp} /></div>
+          <div><label className={lbl}>Link / más info</label>
+            <input value={form.fuente_url} onChange={e => setForm(p => ({...p, fuente_url: e.target.value}))} placeholder="https://..." className={inp} /></div>
+          {msg && <p className={`font-mono text-xs ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>{msg.text}</p>}
+          <div className="flex gap-3 pt-2">
+            <button type="submit" disabled={saving}
+              className="flex-1 py-2.5 bg-black text-white font-mono font-bold uppercase tracking-widest text-xs hover:bg-yellow-300 hover:text-black transition-colors disabled:opacity-50">
+              {saving ? 'Guardando...' : '✓ Guardar cambios'}</button>
+            <button type="button" onClick={onClose}
+              className="px-4 py-2.5 border-2 border-black font-mono text-xs font-bold uppercase tracking-wider hover:bg-neutral-100 transition-colors">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── TAB: EVENTOS ──────────────────────────────────────────────────────────────
 
 function TabEventos({ apiKey }: { apiKey: string }) {
@@ -316,6 +438,7 @@ function TabEventos({ apiKey }: { apiKey: string }) {
   const [reportados, setReportados] = useState(false)
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
 
   const fetchData = useCallback(async (p: number) => {
     setLoading(true)
@@ -344,6 +467,7 @@ function TabEventos({ apiKey }: { apiKey: string }) {
 
   return (
     <div className="space-y-4">
+      {editing && <EditEventoPanel row={editing} apiKey={apiKey} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void fetchData(page) }} />}
       <div className="flex flex-wrap gap-3">
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar título..."
           className="border-2 border-black px-3 py-2 font-mono text-xs outline-none focus:border-yellow-400 w-48" />
@@ -360,9 +484,14 @@ function TabEventos({ apiKey }: { apiKey: string }) {
           { key: 'fecha_inicio', label: 'Fecha', render: r => (r.fecha_inicio as string)?.slice(0, 10) },
           { key: 'categoria_principal', label: 'Categoría', render: r => CAT_LABEL[r.categoria_principal as string] ?? String(r.categoria_principal) },
           { key: 'municipio', label: 'Municipio' },
-          { key: 'verificado', label: 'Ver.', render: r => r.verificado ? '✓' : '—' },
-          { key: 'reportado', label: 'Rep.', render: r => r.reportado ? <span className="text-red-600 font-bold">⚠</span> : '—' },
-          { key: 'fuente', label: 'Fuente', render: r => (r.fuente as string)?.slice(0, 20) },
+          { key: 'oculto', label: '', render: r => r.oculto ? <span className="text-orange-400 text-[10px] font-bold">●OC</span> : '—' },
+          { key: 'fuente', label: 'Fuente', render: r => (r.fuente as string)?.slice(0, 16) },
+          { key: '_edit', label: '', render: r => (
+            <button onClick={e => { e.stopPropagation(); setEditing(r) }}
+              className="px-2 py-0.5 border border-black font-mono text-[9px] font-bold uppercase hover:bg-black hover:text-white transition-colors">
+              ✎
+            </button>
+          )},
         ]}
         data={data} total={total} page={page} perPage={50} onPage={setPage}
         loading={loading || deleting !== null}
@@ -944,6 +1073,132 @@ function BulkUpload({ apiKey, onDone }: { apiKey: string; onDone: () => void }) 
   )
 }
 
+// ── TAB: BUSCAR WEB (Google de Cultura) ──────────────────────────────────────
+
+const WEB_PRESETS = [
+  'teatro medellin junio 2026',
+  'comfama agenda cultural junio 2026',
+  'fundacion epm eventos junio 2026',
+  'bibliotecas medellin agenda junio 2026',
+  'festival cultural medellin 2026',
+  'danza contemporanea medellin junio 2026',
+  'conciertos jazz medellin 2026',
+  'colectivos culturales medellin eventos',
+  'exposicion arte medellin junio 2026',
+  'museo arte medellin eventos 2026',
+  'teatro pablo tobón uribe agenda',
+  'tango medellin junio 2026',
+]
+
+function TabBuscarWeb({ apiKey }: { apiKey: string }) {
+  const [query, setQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [results, setResults] = useState<{ message: string; nuevos: number; duplicados: number; found: number } | null>(null)
+  const [log, setLog] = useState<string[]>([])
+  const [autoAdd, setAutoAdd] = useState(true)
+
+  async function runSearch(q: string) {
+    if (!q.trim() || searching) return
+    setSearching(true); setResults(null)
+    setLog(prev => [`🔍 Buscando: "${q}"...`, ...prev.slice(0, 19)])
+    try {
+      const params = new URLSearchParams({
+        texto: q, max_queries: '4', max_results_per_query: '6',
+        days_ahead: '60', strict_categoria: 'false',
+        auto_insert: String(autoAdd),
+      })
+      const res = await fetch(`${API_BASE}/scraper/discover-events/publico?${params}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey }, body: '{}',
+        signal: AbortSignal.timeout(90000),
+      })
+      const json = await res.json() as { message?: string; result?: { nuevos?: number; duplicados?: number; encontrados?: number; candidatos?: unknown[] } }
+      const r = json.result ?? {}
+      const nuevos = r.nuevos ?? 0
+      const dups = r.duplicados ?? 0
+      const found = r.encontrados ?? (r.candidatos as unknown[])?.length ?? 0
+      setResults({ message: json.message ?? '', nuevos, duplicados: dups, found })
+      setLog(prev => [
+        nuevos > 0 ? `✅ "${q}" → ${nuevos} eventos nuevos agregados` : `ℹ️ "${q}" → ${found} encontrados, ${dups} ya existían`,
+        ...prev,
+      ])
+    } catch {
+      setLog(prev => [`❌ Error buscando "${q}" — intenta de nuevo`, ...prev])
+    } finally { setSearching(false) }
+  }
+
+  async function runAllPresets() {
+    for (const preset of WEB_PRESETS) {
+      await runSearch(preset)
+      await new Promise(r => setTimeout(r, 2000)) // polite delay
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="border-2 border-black p-5">
+        <h2 className="font-mono font-bold uppercase tracking-widest text-xs mb-1">🌐 Google de Cultura</h2>
+        <p className="font-mono text-[10px] text-neutral-500 mb-4">
+          Busca eventos culturales en internet con DuckDuckGo + IA. Los eventos nuevos se agregan automáticamente al sistema.
+        </p>
+
+        {/* Custom search */}
+        <div className="flex gap-2 mb-4">
+          <input value={query} onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && void runSearch(query)}
+            placeholder="teatro medellin junio 2026, comfama agenda..."
+            className="flex-1 border-2 border-black px-3 py-2 font-mono text-sm outline-none focus:border-yellow-400" />
+          <button onClick={() => void runSearch(query)} disabled={searching || !query.trim()}
+            className="px-4 py-2 bg-black text-white font-mono font-bold text-xs uppercase tracking-wider hover:bg-yellow-300 hover:text-black transition-colors disabled:opacity-50">
+            {searching ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" /> : 'Buscar →'}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-4 mb-4">
+          <label className="flex items-center gap-2 font-mono text-xs cursor-pointer">
+            <input type="checkbox" checked={autoAdd} onChange={e => setAutoAdd(e.target.checked)} />
+            Agregar automáticamente al sistema
+          </label>
+          <button onClick={() => void runAllPresets()} disabled={searching}
+            className="px-4 py-2 bg-yellow-300 text-black border-2 border-black font-mono font-bold text-xs uppercase tracking-wider hover:bg-yellow-400 transition-colors disabled:opacity-50">
+            ✨ Barrer todas las fuentes ({WEB_PRESETS.length})
+          </button>
+        </div>
+
+        {/* Preset chips */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {WEB_PRESETS.map(p => (
+            <button key={p} onClick={() => { setQuery(p); void runSearch(p) }} disabled={searching}
+              className="text-[10px] font-mono border border-black px-2 py-1 hover:bg-black hover:text-white transition-all disabled:opacity-40">
+              {p}
+            </button>
+          ))}
+        </div>
+
+        {/* Result */}
+        {results && (
+          <div className={`border-2 p-3 font-mono text-xs mb-4 ${results.nuevos > 0 ? 'border-green-500 bg-green-50' : 'border-black/20'}`}>
+            <p className="font-bold">{results.nuevos > 0 ? `✅ ${results.nuevos} eventos nuevos agregados` : `ℹ️ Sin eventos nuevos`}</p>
+            <p className="text-neutral-500 mt-1">{results.found} encontrados · {results.duplicados} ya existían en el sistema</p>
+            <p className="text-neutral-400 mt-1 text-[10px]">{results.message}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Activity log */}
+      {log.length > 0 && (
+        <div className="border-2 border-black p-4">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-wider mb-3">Log de búsquedas</p>
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {log.map((l, i) => (
+              <p key={i} className="font-mono text-[10px] text-neutral-600">{l}</p>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── TAB: MODELO IA ────────────────────────────────────────────────────────────
 
 function TabModeloIA({ apiKey }: { apiKey: string }) {
@@ -1154,6 +1409,7 @@ export default function Admin() {
     { id: 'usuarios', label: 'Usuarios' },
     { id: 'logs', label: 'Logs' },
     { id: 'subir_evento', label: '+ Subir Evento' },
+    { id: 'buscar_web', label: '🌐 Buscar Web' },
     { id: 'modelo_ia', label: 'Modelo IA' },
     { id: 'mapa', label: 'Mapa' },
   ]
@@ -1208,6 +1464,7 @@ export default function Admin() {
         {activeTab === 'usuarios' && <TabUsuarios apiKey={apiKey} />}
         {activeTab === 'logs' && <TabLogs apiKey={apiKey} />}
         {activeTab === 'subir_evento' && <TabSubirEvento apiKey={apiKey} />}
+        {activeTab === 'buscar_web' && <TabBuscarWeb apiKey={apiKey} />}
         {activeTab === 'modelo_ia' && <TabModeloIA apiKey={apiKey} />}
         {activeTab === 'mapa' && (
           <div className="border-2 border-black overflow-hidden">
