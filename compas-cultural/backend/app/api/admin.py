@@ -746,8 +746,18 @@ async def crear_eventos_masivo(
                 if ev.get("link_externo"): data["fuente_url"] = ev["link_externo"]
 
                 if data["fecha_inicio"]:
-                    res = supabase.table("eventos").insert(data).execute()
-                    created_id = res.data[0]["id"] if res.data else None
+                    # Skip events with dates more than 3 days in the past
+                    from datetime import datetime as _dtt, timezone as _tz
+                    try:
+                        fi = data["fecha_inicio"][:10]
+                        if fi < (_dtt.now(_tz.utc) - __import__('datetime').timedelta(days=3)).strftime("%Y-%m-%d"):
+                            created_id = None  # past event — skip
+                        else:
+                            res = supabase.table("eventos").insert(data).execute()
+                            created_id = res.data[0]["id"] if res.data else None
+                    except Exception:
+                        res = supabase.table("eventos").insert(data).execute()
+                        created_id = res.data[0]["id"] if res.data else None
                 else:
                     created_id = None
 
@@ -910,20 +920,34 @@ def admin_get_eventos_manuales(
     _check_key(x_api_key)
     from app.database import supabase
     offset = (max(page, 1) - 1) * per_page
-    res = (
-        supabase.table("eventos")
-        .select(
-            "id,titulo,slug,fecha_inicio,hora_inicio,fecha_fin,duracion_minutos,"
-            "categoria_principal,municipio,barrio,nombre_lugar,imagen_url,"
-            "es_gratuito,precio,oculto,verificado,created_at",
-            count="exact",
+    try:
+        res = (
+            supabase.table("eventos")
+            .select("*", count="exact")
+            .eq("fuente", "admin_manual")
+            .order("created_at", desc=True)
+            .range(offset, offset + per_page - 1)
+            .execute()
         )
-        .eq("fuente", "admin_manual")
-        .order("created_at", desc=True)
-        .range(offset, offset + per_page - 1)
-        .execute()
-    )
-    return {"data": res.data or [], "total": res.count or 0, "page": page, "per_page": per_page}
+        return {"data": res.data or [], "total": res.count or 0, "page": page, "per_page": per_page}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"manuales error: {exc}")
+
+
+@router.delete("/eventos/manuales-pasados")
+def admin_delete_manuales_pasados(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Delete all admin_manual events with fecha_inicio in the past (more than 1 day ago)."""
+    _check_key(x_api_key)
+    from app.database import supabase
+    from datetime import datetime, timezone, timedelta
+    ayer = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    try:
+        res = supabase.table("eventos").delete().eq("fuente", "admin_manual").lt("fecha_inicio", ayer).execute()
+        return {"ok": True, "deleted": len(res.data or [])}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error: {exc}")
 
 
 @router.delete("/eventos/{evento_id}")
