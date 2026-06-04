@@ -1384,6 +1384,53 @@ export async function adminDeleteEvento(apiKey: string, id: string): Promise<voi
   if (!response.ok) throw new Error(String(response.status))
 }
 
+export async function adminExtraerDeImagen(
+  apiKey: string,
+  file: File,
+): Promise<{ ok: boolean; data: Partial<EventoAdminCreate> }> {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`${API_BASE_URL}/admin/eventos/extraer-de-imagen`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+    body: form,
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error((err as { detail?: string }).detail ?? String(response.status))
+  }
+  return response.json() as Promise<{ ok: boolean; data: Partial<EventoAdminCreate> }>
+}
+
+export async function adminCrearMasivo(
+  apiKey: string,
+  files: File[],
+): Promise<{ ok: boolean; job_id: string; total: number; message: string }> {
+  const form = new FormData()
+  files.forEach(f => form.append('files', f))
+  const response = await fetch(`${API_BASE_URL}/admin/eventos/crear-masivo`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+    body: form,
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error((err as { detail?: string }).detail ?? String(response.status))
+  }
+  return response.json() as Promise<{ ok: boolean; job_id: string; total: number; message: string }>
+}
+
+export async function adminMasivoStatus(
+  apiKey: string,
+  jobId: string,
+): Promise<{ status: string; total: number; done: number; errors: number; created: { id: string; titulo: string }[] }> {
+  const response = await fetch(`${API_BASE_URL}/admin/eventos/masivo-status/${jobId}`, {
+    headers: { 'X-API-Key': apiKey },
+  })
+  if (!response.ok) throw new Error(String(response.status))
+  return response.json()
+}
+
 // ─── Admin: ML Model ──────────────────────────────────────────────────────────
 
 export async function adminGetModeloIA(apiKey: string): Promise<ModeloIAStatus> {

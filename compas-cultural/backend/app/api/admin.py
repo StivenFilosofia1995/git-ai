@@ -582,6 +582,217 @@ async def upload_evento_imagen(
     return {"url": url}
 
 
+@router.post("/eventos/extraer-de-imagen")
+async def extraer_evento_de_imagen(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    file: UploadFile = File(None),
+    imagen_url: str = Query(default=""),
+):
+    """Use Claude Haiku Vision to extract event fields from a poster/image.
+    Accepts either a file upload or an already-uploaded image URL.
+    Returns extracted fields ready to populate the event form.
+    """
+    _check_key(x_api_key)
+    import base64, os
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY no configurada en el servidor")
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+
+        if file:
+            file_bytes = await file.read()
+            b64 = base64.standard_b64encode(file_bytes).decode("utf-8")
+            media_type = file.content_type or "image/jpeg"
+            image_source: dict = {"type": "base64", "media_type": media_type, "data": b64}
+        elif imagen_url:
+            image_source = {"type": "url", "url": imagen_url}
+        else:
+            raise HTTPException(status_code=400, detail="Se requiere archivo o imagen_url")
+
+        prompt = """Analiza este afiche/poster de evento cultural colombiano y extrae la información en JSON.
+
+Devuelve SOLO un objeto JSON válido con estos campos (null si no aparece en la imagen):
+{
+  "titulo": "nombre completo del evento",
+  "fecha_inicio": "YYYY-MM-DD",
+  "fecha_fin": "YYYY-MM-DD o null",
+  "hora_inicio": "HH:MM en formato 24h o null",
+  "nombre_lugar": "nombre del lugar o espacio",
+  "barrio": "barrio si aparece",
+  "municipio": "ciudad (por defecto medellin)",
+  "descripcion": "descripción corta del evento (máx 200 chars)",
+  "categoria_principal": "una de: teatro|musica_en_vivo|danza|cine|festival|taller|conferencia|galeria|hip_hop|jazz|electronica|fotografia|filosofia|otro",
+  "precio": "precio como texto ej: $25.000 o null si es gratis",
+  "es_gratuito": true o false,
+  "link_externo": "URL, email o contacto si aparece"
+}
+
+Si hay fechas en formato colombiano (ej: 15 de junio de 2026) conviértelas a YYYY-MM-DD.
+Si la hora aparece como "7pm" conviértela a "19:00".
+Responde SOLO con el JSON, sin explicaciones."""
+
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": image_source},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+
+        raw = msg.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        import json
+        extracted = json.loads(raw)
+        return {"ok": True, "data": extracted}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[extraer-de-imagen ERROR] {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Error extrayendo datos: {type(exc).__name__}: {exc}")
+
+
+@router.post("/eventos/crear-masivo")
+async def crear_eventos_masivo(
+    background_tasks: BackgroundTasks,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    files: list[UploadFile] = File(...),
+):
+    """Upload multiple posters, extract data with AI, and create all events.
+    Runs in background. Returns a job_id to track progress via /admin/eventos/masivo-status/{job_id}.
+    """
+    _check_key(x_api_key)
+    import uuid, os
+    from app.database import supabase
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY no configurada")
+
+    job_id = str(uuid.uuid4())[:8]
+    # Store job status in config_kv
+    from app.services.email_service import _kv_upsert
+    import json
+    _kv_upsert(f"masivo_job:{job_id}", json.dumps({
+        "status": "processing", "total": len(files),
+        "done": 0, "errors": 0, "created": []
+    }))
+
+    # Read all file bytes immediately (before background task)
+    files_data = []
+    for f in files:
+        b = await f.read()
+        files_data.append({"bytes": b, "content_type": f.content_type or "image/jpeg", "name": f.filename or "image"})
+
+    def _run():
+        import anthropic, base64, time, re, unicodedata
+        client = anthropic.Anthropic(api_key=api_key)
+
+        for i, fd in enumerate(files_data):
+            try:
+                b64 = base64.standard_b64encode(fd["bytes"]).decode()
+                msg = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=800,
+                    messages=[{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": fd["content_type"], "data": b64}},
+                        {"type": "text", "text": """Extrae datos del afiche cultural. Devuelve SOLO JSON:
+{"titulo":"...","fecha_inicio":"YYYY-MM-DD","fecha_fin":"YYYY-MM-DD o null","hora_inicio":"HH:MM o null","nombre_lugar":"...","barrio":"...","municipio":"medellin","descripcion":"...","categoria_principal":"teatro|musica_en_vivo|danza|cine|festival|taller|conferencia|galeria|hip_hop|jazz|electronica|fotografia|filosofia|otro","precio":"...","es_gratuito":true,"link_externo":"..."}"""},
+                    ]}],
+                )
+                raw = msg.content[0].text.strip().strip("```").lstrip("json").strip()
+                import json as _json
+                ev = _json.loads(raw)
+
+                # Build slug
+                t = unicodedata.normalize("NFD", (ev.get("titulo") or "evento").lower())
+                t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+                t = re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:60]
+                slug = f"{t}-{int(time.time()) % 100000}"
+
+                data = {
+                    "titulo": ev.get("titulo") or "Evento sin título",
+                    "slug": slug,
+                    "fecha_inicio": ev.get("fecha_inicio") or "",
+                    "categoria_principal": ev.get("categoria_principal") or "otro",
+                    "municipio": ev.get("municipio") or "medellin",
+                    "verificado": True,
+                    "fuente": "admin_manual",
+                    "es_gratuito": bool(ev.get("es_gratuito", True)),
+                    "oculto": False,
+                    "hora_confirmada": bool(ev.get("hora_inicio")),
+                }
+                if ev.get("hora_inicio") and ev.get("fecha_inicio"):
+                    data["fecha_inicio"] = f"{ev['fecha_inicio'][:10]}T{ev['hora_inicio']}:00"
+                if ev.get("fecha_fin"): data["fecha_fin"] = ev["fecha_fin"]
+                if ev.get("descripcion"): data["descripcion"] = ev["descripcion"]
+                if ev.get("barrio"): data["barrio"] = ev["barrio"]
+                if ev.get("nombre_lugar"): data["nombre_lugar"] = ev["nombre_lugar"]
+                if ev.get("precio"): data["precio"] = ev["precio"]
+                if ev.get("link_externo"): data["fuente_url"] = ev["link_externo"]
+
+                if data["fecha_inicio"]:
+                    res = supabase.table("eventos").insert(data).execute()
+                    created_id = res.data[0]["id"] if res.data else None
+                else:
+                    created_id = None
+
+                status = json.loads(_kv_get(f"masivo_job:{job_id}") or "{}")
+                status["done"] = i + 1
+                if created_id:
+                    status["created"].append({"id": created_id, "titulo": data["titulo"]})
+                _kv_upsert(f"masivo_job:{job_id}", json.dumps(status))
+
+            except Exception as exc:
+                print(f"[masivo] error en imagen {i}: {exc}")
+                try:
+                    status = json.loads(_kv_get(f"masivo_job:{job_id}") or "{}")
+                    status["done"] = i + 1
+                    status["errors"] = status.get("errors", 0) + 1
+                    _kv_upsert(f"masivo_job:{job_id}", json.dumps(status))
+                except Exception:
+                    pass
+
+        # Mark complete
+        try:
+            from app.services.email_service import _kv_get as _get
+            status = json.loads(_get(f"masivo_job:{job_id}") or "{}")
+            status["status"] = "done"
+            _kv_upsert(f"masivo_job:{job_id}", json.dumps(status))
+        except Exception:
+            pass
+
+    from app.services.email_service import _kv_get
+    background_tasks.add_task(_run)
+    return {"ok": True, "job_id": job_id, "total": len(files_data), "message": f"Procesando {len(files_data)} imágenes en background"}
+
+
+@router.get("/eventos/masivo-status/{job_id}")
+def masivo_status(job_id: str, x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Check progress of a bulk image processing job."""
+    _check_key(x_api_key)
+    from app.services.email_service import _kv_get
+    import json
+    raw = _kv_get(f"masivo_job:{job_id}")
+    if not raw:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return json.loads(raw)
+
+
 @router.post("/eventos/crear")
 def admin_crear_evento(
     body: EventoAdminCreate,

@@ -4,6 +4,7 @@ import {
   getAdminDashboard, adminTriggerScraper, adminTriggerBlastTick, adminTriggerCleanup,
   adminUploadEventImage, adminCrearEvento, adminActualizarEvento, adminDeleteEvento,
   adminGetEventosManuales, adminGetModeloIA, adminReentrenarModelo,
+  adminExtraerDeImagen, adminCrearMasivo, adminMasivoStatus,
   type AdminDashboard, type EventoAdminCreate, type ModeloIAStatus,
 } from '../lib/api'
 
@@ -534,6 +535,8 @@ function TabSubirEvento({ apiKey }: { apiKey: string }) {
   const [manuales, setManuales] = useState<import('../lib/api').Evento[]>([])
   const [loadingList, setLoadingList] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  const [lastFile, setLastFile] = useState<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const loadManuales = useCallback(async () => {
@@ -557,16 +560,43 @@ function TabSubirEvento({ apiKey }: { apiKey: string }) {
 
   async function handleFile(file: File) {
     if (!file.type.startsWith('image/')) { setMsg({ text: 'Solo se aceptan imágenes', ok: false }); return }
-    setUploading(true); setMsg(null)
+    setUploading(true); setMsg(null); setLastFile(file)
     try {
       const slug = form.titulo ? form.titulo.toLowerCase().replace(/\s+/g, '-').slice(0, 40) : 'evento'
       const res = await adminUploadEventImage(apiKey, file, slug)
       setForm(prev => ({ ...prev, imagen_url: res.url }))
       setImgPreview(res.url)
-      setMsg({ text: 'Imagen subida correctamente', ok: true })
+      setMsg({ text: '✓ Imagen subida — usa "✨ Extraer con IA" para llenar el formulario automáticamente', ok: true })
     } catch (e: unknown) {
       setMsg({ text: `Error: ${e instanceof Error ? e.message : String(e)}`, ok: false })
     } finally { setUploading(false) }
+  }
+
+  async function handleExtractAI() {
+    if (!lastFile) { setMsg({ text: 'Primero sube una imagen', ok: false }); return }
+    setExtracting(true); setMsg(null)
+    try {
+      const res = await adminExtraerDeImagen(apiKey, lastFile)
+      const d = res.data
+      setForm(prev => ({
+        ...prev,
+        titulo: d.titulo ?? prev.titulo,
+        fecha_inicio: d.fecha_inicio ?? prev.fecha_inicio,
+        fecha_fin: d.fecha_fin ?? prev.fecha_fin,
+        hora_inicio: d.hora_inicio ?? prev.hora_inicio,
+        descripcion: d.descripcion ?? prev.descripcion,
+        categoria_principal: d.categoria_principal ?? prev.categoria_principal,
+        municipio: d.municipio ?? prev.municipio,
+        barrio: d.barrio ?? prev.barrio,
+        nombre_lugar: d.nombre_lugar ?? prev.nombre_lugar,
+        precio: d.precio ?? prev.precio,
+        es_gratuito: d.es_gratuito ?? prev.es_gratuito,
+        link_externo: d.link_externo ?? prev.link_externo,
+      }))
+      setMsg({ text: '✨ Campos extraídos con IA — revisa y ajusta antes de publicar', ok: true })
+    } catch (e: unknown) {
+      setMsg({ text: `Error IA: ${e instanceof Error ? e.message : String(e)}`, ok: false })
+    } finally { setExtracting(false) }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -619,6 +649,17 @@ function TabSubirEvento({ apiKey }: { apiKey: string }) {
           <input ref={fileRef} type="file" accept="image/*" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) void handleFile(f) }} />
         </div>
+
+        {/* AI extract button */}
+        {lastFile && (
+          <div className="mb-4 flex items-center gap-3">
+            <button type="button" onClick={handleExtractAI} disabled={extracting || uploading}
+              className="px-4 py-2 bg-yellow-300 text-black font-mono font-bold text-xs uppercase tracking-widest border-2 border-black hover:bg-yellow-400 transition-colors disabled:opacity-50 flex items-center gap-2">
+              {extracting ? <><span className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin inline-block" /> Analizando...</> : '✨ Extraer datos con IA'}
+            </button>
+            <span className="text-[10px] font-mono opacity-50">Claude Haiku leerá el afiche y llenará el formulario</span>
+          </div>
+        )}
 
         {/* URL manual override */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -779,6 +820,126 @@ function TabSubirEvento({ apiKey }: { apiKey: string }) {
           </div>
         )}
       </div>
+
+      {/* ── Bulk upload section ── */}
+      <BulkUpload apiKey={apiKey} onDone={loadManuales} />
+    </div>
+  )
+}
+
+// ── BULK UPLOAD ───────────────────────────────────────────────────────────────
+
+function BulkUpload({ apiKey, onDone }: { apiKey: string; onDone: () => void }) {
+  const [files, setFiles] = useState<File[]>([])
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [progress, setProgress] = useState<{ status: string; total: number; done: number; errors: number; created: { id: string; titulo: string }[] } | null>(null)
+  const [running, setRunning] = useState(false)
+  const [isDrag, setIsDrag] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function addFiles(newFiles: FileList | null) {
+    if (!newFiles) return
+    const imgs = Array.from(newFiles).filter(f => f.type.startsWith('image/'))
+    setFiles(prev => [...prev, ...imgs].slice(0, 50))
+  }
+
+  async function handleStart() {
+    if (!files.length) return
+    setRunning(true); setProgress(null)
+    try {
+      const res = await adminCrearMasivo(apiKey, files)
+      setJobId(res.job_id)
+      // Poll progress
+      const poll = setInterval(async () => {
+        try {
+          const s = await adminMasivoStatus(apiKey, res.job_id)
+          setProgress(s)
+          if (s.status === 'done') {
+            clearInterval(poll)
+            setRunning(false)
+            setFiles([])
+            onDone()
+          }
+        } catch { clearInterval(poll); setRunning(false) }
+      }, 3000)
+    } catch (e: unknown) {
+      alert(`Error: ${e instanceof Error ? e.message : String(e)}`)
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="border-2 border-black p-6 border-dashed">
+      <h2 className="font-mono font-bold uppercase tracking-widest text-xs mb-2">✨ Carga masiva con IA</h2>
+      <p className="font-mono text-[10px] text-neutral-500 mb-4">
+        Sube varios afiches a la vez. Claude Haiku extrae los datos de cada uno y crea los eventos automáticamente. (~$0.002 USD por imagen)
+      </p>
+
+      {/* Drop zone */}
+      <div
+        className={`border-2 ${isDrag ? 'border-yellow-400 bg-yellow-50' : 'border-black border-dashed'} p-8 text-center cursor-pointer mb-4 transition-colors`}
+        onClick={() => inputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setIsDrag(true) }}
+        onDragLeave={() => setIsDrag(false)}
+        onDrop={e => { e.preventDefault(); setIsDrag(false); addFiles(e.dataTransfer.files) }}
+      >
+        <p className="font-mono text-xs text-neutral-400 uppercase tracking-wider">
+          {files.length > 0
+            ? `${files.length} imagen${files.length > 1 ? 'es' : ''} seleccionada${files.length > 1 ? 's' : ''} — arrastra más o haz clic`
+            : 'Arrastra afiches aquí o haz clic (máx. 50 imágenes)'}
+        </p>
+        <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={e => addFiles(e.target.files)} />
+      </div>
+
+      {/* Preview thumbnails */}
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {files.map((f, i) => (
+            <div key={i} className="relative">
+              <img src={URL.createObjectURL(f)} alt="" className="w-16 h-16 object-cover border-2 border-black" />
+              <button onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                className="absolute -top-1 -right-1 bg-black text-white text-[9px] w-4 h-4 flex items-center justify-center font-bold">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Progress */}
+      {progress && (
+        <div className="border-2 border-black p-4 mb-4 font-mono text-xs">
+          <div className="flex items-center gap-4 mb-2">
+            <span className="font-bold uppercase tracking-wider">
+              {progress.status === 'done' ? '✓ Completado' : '⏳ Procesando...'}
+            </span>
+            <span>{progress.done}/{progress.total} imágenes</span>
+            {progress.errors > 0 && <span className="text-red-600">{progress.errors} errores</span>}
+          </div>
+          <div className="w-full bg-neutral-200 h-2 mb-3">
+            <div className="bg-black h-2 transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+          </div>
+          {progress.created.length > 0 && (
+            <div className="space-y-1 max-h-32 overflow-y-auto">
+              {progress.created.map(ev => (
+                <div key={ev.id} className="text-green-700">✓ {ev.titulo}</div>
+              ))}
+            </div>
+          )}
+          {progress.status === 'done' && (
+            <p className="mt-2 text-green-700 font-bold">
+              {progress.created.length} eventos creados correctamente.
+            </p>
+          )}
+        </div>
+      )}
+
+      <button onClick={handleStart} disabled={!files.length || running}
+        className="px-6 py-3 bg-yellow-300 text-black font-mono font-bold uppercase tracking-widest text-sm border-2 border-black hover:bg-yellow-400 transition-colors disabled:opacity-40 flex items-center gap-2">
+        {running
+          ? <><span className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin inline-block" /> Procesando con IA...</>
+          : `✨ Crear ${files.length || 0} evento${files.length !== 1 ? 's' : ''} con IA`}
+      </button>
+      {jobId && <p className="font-mono text-[10px] text-neutral-400 mt-2">Job ID: {jobId}</p>}
     </div>
   )
 }
