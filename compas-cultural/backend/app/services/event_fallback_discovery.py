@@ -529,10 +529,11 @@ async def _google_search_urls(query: str, max_results: int = 8) -> list[str]:
     import asyncio
     def _search():
         try:
-            from ddgs import DDGS
-            results = DDGS().text(query, max_results=max_results)
+            from duckduckgo_search import DDGS
+            results = DDGS().text(query, max_results=max_results, region="co-es")
             return [x['href'] for x in results] if results else []
         except Exception as e:
+            print(f"[ddgs] search error: {e}")
             return []
     return await asyncio.to_thread(_search)
 
