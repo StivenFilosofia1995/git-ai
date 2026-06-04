@@ -840,7 +840,7 @@ function BulkUpload({ apiKey, onDone }: { apiKey: string; onDone: () => void }) 
   function addFiles(newFiles: FileList | null) {
     if (!newFiles) return
     const imgs = Array.from(newFiles).filter(f => f.type.startsWith('image/'))
-    setFiles(prev => [...prev, ...imgs].slice(0, 50))
+    setFiles(prev => [...prev, ...imgs].slice(0, 100))
   }
 
   async function handleStart() {
@@ -886,7 +886,7 @@ function BulkUpload({ apiKey, onDone }: { apiKey: string; onDone: () => void }) 
         <p className="font-mono text-xs text-neutral-400 uppercase tracking-wider">
           {files.length > 0
             ? `${files.length} imagen${files.length > 1 ? 'es' : ''} seleccionada${files.length > 1 ? 's' : ''} — arrastra más o haz clic`
-            : 'Arrastra afiches aquí o haz clic (máx. 50 imágenes)'}
+            : 'Arrastra afiches aquí o haz clic (máx. 100 imágenes)'}
         </p>
         <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
           onChange={e => addFiles(e.target.files)} />

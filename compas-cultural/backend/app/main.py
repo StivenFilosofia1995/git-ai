@@ -93,6 +93,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Allow large multipart uploads (bulk image processing: up to 100 images ~200MB)
+from starlette.middleware.base import BaseHTTPMiddleware
+class LargeUploadMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        request._body_size_limit = 200 * 1024 * 1024  # 200 MB
+        return await call_next(request)
+app.add_middleware(LargeUploadMiddleware)
+
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
 
