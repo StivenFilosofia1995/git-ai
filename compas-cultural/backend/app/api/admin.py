@@ -700,23 +700,85 @@ async def crear_eventos_masivo(
 
     def _run():
         import anthropic, base64, time, re, unicodedata
+        import json as _json
+        from app.services.email_service import _kv_get, _kv_upsert
         client = anthropic.Anthropic(api_key=api_key)
+
+        def _update_status(jid, idx, created_title, _upsert, _get):
+            try:
+                s = _json.loads(_get(f"masivo_job:{jid}") or "{}")
+                s["done"] = idx + 1
+                if created_title:
+                    s.setdefault("created", []).append({"titulo": created_title})
+                _upsert(f"masivo_job:{jid}", _json.dumps(s))
+            except Exception:
+                pass
+
+        def _is_duplicate(titulo, fecha, lugar):
+            """Check if event with same title+date+venue already exists."""
+            try:
+                titulo_n = titulo.lower().strip()[:60]
+                q = supabase.table("eventos").select("id").ilike("titulo", f"%{titulo_n[:30]}%")
+                if fecha:
+                    q = q.gte("fecha_inicio", fecha[:8] + "01").lte("fecha_inicio", fecha[:8] + "31")
+                res = q.limit(3).execute()
+                return bool(res.data)
+            except Exception:
+                return False
+
+        seen_titles: set[str] = set()  # In-memory dedup within this batch
 
         for i, fd in enumerate(files_data):
             try:
                 b64 = base64.standard_b64encode(fd["bytes"]).decode()
+                PROMPT = """Esta imagen puede ser un afiche cultural, un screenshot de Instagram/TikTok/Reel o una publicación de WhatsApp sobre un evento cultural en Medellín/Colombia.
+
+IGNORA: barra de estado del celular, íconos de Instagram (corazón, comentario, compartir), número de diapositiva (ej: "2/7"), botón "Seguir", nombre de usuario, comentarios del post. Enfócate SOLO en el contenido del afiche/evento.
+
+Extrae los datos del evento cultural y devuelve SOLO este JSON (sin explicaciones, sin markdown):
+{
+  "titulo": "nombre del evento",
+  "fecha_inicio": "YYYY-MM-DD (año 2026 si no se especifica)",
+  "fecha_fin": "YYYY-MM-DD si hay rango como '03 AL 20' o null",
+  "hora_inicio": "HH:MM en 24h o null",
+  "nombre_lugar": "sala, teatro, biblioteca, parque, etc.",
+  "barrio": "barrio si aparece o null",
+  "municipio": "medellin (o bello/envigado/itagui si lo dice explícitamente)",
+  "descripcion": "descripción breve máx 150 chars",
+  "categoria_principal": "teatro|musica_en_vivo|danza|cine|festival|taller|conferencia|galeria|hip_hop|jazz|electronica|fotografia|filosofia|otro",
+  "precio": "ej: $20.000 o null si es gratis/voluntario",
+  "es_gratuito": true si dice gratis/libre/voluntario/sin costo,
+  "link_externo": "URL o cuenta de instagram si aparece"
+}
+
+Reglas de fechas:
+- "JUNIO 03 AL 20" → fecha_inicio: 2026-06-03, fecha_fin: 2026-06-20
+- "Sábado 6 JUN" → fecha_inicio: 2026-06-06
+- "4, 5 y 6 de junio" → fecha_inicio: 2026-06-04, fecha_fin: 2026-06-06
+- Si solo dice mes sin año, usa 2026
+- "Miércoles a Sábado" = patrón recurrente, toma la primera fecha mencionada
+
+Si la imagen NO contiene un evento cultural (es solo una foto sin datos de evento), devuelve: {"titulo": null}"""
+
                 msg = client.messages.create(
                     model="claude-haiku-4-5-20251001",
-                    max_tokens=800,
+                    max_tokens=600,
                     messages=[{"role": "user", "content": [
                         {"type": "image", "source": {"type": "base64", "media_type": fd["content_type"], "data": b64}},
-                        {"type": "text", "text": """Extrae datos del afiche cultural. Devuelve SOLO JSON:
-{"titulo":"...","fecha_inicio":"YYYY-MM-DD","fecha_fin":"YYYY-MM-DD o null","hora_inicio":"HH:MM o null","nombre_lugar":"...","barrio":"...","municipio":"medellin","descripcion":"...","categoria_principal":"teatro|musica_en_vivo|danza|cine|festival|taller|conferencia|galeria|hip_hop|jazz|electronica|fotografia|filosofia|otro","precio":"...","es_gratuito":true,"link_externo":"..."}"""},
+                        {"type": "text", "text": PROMPT},
                     ]}],
                 )
-                raw = msg.content[0].text.strip().strip("```").lstrip("json").strip()
+                raw = msg.content[0].text.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1].lstrip("json").strip()
                 import json as _json
                 ev = _json.loads(raw)
+
+                # Skip if not an event
+                if not ev.get("titulo"):
+                    created_id = None
+                    _update_status(job_id, i, None, _kv_upsert, _kv_get)
+                    continue
 
                 # Upload image to Supabase Storage
                 imagen_url = None
@@ -728,6 +790,20 @@ async def crear_eventos_masivo(
                     imagen_url = upload_event_image(fd["bytes"], fd["name"], t_slug)
                 except Exception as img_exc:
                     print(f"[masivo] image upload error: {img_exc}")
+
+                # In-batch dedup: skip if same title already processed this run
+                titulo_key = (ev.get("titulo") or "").lower().strip()[:50]
+                if titulo_key in seen_titles:
+                    print(f"[masivo] skip duplicate in batch: {titulo_key}")
+                    _update_status(job_id, i, None, _kv_upsert, _kv_get)
+                    continue
+                seen_titles.add(titulo_key)
+
+                # DB dedup: skip if event with same title+month already in DB
+                if _is_duplicate(ev.get("titulo") or "", ev.get("fecha_inicio") or "", ev.get("nombre_lugar") or ""):
+                    print(f"[masivo] skip DB duplicate: {titulo_key}")
+                    _update_status(job_id, i, None, _kv_upsert, _kv_get)
+                    continue
 
                 # Build slug
                 t = unicodedata.normalize("NFD", (ev.get("titulo") or "evento").lower())
@@ -775,32 +851,26 @@ async def crear_eventos_masivo(
                     print(f"[masivo] insert error: {_ins_exc}")
                     created_id = None
 
-                status = json.loads(_kv_get(f"masivo_job:{job_id}") or "{}")
-                status["done"] = i + 1
-                if created_id:
-                    status["created"].append({"id": created_id, "titulo": data["titulo"]})
-                _kv_upsert(f"masivo_job:{job_id}", json.dumps(status))
+                _update_status(job_id, i, data["titulo"] if created_id else None, _kv_upsert, _kv_get)
 
             except Exception as exc:
                 print(f"[masivo] error en imagen {i}: {exc}")
                 try:
-                    status = json.loads(_kv_get(f"masivo_job:{job_id}") or "{}")
-                    status["done"] = i + 1
-                    status["errors"] = status.get("errors", 0) + 1
-                    _kv_upsert(f"masivo_job:{job_id}", json.dumps(status))
+                    s = _json.loads(_kv_get(f"masivo_job:{job_id}") or "{}")
+                    s["done"] = i + 1
+                    s["errors"] = s.get("errors", 0) + 1
+                    _kv_upsert(f"masivo_job:{job_id}", _json.dumps(s))
                 except Exception:
                     pass
 
         # Mark complete
         try:
-            from app.services.email_service import _kv_get as _get
-            status = json.loads(_get(f"masivo_job:{job_id}") or "{}")
-            status["status"] = "done"
-            _kv_upsert(f"masivo_job:{job_id}", json.dumps(status))
+            s = _json.loads(_kv_get(f"masivo_job:{job_id}") or "{}")
+            s["status"] = "done"
+            _kv_upsert(f"masivo_job:{job_id}", _json.dumps(s))
         except Exception:
             pass
 
-    from app.services.email_service import _kv_get
     background_tasks.add_task(_run)
     return {"ok": True, "job_id": job_id, "total": len(files_data), "message": f"Procesando {len(files_data)} imágenes en background"}
 
