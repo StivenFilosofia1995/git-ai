@@ -718,6 +718,17 @@ async def crear_eventos_masivo(
                 import json as _json
                 ev = _json.loads(raw)
 
+                # Upload image to Supabase Storage
+                imagen_url = None
+                try:
+                    from app.services.storage_service import upload_event_image
+                    t_slug = unicodedata.normalize("NFD", (ev.get("titulo") or "evento").lower())
+                    t_slug = "".join(c for c in t_slug if unicodedata.category(c) != "Mn")
+                    t_slug = re.sub(r"[^a-z0-9]+", "-", t_slug).strip("-")[:40]
+                    imagen_url = upload_event_image(fd["bytes"], fd["name"], t_slug)
+                except Exception as img_exc:
+                    print(f"[masivo] image upload error: {img_exc}")
+
                 # Build slug
                 t = unicodedata.normalize("NFD", (ev.get("titulo") or "evento").lower())
                 t = "".join(c for c in t if unicodedata.category(c) != "Mn")
@@ -744,6 +755,7 @@ async def crear_eventos_masivo(
                 if ev.get("nombre_lugar"): data["nombre_lugar"] = ev["nombre_lugar"]
                 if ev.get("precio"): data["precio"] = ev["precio"]
                 if ev.get("link_externo"): data["fuente_url"] = ev["link_externo"]
+                if imagen_url: data["imagen_url"] = imagen_url
 
                 from datetime import datetime as _dtt, timezone as _tz
                 hoy = _dtt.now(_tz.utc).strftime("%Y-%m-%d")
