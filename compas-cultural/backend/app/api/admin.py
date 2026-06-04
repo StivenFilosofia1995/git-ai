@@ -745,20 +745,22 @@ async def crear_eventos_masivo(
                 if ev.get("precio"): data["precio"] = ev["precio"]
                 if ev.get("link_externo"): data["fuente_url"] = ev["link_externo"]
 
-                if data["fecha_inicio"]:
-                    # Skip events with dates more than 3 days in the past
-                    from datetime import datetime as _dtt, timezone as _tz
-                    try:
-                        fi = data["fecha_inicio"][:10]
-                        if fi < (_dtt.now(_tz.utc) - __import__('datetime').timedelta(days=3)).strftime("%Y-%m-%d"):
-                            created_id = None  # past event — skip
-                        else:
-                            res = supabase.table("eventos").insert(data).execute()
-                            created_id = res.data[0]["id"] if res.data else None
-                    except Exception:
-                        res = supabase.table("eventos").insert(data).execute()
-                        created_id = res.data[0]["id"] if res.data else None
+                from datetime import datetime as _dtt, timezone as _tz
+                hoy = _dtt.now(_tz.utc).strftime("%Y-%m-%d")
+                if not data["fecha_inicio"]:
+                    # No date extracted — create as hidden draft with today's date
+                    data["fecha_inicio"] = hoy
+                    data["oculto"] = True
                 else:
+                    fi = data["fecha_inicio"][:10]
+                    if fi < (_dtt.now(_tz.utc) - __import__('datetime').timedelta(days=3)).strftime("%Y-%m-%d"):
+                        # Past date — create as hidden draft so admin can edit
+                        data["oculto"] = True
+                try:
+                    res = supabase.table("eventos").insert(data).execute()
+                    created_id = res.data[0]["id"] if res.data else None
+                except Exception as _ins_exc:
+                    print(f"[masivo] insert error: {_ins_exc}")
                     created_id = None
 
                 status = json.loads(_kv_get(f"masivo_job:{job_id}") or "{}")
