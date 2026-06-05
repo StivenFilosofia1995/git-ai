@@ -29,6 +29,7 @@ import WebSearch from './pages/WebSearch'
 import Admin from './pages/Admin'
 import Guardados from './pages/Guardados'
 import EliminarCuenta from './pages/EliminarCuenta'
+import Descargar from './pages/Descargar'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import SplashOnboarding, { shouldShowOnboarding } from './components/app/SplashOnboarding'
@@ -108,6 +109,7 @@ function App() {
           <Route path="nosotros" element={<Nosotros />} />
           <Route path="proteccion-datos" element={<ProteccionDatos />} />
           <Route path="eliminar-cuenta" element={<EliminarCuenta />} />
+          <Route path="descargar" element={<Descargar />} />
           <Route path="guardados" element={<Guardados />} />
         </Route>
         <Route path="/chat" element={<Chat />} />
