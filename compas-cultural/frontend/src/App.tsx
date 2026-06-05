@@ -33,6 +33,7 @@ import Descargar from './pages/Descargar'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import SplashOnboarding, { shouldShowOnboarding } from './components/app/SplashOnboarding'
+import InstallBanner from './components/app/InstallBanner'
 
 /** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
 function ProfileGuard({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -88,6 +89,7 @@ function App() {
   return (
     <AuthProvider>
       <GATracker />
+      <InstallBanner />
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Agenda />} />

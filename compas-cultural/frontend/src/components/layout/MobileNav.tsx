@@ -5,8 +5,8 @@ const LINKS = [
   { to: '/agenda', label: 'AGENDA', icon: '▲' },
   { to: '/web-search', label: 'SEARCH', icon: '🔎' },
   { to: '/colectivos', label: 'COLECTIVO', icon: '◇' },
-  { to: '/nosotros', label: 'NOSOTROS', icon: 'M' },
   { to: '/aportes', label: 'VAKI', icon: '♥' },
+  { to: '/descargar', label: 'APP', icon: '⬇' },
 ]
 
 export default function MobileNav() {
