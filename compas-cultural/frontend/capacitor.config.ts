@@ -5,9 +5,10 @@ const config: CapacitorConfig = {
   appName: 'Cultura ETÉREA',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
-    // En desarrollo apunta al servidor local; en prod usa el bundle
-    // url: 'http://192.168.x.x:5173',  // ← descomentar para live-reload
+    // Carga siempre desde la web en vivo — cualquier cambio al sitio
+    // se refleja en la app automáticamente sin actualizar Play Store
+    url: 'https://www.culturaetereamed.com',
+    cleartext: false,
   },
   android: {
     buildOptions: {
