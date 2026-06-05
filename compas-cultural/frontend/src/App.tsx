@@ -28,6 +28,7 @@ import CercaDeTiPage from './pages/CercaDeTiPage'
 import WebSearch from './pages/WebSearch'
 import Admin from './pages/Admin'
 import Guardados from './pages/Guardados'
+import EliminarCuenta from './pages/EliminarCuenta'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 
@@ -95,6 +96,7 @@ function App() {
           <Route path="aportes" element={<Aportes />} />
           <Route path="nosotros" element={<Nosotros />} />
           <Route path="proteccion-datos" element={<ProteccionDatos />} />
+          <Route path="eliminar-cuenta" element={<EliminarCuenta />} />
           <Route path="guardados" element={<Guardados />} />
         </Route>
         <Route path="/chat" element={<Chat />} />
