@@ -16,6 +16,7 @@
     "@capacitor/android": "^8.4.0",
     "@capacitor/cli": "^8.4.0",
     "@capacitor/core": "^8.4.0",
+    "@capacitor/push-notifications": "^8.1.1",
     "@changey/react-leaflet-markercluster": "^4.0.0-rc1",
     "@supabase/supabase-js": "^2.103.3",
     "@types/react": "^18.2.43",

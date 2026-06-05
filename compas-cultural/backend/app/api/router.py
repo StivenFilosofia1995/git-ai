@@ -20,6 +20,7 @@ _route_modules = [
     ("app.api.email", "/email", "email"),
     ("app.api.admin", "/admin", "admin"),
     ("app.api.usuarios", "/usuarios", "usuarios"),
+    ("app.api.notificaciones", "/notificaciones", "notificaciones"),
 ]
 
 for module_path, prefix, tag in _route_modules:

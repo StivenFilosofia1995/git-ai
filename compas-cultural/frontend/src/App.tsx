@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import { trackPageView } from './lib/analytics'
@@ -31,6 +31,7 @@ import Guardados from './pages/Guardados'
 import EliminarCuenta from './pages/EliminarCuenta'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import SplashOnboarding, { shouldShowOnboarding } from './components/app/SplashOnboarding'
 
 /** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
 function ProfileGuard({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -73,6 +74,16 @@ function Layout() {
 }
 
 function App() {
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    // Only show onboarding in Capacitor (native app) context
+    const isCapacitor = typeof (window as unknown as Record<string, unknown>).Capacitor !== 'undefined'
+    return isCapacitor && shouldShowOnboarding()
+  })
+
+  if (showOnboarding) {
+    return <SplashOnboarding onDone={() => setShowOnboarding(false)} />
+  }
+
   return (
     <AuthProvider>
       <GATracker />

@@ -176,6 +176,40 @@ _WEB_SEARCH_QUERIES = [
 ]
 
 
+def _send_daily_push_notification():
+    """8am Colombia: push notification about today's events."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    CO = ZoneInfo("America/Bogota")
+    try:
+        from app.database import supabase
+        hoy = datetime.now(CO).strftime("%Y-%m-%d")
+        manana = datetime.now(CO).strftime("%Y-%m-%d")  # same day end
+        res = supabase.table("eventos").select("titulo").gte("fecha_inicio", hoy).lt(
+            "fecha_inicio", hoy + "T23:59:59"
+        ).eq("oculto", False).limit(100).execute()
+        count = len(res.data or [])
+        if count == 0:
+            return  # No events today — don't spam
+        from app.api.notificaciones import send_push_notification
+        if count == 1:
+            titulo = (res.data[0].get("titulo") or "")[:40]
+            send_push_notification(
+                title="🎭 Hoy en Medellín",
+                body=f"{titulo} — Cultura ETÉREA",
+                data={"type": "daily_events", "date": hoy}
+            )
+        else:
+            send_push_notification(
+                title=f"🎭 {count} eventos hoy en Medellín",
+                body="Música, teatro, danza y más — abre Cultura ETÉREA",
+                data={"type": "daily_events", "date": hoy, "count": str(count)}
+            )
+        print(f"📲 Push diario enviado: {count} eventos hoy")
+    except Exception as e:
+        print(f"❌ Push diario error: {e}")
+
+
 async def _run_daily_web_search():
     """Daily 6am: sweep web for new cultural events across all presets."""
     from datetime import datetime
@@ -368,6 +402,15 @@ def start_scheduler():
         trigger=CronTrigger(hour=1, minute=0, timezone=CO_TZ),
         id="cleanup_past_events",
         name="Limpieza eventos pasados",
+        replace_existing=True,
+    )
+
+    # ── Push notification diaria: 8:00 AM Colombia ───────────────────────────
+    scheduler.add_job(
+        _send_daily_push_notification,
+        trigger=CronTrigger(hour=8, minute=0, timezone=CO_TZ),
+        id="daily_push_notification",
+        name="Notificación push diaria de eventos (8am)",
         replace_existing=True,
     )
 
