@@ -23,25 +23,44 @@ export default function SplashOnboarding({ onDone }: Props) {
 
   async function handleNotifYes() {
     try {
-      // Request browser/PWA notification permission
-      if ('Notification' in window) {
-        await Notification.requestPermission()
-      }
-      // Try Capacitor push notifications if available
-      try {
-        const { PushNotifications } = await import('@capacitor/push-notifications')
-        await PushNotifications.requestPermissions()
-        await PushNotifications.register()
-        PushNotifications.addListener('registration', token => {
-          // Send token to backend
-          fetch('/api/v1/notificaciones/registrar-token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: token.value, platform: 'android' }),
-          }).catch(() => {})
-        })
-      } catch {
-        // Not in Capacitor context — web browser
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') { finish(); return }
+
+      const isCapacitor = typeof (window as unknown as Record<string, unknown>).Capacitor !== 'undefined'
+
+      if (isCapacitor) {
+        // Android — FCM
+        try {
+          const { PushNotifications } = await import('@capacitor/push-notifications')
+          await PushNotifications.requestPermissions()
+          await PushNotifications.register()
+          PushNotifications.addListener('registration', token => {
+            fetch('/api/v1/notificaciones/registrar-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: token.value, platform: 'android' }),
+            }).catch(() => {})
+          })
+        } catch { /* ignore */ }
+      } else {
+        // Web PWA (iPhone Safari, Chrome desktop, etc.) — Web Push VAPID
+        try {
+          const sw = await navigator.serviceWorker.ready
+          const keyRes = await fetch('/api/v1/notificaciones/vapid-public-key')
+          if (keyRes.ok) {
+            const { publicKey } = await keyRes.json() as { publicKey: string }
+            const sub = await sw.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: publicKey,
+            })
+            const subJson = sub.toJSON() as { endpoint: string; keys: Record<string, string> }
+            await fetch('/api/v1/notificaciones/registrar-web-push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
+            })
+          }
+        } catch { /* Web push not supported or VAPID not configured */ }
       }
     } catch { /* ignore */ }
     finish()

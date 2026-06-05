@@ -1,20 +1,39 @@
-"""Push notification endpoints — FCM token registration and send."""
+"""Push notification endpoints — FCM (Android) + Web Push VAPID (iPhone PWA)."""
 from __future__ import annotations
+import os, json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
 
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_CLAIMS = {"sub": "mailto:autonomycsia@gmail.com"}
+
 
 class TokenRegistro(BaseModel):
     token: str
-    platform: str = "android"
+    platform: str = "android"  # android | web
     user_id: str | None = None
+
+
+class WebPushSubscription(BaseModel):
+    endpoint: str
+    keys: dict  # {p256dh, auth}
+    user_id: str | None = None
+
+
+@router.get("/vapid-public-key")
+def get_vapid_public_key():
+    """Return VAPID public key for web push subscription."""
+    if not VAPID_PUBLIC_KEY:
+        raise HTTPException(status_code=503, detail="VAPID keys not configured")
+    return {"publicKey": VAPID_PUBLIC_KEY}
 
 
 @router.post("/registrar-token")
 def registrar_token(body: TokenRegistro):
-    """Register an FCM device token for push notifications."""
+    """Register FCM device token (Android app)."""
     from app.database import supabase
     try:
         supabase.table("push_tokens").upsert({
@@ -25,6 +44,22 @@ def registrar_token(body: TokenRegistro):
         return {"ok": True}
     except Exception as exc:
         print(f"[push] token registration error: {exc}")
+        return {"ok": False}
+
+
+@router.post("/registrar-web-push")
+def registrar_web_push(body: WebPushSubscription):
+    """Register Web Push subscription (iPhone PWA + Chrome/Firefox)."""
+    from app.database import supabase
+    try:
+        supabase.table("web_push_subscriptions").upsert({
+            "endpoint": body.endpoint,
+            "keys": json.dumps(body.keys),
+            "user_id": body.user_id,
+        }, on_conflict="endpoint").execute()
+        return {"ok": True}
+    except Exception as exc:
+        print(f"[web-push] subscription error: {exc}")
         return {"ok": False}
 
 
@@ -83,10 +118,52 @@ def send_push_notification(title: str, body: str, data: dict | None = None) -> d
     return {"sent": sent, "errors": errors, "total_tokens": len(tokens)}
 
 
+def send_web_push_notification(title: str, body: str, url: str = "/") -> dict:
+    """Send Web Push to all subscribed browsers/PWAs (iPhone included)."""
+    if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        return {"sent": 0, "error": "VAPID keys not configured"}
+    try:
+        from pywebpush import webpush, WebPushException
+        from app.database import supabase
+        res = supabase.table("web_push_subscriptions").select("endpoint,keys").limit(1000).execute()
+        subs = res.data or []
+    except Exception as e:
+        return {"sent": 0, "error": str(e)}
+
+    sent = errors = 0
+    payload = json.dumps({"title": title, "body": body, "url": url})
+    for sub in subs:
+        try:
+            keys = json.loads(sub["keys"]) if isinstance(sub["keys"], str) else sub["keys"]
+            webpush(
+                subscription_info={"endpoint": sub["endpoint"], "keys": keys},
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims=VAPID_CLAIMS,
+            )
+            sent += 1
+        except WebPushException as e:
+            if "410" in str(e) or "404" in str(e):
+                # Expired subscription — remove it
+                try:
+                    from app.database import supabase as _sb
+                    _sb.table("web_push_subscriptions").delete().eq("endpoint", sub["endpoint"]).execute()
+                except Exception:
+                    pass
+            errors += 1
+        except Exception:
+            errors += 1
+
+    print(f"[web-push] Sent: {sent}, Errors: {errors}")
+    return {"sent": sent, "errors": errors}
+
+
 @router.post("/send-test")
 def send_test_notification(
     title: str = "🎭 Cultura ETÉREA",
     body: str = "Hay eventos culturales nuevos hoy en Medellín",
 ):
-    """Admin test: send a push notification to all registered devices."""
-    return send_push_notification(title, body)
+    """Admin test: send push to ALL platforms (Android FCM + iPhone Web Push)."""
+    fcm = send_push_notification(title, body)
+    web = send_web_push_notification(title, body)
+    return {"fcm": fcm, "web_push": web}
