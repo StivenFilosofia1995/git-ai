@@ -97,7 +97,7 @@ def get_dashboard(x_api_key: str | None = Header(default=None, alias="X-API-Key"
     # ── Email blast ───────────────────────────────────────────────────────────
     try:
         from app.services.email_service import _kv_get
-        BLAST_KEY = "blast:2026-05c"
+        BLAST_KEY = "blast:2026-06"
         blast_cursor = int(_kv_get(f"cursor:{BLAST_KEY}") or "0")
     except Exception:
         blast_cursor = 0
@@ -227,7 +227,7 @@ def get_dashboard(x_api_key: str | None = Header(default=None, alias="X-API-Key"
             "con_instagram": con_instagram,
         },
         "email": {
-            "blast_key": "blast:2026-05c",
+            "blast_key": "blast:2026-06",
             "blast_cursor": blast_cursor,
             "destinatarios_estimados": auth_users,
         },
@@ -395,8 +395,9 @@ def trigger_weekly_digest(
         total_sent = 0
         total_skipped = 0
         total_failed = 0
+        stats: dict = {}
         for i in range(500):
-            stats = send_weekly_digest_campaign(dry_run=True)
+            stats = send_weekly_digest_campaign(force=True)
             total_sent += stats.get("sent", 0)
             total_skipped += stats.get("skipped", 0)
             total_failed += stats.get("failed", 0)
@@ -428,9 +429,104 @@ def reset_blast(x_api_key: str | None = Header(default=None, alias="X-API-Key"))
     """
     _check_key(x_api_key)
     from app.services.email_service import _kv_upsert
-    BLAST_KEY = "blast:2026-05c"
+    BLAST_KEY = "blast:2026-06"
     _kv_upsert(f"cursor:{BLAST_KEY}", "0")
     return {"ok": True, "message": f"Blast cursor reseteado para {BLAST_KEY}. El próximo tick arranca desde el recipient 0."}
+
+
+@router.post("/reset-digest")
+def reset_digest(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Reset this week's digest cursor so the weekly digest resends to everyone."""
+    _check_key(x_api_key)
+    from app.services.email_service import _week_start_iso, _kv_upsert
+    week_start = _week_start_iso()
+    _kv_upsert(f"weekly_digest_cursor:{week_start}", "0")
+    return {
+        "ok": True,
+        "week_start": week_start,
+        "message": f"Cursor del digest reiniciado para la semana {week_start}. El próximo envío arranca desde el primer destinatario.",
+    }
+
+
+@router.get("/email-status")
+def email_status(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Email configuration status and digest/blast state."""
+    _check_key(x_api_key)
+    from app.services.email_service import (
+        _week_start_iso, _get_digest_cursor, _load_auth_users, _kv_get,
+    )
+
+    active_method = "none"
+    if settings.resend_api_key:
+        active_method = "resend"
+    elif settings.smtp_password and settings.smtp_user:
+        active_method = "smtp"
+
+    week_start = _week_start_iso()
+    cursor = _get_digest_cursor(week_start)
+    try:
+        total_recipients = len(_load_auth_users(2000))
+    except Exception:
+        total_recipients = 0
+
+    blast_cursor = int(_kv_get("cursor:blast:2026-06") or "0")
+
+    return {
+        "smtp_configured": bool(settings.smtp_password and settings.smtp_user),
+        "smtp_host": settings.smtp_host,
+        "smtp_user": settings.smtp_user or "",
+        "smtp_from": settings.smtp_from_email or settings.smtp_user or "",
+        "resend_configured": bool(settings.resend_api_key),
+        "active_method": active_method,
+        "digest": {
+            "week_start": week_start,
+            "cursor": cursor,
+            "total_recipients": total_recipients,
+        },
+        "blast_key": "blast:2026-06",
+        "blast_cursor": blast_cursor,
+    }
+
+
+class TestEmailRequest(BaseModel):
+    to: str
+
+
+@router.post("/send-test-email")
+def send_test_email(
+    body: TestEmailRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Send a test email to verify SMTP/Resend is working."""
+    _check_key(x_api_key)
+    from app.services.email_service import _send_email
+
+    html = """<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:40px;font-family:'Helvetica Neue',Arial,sans-serif;background:#f5f5f5;">
+<div style="max-width:500px;margin:0 auto;background:#fff;border:2px solid #000;padding:40px;">
+  <h1 style="font-family:'Courier New',monospace;font-size:18px;letter-spacing:3px;font-weight:700;margin:0 0 8px;text-transform:uppercase;">CULTURA ETÉREA</h1>
+  <p style="font-family:'Courier New',monospace;font-size:10px;color:#999;letter-spacing:2px;margin:0 0 24px;text-transform:uppercase;">Correo de prueba</p>
+  <p style="font-size:15px;line-height:1.6;color:#333;margin:0 0 16px;">
+    ¡El servidor de correo está funcionando correctamente!
+  </p>
+  <p style="font-size:13px;color:#999;">Si recibiste este mensaje, SMTP o Resend están bien configurados en Railway.</p>
+</div>
+</body>
+</html>"""
+    text = "Correo de prueba — Cultura ETÉREA. Si recibiste este mensaje, el servidor funciona correctamente."
+
+    ok = _send_email(body.to, "Prueba de correo — Cultura ETÉREA", html, text)
+    if ok:
+        return {"ok": True, "message": f"Correo enviado exitosamente a {body.to}"}
+    raise HTTPException(
+        status_code=500,
+        detail=(
+            "Error enviando el correo. Verifica que SMTP_USER + SMTP_PASSWORD "
+            "o RESEND_API_KEY estén configurados en las variables de entorno de Railway."
+        ),
+    )
 
 
 @router.post("/trigger-cleanup")

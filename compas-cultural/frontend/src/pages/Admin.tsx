@@ -13,7 +13,7 @@ const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 const KEY_STORAGE = 'admin:apikey'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
-type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web' | 'ig_feed'
+type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web' | 'ig_feed' | 'correo'
 
 const CAT_LABEL: Record<string, string> = {
   teatro: 'Teatro', hip_hop: 'Hip Hop', jazz: 'Jazz', galeria: 'Galería',
@@ -1427,6 +1427,255 @@ function TabModeloIA({ apiKey }: { apiKey: string }) {
   )
 }
 
+// ── TAB: CORREO ───────────────────────────────────────────────────────────────
+
+interface EmailStatus {
+  smtp_configured: boolean
+  smtp_host: string
+  smtp_user: string
+  smtp_from: string
+  resend_configured: boolean
+  active_method: 'smtp' | 'resend' | 'none'
+  digest: { week_start: string; cursor: number; total_recipients: number }
+  blast_key: string
+  blast_cursor: number
+}
+
+function TabCorreo({ apiKey }: { apiKey: string }) {
+  const [status, setStatus] = useState<EmailStatus | null>(null)
+  const [loadingStatus, setLoadingStatus] = useState(false)
+  const [testEmail, setTestEmail] = useState('')
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+
+  const loadStatus = useCallback(async () => {
+    setLoadingStatus(true)
+    try {
+      const res = await fetch(`${API_BASE}/admin/email-status`, {
+        headers: { 'X-API-Key': apiKey },
+      })
+      if (res.ok) setStatus(await res.json())
+    } catch { /* ignore */ } finally { setLoadingStatus(false) }
+  }, [apiKey])
+
+  useEffect(() => { void loadStatus() }, [loadStatus])
+
+  async function runAction(id: string, fn: () => Promise<Response>) {
+    setActionLoading(id); setMsg(null)
+    try {
+      const res = await fn()
+      const data = await res.json() as { ok?: boolean; message?: string; detail?: string }
+      if (!res.ok) throw new Error(data.detail || `Error ${res.status}`)
+      setMsg({ text: `✓ ${data.message || 'OK'}`, ok: true })
+      void loadStatus()
+    } catch (e: unknown) {
+      setMsg({ text: `✗ ${e instanceof Error ? e.message : String(e)}`, ok: false })
+    } finally { setActionLoading(null) }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-heading font-black text-2xl">Correos</h2>
+        <p className="font-mono text-[11px] text-neutral-500 mt-1">
+          Boletín semanal de la agenda cultural · Configuración SMTP / Resend
+        </p>
+      </div>
+
+      {/* Config status */}
+      <div className="border-2 border-black p-5">
+        <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-4">
+          Servidor de correo
+          <button onClick={() => void loadStatus()} className="ml-3 normal-case text-neutral-400 hover:text-black">↺</button>
+        </p>
+        {loadingStatus ? (
+          <p className="font-mono text-xs animate-pulse text-neutral-400">Cargando...</p>
+        ) : status ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className={`text-xs font-mono font-bold uppercase px-2 py-0.5 border-2 ${
+                status.active_method !== 'none'
+                  ? 'border-green-500 text-green-700'
+                  : 'border-red-400 text-red-600'
+              }`}>
+                {status.active_method === 'resend' ? '● Resend API activo'
+                  : status.active_method === 'smtp' ? '● SMTP activo'
+                  : '○ Sin configurar'}
+              </span>
+            </div>
+            {status.active_method === 'smtp' && (
+              <div className="text-xs font-mono text-neutral-500 space-y-0.5">
+                <p>Host: <span className="text-black">{status.smtp_host}</span></p>
+                <p>Usuario: <span className="text-black">{status.smtp_user}</span></p>
+                {status.smtp_from && status.smtp_from !== status.smtp_user && (
+                  <p>From: <span className="text-black">{status.smtp_from}</span></p>
+                )}
+              </div>
+            )}
+            {status.active_method === 'none' && (
+              <div className="border border-red-200 bg-red-50 p-4 font-mono text-[11px] text-red-800 space-y-2">
+                <p className="font-bold">El servidor de correo no está configurado en Railway.</p>
+                <p>Añade una de estas opciones en Variables de entorno:</p>
+                <div className="mt-2 space-y-3">
+                  <div>
+                    <p className="font-bold">Opción A — Resend (recomendado):</p>
+                    <p className="text-[10px] mt-1 font-mono bg-red-100 px-2 py-1">RESEND_API_KEY=re_xxxxxxxxxxxx</p>
+                    <p className="text-[10px] font-mono bg-red-100 px-2 py-1">SMTP_FROM_EMAIL=nodo@culturaeterea.com</p>
+                  </div>
+                  <div>
+                    <p className="font-bold">Opción B — Gmail:</p>
+                    <p className="text-[10px] mt-1 font-mono bg-red-100 px-2 py-1">SMTP_USER=tucorreo@gmail.com</p>
+                    <p className="text-[10px] font-mono bg-red-100 px-2 py-1">SMTP_PASSWORD=tu-app-password</p>
+                    <p className="text-[10px] font-mono bg-red-100 px-2 py-1">SMTP_FROM_EMAIL=tucorreo@gmail.com</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="font-mono text-xs text-neutral-400">No se pudo cargar el estado.</p>
+        )}
+      </div>
+
+      {/* Test email */}
+      <div className="border-2 border-black p-5">
+        <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-3">Correo de prueba</p>
+        <p className="font-mono text-[11px] text-neutral-500 mb-4">
+          Envía un correo de prueba para verificar que SMTP o Resend están funcionando.
+        </p>
+        <div className="flex gap-3">
+          <input
+            type="email"
+            value={testEmail}
+            onChange={e => setTestEmail(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && testEmail && void runAction('test', () =>
+              fetch(`${API_BASE}/admin/send-test-email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+                body: JSON.stringify({ to: testEmail }),
+              })
+            )}
+            placeholder="tucorreo@ejemplo.com"
+            className="flex-1 border-2 border-black px-3 py-2 font-mono text-sm focus:outline-none focus:border-yellow-400"
+          />
+          <button
+            onClick={() => void runAction('test', () =>
+              fetch(`${API_BASE}/admin/send-test-email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+                body: JSON.stringify({ to: testEmail }),
+              })
+            )}
+            disabled={!testEmail || !!actionLoading}
+            className="px-5 py-2 bg-black text-white font-mono text-[11px] font-bold uppercase tracking-widest border-2 border-black hover:bg-yellow-400 hover:text-black transition-colors disabled:opacity-40"
+          >
+            {actionLoading === 'test' ? 'Enviando...' : 'Enviar prueba'}
+          </button>
+        </div>
+      </div>
+
+      {/* Boletín semanal */}
+      <div className="border-2 border-black p-5">
+        <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-2">Boletín semanal</p>
+        <p className="font-mono text-[11px] text-neutral-500 mb-4">
+          Se envía automáticamente cada lunes — 1 usuario cada 4 minutos (goteo para evitar spam).
+          Aquí puedes forzar el envío sin esperar al lunes.
+        </p>
+
+        {status && (
+          <div className="grid grid-cols-3 gap-3 mb-5 text-xs font-mono">
+            <div className="border border-black/20 p-3">
+              <p className="text-[9px] text-neutral-400 mb-1 uppercase tracking-wider">Semana</p>
+              <p className="font-bold">{status.digest.week_start}</p>
+            </div>
+            <div className="border border-black/20 p-3">
+              <p className="text-[9px] text-neutral-400 mb-1 uppercase tracking-wider">Cursor</p>
+              <p className="font-bold">{status.digest.cursor} / {status.digest.total_recipients}</p>
+            </div>
+            <div className="border border-black/20 p-3">
+              <p className="text-[9px] text-neutral-400 mb-1 uppercase tracking-wider">Blast enviados</p>
+              <p className="font-bold">{status.blast_cursor}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-3 mb-3">
+          <button
+            onClick={() => void runAction('digest', () =>
+              fetch(`${API_BASE}/admin/trigger-weekly-digest`, {
+                method: 'POST',
+                headers: { 'X-API-Key': apiKey },
+              })
+            )}
+            disabled={!!actionLoading}
+            className="px-5 py-2.5 bg-black text-white font-mono text-[11px] font-bold uppercase tracking-widest border-2 border-black hover:bg-yellow-400 hover:text-black transition-colors disabled:opacity-40"
+          >
+            {actionLoading === 'digest' ? 'Enviando...' : '📧 Enviar boletín ahora (todos los pendientes)'}
+          </button>
+          <button
+            onClick={() => void runAction('reset_digest', () =>
+              fetch(`${API_BASE}/admin/reset-digest`, {
+                method: 'POST',
+                headers: { 'X-API-Key': apiKey },
+              })
+            )}
+            disabled={!!actionLoading}
+            className="px-4 py-2.5 border-2 border-black font-mono text-[11px] font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-colors disabled:opacity-40"
+          >
+            {actionLoading === 'reset_digest' ? '...' : '↺ Reiniciar semana'}
+          </button>
+        </div>
+        <p className="font-mono text-[10px] text-neutral-400">
+          "Reiniciar semana" permite reenviar a todos aunque ya hayan recibido el boletín esta semana.
+        </p>
+      </div>
+
+      {/* Blast puntual */}
+      <div className="border-2 border-black p-5">
+        <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-2">Blast puntual</p>
+        <p className="font-mono text-[11px] text-neutral-500 mb-4">
+          Campaña <span className="font-bold">blast:2026-06</span> — envía correos a todos los usuarios registrados,
+          de a 1 por clic para no saturar Gmail.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => void runAction('blast', () =>
+              fetch(`${API_BASE}/admin/trigger-blast-tick`, {
+                method: 'POST',
+                headers: { 'X-API-Key': apiKey },
+              })
+            )}
+            disabled={!!actionLoading}
+            className="px-4 py-2.5 border-2 border-black font-mono text-[11px] font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-colors disabled:opacity-40"
+          >
+            {actionLoading === 'blast' ? 'Enviando...' : '🚀 Blast tick (1 usuario)'}
+          </button>
+          <button
+            onClick={() => void runAction('reset_blast', () =>
+              fetch(`${API_BASE}/admin/reset-blast`, {
+                method: 'POST',
+                headers: { 'X-API-Key': apiKey },
+              })
+            )}
+            disabled={!!actionLoading}
+            className="px-4 py-2.5 border-2 border-black font-mono text-[11px] font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-colors disabled:opacity-40"
+          >
+            {actionLoading === 'reset_blast' ? '...' : '↺ Reiniciar blast'}
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <div className={`border-2 p-3 font-mono text-[11px] ${
+          msg.ok ? 'border-green-400 bg-green-50 text-green-800' : 'border-red-400 bg-red-50 text-red-700'
+        }`}>
+          {msg.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -1482,6 +1731,7 @@ export default function Admin() {
     { id: 'subir_evento', label: '+ Subir Evento' },
     { id: 'buscar_web', label: '🌐 Buscar Web' },
     { id: 'ig_feed', label: '📸 Feed IG' },
+    { id: 'correo', label: '📧 Correo' },
     { id: 'modelo_ia', label: 'Modelo IA' },
     { id: 'mapa', label: 'Mapa' },
   ]
@@ -1538,6 +1788,7 @@ export default function Admin() {
         {activeTab === 'subir_evento' && <TabSubirEvento apiKey={apiKey} />}
         {activeTab === 'buscar_web' && <TabBuscarWeb apiKey={apiKey} />}
         {activeTab === 'ig_feed' && <TabIgFeed apiKey={apiKey} />}
+        {activeTab === 'correo' && <TabCorreo apiKey={apiKey} />}
         {activeTab === 'modelo_ia' && <TabModeloIA apiKey={apiKey} />}
         {activeTab === 'mapa' && (
           <div className="border-2 border-black overflow-hidden">

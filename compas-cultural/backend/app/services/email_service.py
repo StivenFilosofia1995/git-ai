@@ -834,7 +834,7 @@ def _get_profile_for_email(email: str) -> dict:
 
 # ─── Weekly digest campaign (Monday drip) ─────────────────────────────────────
 
-def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict:
+def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False, force: bool = False) -> dict:
     recipients: list[dict] = []
     seen: set[str] = set()
 
@@ -861,7 +861,7 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict
 
     week_start = stats["week_start"]
     now_co = datetime.now(CO_TZ)
-    if now_co.weekday() != 0 and not dry_run:
+    if now_co.weekday() != 0 and not dry_run and not force:
         stats["skipped"] = len(recipients)
         stats["reason"] = "Not Monday — digest only sends on Mondays"
         return stats
@@ -919,7 +919,7 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False) -> dict
 # ─── Blast campaign (immediate test — any day) ────────────────────────────────
 
 def send_blast_campaign_tick() -> dict:
-    BLAST_KEY = "blast:2026-05c"  # bumped to restart blast
+    BLAST_KEY = "blast:2026-06"
 
     recipients: list[dict] = []
     seen: set[str] = set()
@@ -994,7 +994,7 @@ def send_blast_campaign_tick() -> dict:
 
 def send_blast_all() -> dict:
     """Send to every unsent recipient in one HTTP call. Use for test blasts."""
-    BLAST_KEY = "blast:2026-05"
+    BLAST_KEY = "blast:2026-06"
 
     recipients: list[dict] = []
     seen: set[str] = set()
