@@ -9,7 +9,7 @@ Fixes 2026-04:
 - POST /{id}/vista       → registrar vista de un evento
 """
 import hashlib
-from fastapi import APIRouter, Query, HTTPException, Request, Header
+from fastapi import APIRouter, Query, HTTPException, Request, Header, UploadFile, File
 from typing import Annotated, List, Optional
 from datetime import datetime
 from app.services import evento_service
@@ -133,6 +133,71 @@ async def publicar_evento(body: dict, request: Request):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error guardando evento: {e}")
+
+
+@router.post("/extraer-afiche")
+async def extraer_afiche_publico(file: UploadFile = File(...)):
+    """
+    Extrae datos de un evento a partir de una imagen de afiche usando Claude Haiku Vision.
+    Endpoint público — no requiere autenticación.
+    """
+    import base64
+    import json as _json
+    import anthropic
+    from app.config import settings
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Imagen demasiado grande (máx 10 MB)")
+
+    mime = file.content_type or "image/jpeg"
+    b64 = base64.standard_b64encode(content).decode()
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    prompt = """Analiza este afiche de evento cultural y extrae la información en JSON con estas claves exactas:
+{
+  "titulo": "nombre del evento",
+  "fecha_inicio": "YYYY-MM-DDTHH:MM:SS",
+  "fecha_fin": "YYYY-MM-DDTHH:MM:SS o null",
+  "hora_inicio": "HH:MM o null",
+  "hora_fin": "HH:MM o null",
+  "nombre_lugar": "nombre del lugar/espacio",
+  "municipio": "ciudad (default Medellín)",
+  "barrio": "barrio si aparece o null",
+  "categoria_principal": "una de: teatro|hip_hop|jazz|galeria|arte_contemporaneo|electronica|danza|musica_en_vivo|literatura|festival|cine|fotografia|filosofia|taller|circo|conferencia|otro",
+  "descripcion": "descripción breve del evento (1-3 frases)",
+  "precio": "precio en texto o null",
+  "es_gratuito": true o false,
+  "contacto_instagram": "@usuario si aparece o null",
+  "contacto_email": "email si aparece o null"
+}
+Responde SOLO con el JSON, sin texto adicional."""
+
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+        raw = msg.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        data = _json.loads(raw)
+    except _json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"No se pudo parsear la respuesta de IA: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al procesar la imagen: {e}")
+
+    return {"ok": True, "evento": data}
 
 
 @router.get("/hoy")
