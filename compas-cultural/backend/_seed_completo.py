@@ -1,0 +1,1476 @@
+"""
+Compás Cultural — Seed completo con 120+ actores culturales del Valle de Aburrá.
+Fuentes: Mapeo profundo del ecosistema cultural + Análisis integral cartográfico.
+Ejecutar: python _seed_completo.py
+"""
+import httpx
+import json
+import sys
+from datetime import datetime, timedelta
+import random
+
+SUPABASE_URL = "https://zvxaaofqtbyichsllonc.supabase.co"
+SUPABASE_KEY = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2eGFhb2ZxdGJ5aWNoc2xsb25jIiwi"
+    "cm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjMwNDEyNSwiZXhwIjoyMDkx"
+    "ODgwMTI1fQ.goNdx-KF9KBOGeVyWB3NqQYlKE_7pXDwKIFv7LHYNmA"
+)
+
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "resolution=merge-duplicates",
+}
+
+BASE = f"{SUPABASE_URL}/rest/v1"
+
+# ============================================================
+# ZONAS CULTURALES (15 zonas, expand from 8)
+# ============================================================
+ZONAS = [
+    {"nombre": "Ciudad del Río", "slug": "ciudad-del-rio", "municipio": "medellin",
+     "vocacion": "Arte contemporáneo, museos y vida cultural nocturna",
+     "descripcion": "Zona de convergencia entre lo institucional (MAMM) y la escena nocturna/cultural."},
+    {"nombre": "Barrio Prado", "slug": "barrio-prado", "municipio": "medellin",
+     "vocacion": "Patrimonio arquitectónico e industrias creativas",
+     "descripcion": "Único barrio patrimonial de Medellín — mansiones republicanas reconvertidas en espacios culturales y creativos."},
+    {"nombre": "El Poblado – Manila", "slug": "el-poblado-manila", "municipio": "medellin",
+     "vocacion": "Galerías de arte contemporáneo y circuito internacional",
+     "descripcion": "Corredor galerístico de la Ruta 14, con proyección internacional a ferias como ARCO y Zona MACO."},
+    {"nombre": "Centro – La Candelaria", "slug": "centro-la-candelaria", "municipio": "medellin",
+     "vocacion": "Teatro, jazz, bohemia literaria y contracultura",
+     "descripcion": "Epicentro del Distrito San Ignacio: teatros, jazz, poesía, cantinas culturales y el corazón bohemio de la ciudad."},
+    {"nombre": "Laureles – Estadio", "slug": "laureles-estadio", "municipio": "medellin",
+     "vocacion": "Librerías independientes, cafés literarios y pensamiento",
+     "descripcion": "La república del libro: librerías, editoriales, repostería literaria y rutas culturales a pie."},
+    {"nombre": "Comuna 13 – San Javier", "slug": "comuna-13-san-javier", "municipio": "medellin",
+     "vocacion": "Hip-hop, muralismo, memoria y resistencia cultural",
+     "descripcion": "Laboratorio vivo de cultura urbana: graffiti, rap, breakdance y escuela de arte como contención biopolítica."},
+    {"nombre": "Envigado Centro", "slug": "envigado-centro", "municipio": "envigado",
+     "vocacion": "Filosofía, patrimonio literario y red de museos",
+     "descripcion": "Ciudad Señorial con Otraparte, red de museos y tensiones entre patrimonio institucional y arte independiente."},
+    {"nombre": "Parque Explora – Jardín Botánico", "slug": "parque-explora-jardin-botanico", "municipio": "medellin",
+     "vocacion": "Ciencia, educación, naturaleza y festivales masivos",
+     "descripcion": "Zona de convergencia ciencia-cultura: Explora, Jardín Botánico, Orquideorama y grandes festivales."},
+    {"nombre": "Aranjuez – Manrique", "slug": "aranjuez-manrique", "municipio": "medellin",
+     "vocacion": "Hip-hop educativo, escrituras urbanas y rap periférico",
+     "descripcion": "Cuna de Crew Peligrosos y 4 Elementos Skuela. Narración cruda de la historia reciente through hip-hop y grafiti."},
+    {"nombre": "Carlos E. Restrepo", "slug": "carlos-e-restrepo", "municipio": "medellin",
+     "vocacion": "Bohemia académica, pensamiento crítico y ágora moderna",
+     "descripcion": "Contiguo a la U. Nacional. Epicentro de la bohemia intelectual, el pensamiento crítico y la tertulia universitaria."},
+    {"nombre": "Perpetuo Socorro", "slug": "perpetuo-socorro", "municipio": "medellin",
+     "vocacion": "Distrito creativo, diseño y coworkings artísticos",
+     "descripcion": "Antiguas bodegas industriales convertidas en estudios de diseño, coworkings y agencias creativas."},
+    {"nombre": "Bello", "slug": "bello", "municipio": "bello",
+     "vocacion": "Casas de cultura, breakdance purista y rap underground",
+     "descripcion": "Dicotomía entre institucionalidad sólida y circuito underground de rap y breakdance vinculado a Universal Zulu Nation."},
+    {"nombre": "Itagüí", "slug": "itagui", "municipio": "itagui",
+     "vocacion": "Movilización cultural histórica y freestyle rap",
+     "descripcion": "Herencia de paros cívicos y movimientos culturales de los 70-80. Freestyle semanal y centros alternativos."},
+    {"nombre": "Buenos Aires – Bomboná", "slug": "buenos-aires-bombona", "municipio": "medellin",
+     "vocacion": "Educación expandida, cultura digital y feminismos",
+     "descripcion": "Sede de Platohedro y espacios de innovación cívica donde el arte se cruza con pedagogía, fungicultura y software libre."},
+    {"nombre": "Santa Cruz – Popular", "slug": "santa-cruz-popular", "municipio": "medellin",
+     "vocacion": "Teatro comunitario, radio barrial y mediación de conflictos",
+     "descripcion": "Territorio de Nuestra Gente y bibliotecas comunitarias creadas con bazares. Teatro como sanación colectiva."},
+]
+
+# ============================================================
+# LUGARES — 120+ espacios culturales
+# ============================================================
+
+# --- TEATROS Y ARTES ESCÉNICAS ---
+TEATROS = [
+    {"nombre": "Pequeño Teatro de Medellín", "slug": "pequeno-teatro-de-medellin",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "formacion"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "direccion": "Cra 42 #50A-12", "lat": 6.2512, "lng": -75.5680,
+     "descripcion_corta": "Institución cincuentenaria con modelo disruptivo de entrada libre y aporte voluntario.",
+     "descripcion": "Referente del teatro independiente latinoamericano. Sostiene un modelo económico disruptivo: la 'entrada libre y aporte voluntario', fundamental para la masificación de la asistencia teatral y la formación de nuevos públicos desde 2002.",
+     "instagram_handle": "pequeno_teatrom", "instagram_seguidores": 60000,
+     "sitio_web": "https://www.pequenoteatro.com", "telefono": "(604) 2393947",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "modelo_sostenibilidad": "Entrada libre + aporte voluntario + fondos",
+     "año_fundacion": 1975, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Teatro Matacandelas", "slug": "teatro-matacandelas",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "cabaret", "titeres"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "direccion": "Calle 47 #43-47", "lat": 6.2490, "lng": -75.5638,
+     "descripcion_corta": "Referente latinoamericano fundado por Cristóbal Peláez. Estética anclada en la 'Patafísica.",
+     "descripcion": "Fundado en los años de Pablo Escobar por Cristóbal Peláez. Estética anclada en la 'Patafísica de Alfred Jarry, el surrealismo y el absurdo. Teatro experimental, títeres y adaptaciones literarias. Exploración rigurosa 'entre Marx y Rimbaud'.",
+     "instagram_handle": "teatromatacandelas", "instagram_seguidores": 41000,
+     "sitio_web": "https://www.matacandelas.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "modelo_sostenibilidad": "Taquilla + fondos concertados + cooperación internacional",
+     "año_fundacion": 1979, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Teatro Popular de Medellín (TPM)", "slug": "teatro-popular-de-medellin",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "formacion", "investigacion"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "direccion": "Calle 48 #41-13", "lat": 6.2505, "lng": -75.5620,
+     "descripcion_corta": "Creación, investigación y formación teatral con décadas de trayectoria.",
+     "instagram_handle": "teatrotpm", "instagram_seguidores": 15000,
+     "sitio_web": "https://www.teatropopulardemedellin.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Teatro Oficina Central de los Sueños", "slug": "teatro-oficina-central",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "bar_cultural", "titeres"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "direccion": "Cra 43 #52-50", "lat": 6.2530, "lng": -75.5640,
+     "descripcion_corta": "Teatro independiente + bar cultural MalaBar. Teatro adulto y títeres.",
+     "instagram_handle": "teatro.oficinacentral", "instagram_seguidores": 8900,
+     "sitio_web": "https://www.teatrooficinacentral.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Teatro El Trueque", "slug": "teatro-el-trueque",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "literatura"],
+     "municipio": "medellin", "barrio": "Prado Centro", "comuna": "La Candelaria",
+     "direccion": "Prado Centro", "lat": 6.2615, "lng": -75.5628,
+     "descripcion_corta": "Artes escénicas basadas en literatura en el corazón patrimonial de Prado.",
+     "instagram_handle": "teatroeltrueque", "instagram_seguidores": 7400,
+     "sitio_web": "https://teatroeltrueque.wixsite.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Teatro Ateneo Porfirio Barba Jacob", "slug": "ateneo-porfirio-barba-jacob",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro",
+     "categorias": ["teatro", "galeria", "cafe", "rock", "poesia"],
+     "municipio": "medellin", "barrio": "Torres de Bomboná", "comuna": "La Candelaria",
+     "direccion": "Torres de Bomboná, Centro", "lat": 6.2465, "lng": -75.5600,
+     "descripcion_corta": "Teatro + galería + café. Rock, poesía, teatro y pensamiento crítico.",
+     "descripcion": "Espacio multidisciplinario en Torres de Bomboná. Programa desde metal hasta cuentería. Organizador del Festival Colombiano de Teatro desde 2002.",
+     "instagram_handle": "ateneomedellin", "instagram_seguidores": 22000,
+     "sitio_web": "https://www.ateneomedellin.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "año_fundacion": 2002, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Teatro Casa Clown", "slug": "teatro-casa-clown",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "clown", "danza"],
+     "municipio": "medellin", "barrio": "Bomboná I", "comuna": "La Candelaria",
+     "direccion": "Bomboná I", "lat": 6.2462, "lng": -75.5594,
+     "descripcion_corta": "Escuela y sala de clown, teatro gestual y teatro físico.",
+     "instagram_handle": "teatro_casa_clown", "instagram_seguidores": 12000,
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Agité Teatro", "slug": "agite-teatro",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "formacion", "mascaras"],
+     "municipio": "medellin", "barrio": "Boston",
+     "descripcion_corta": "Teatro gestual, máscaras y clown bajo metodología de la escuela Lecoq.",
+     "lat": 6.2445, "lng": -75.5580,
+     "instagram_handle": "salaagiteteatro", "instagram_seguidores": 1700,
+     "sitio_web": "https://www.agiteteatro.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Elemental Teatro (Casa Contenta)", "slug": "elemental-teatro",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "medio_ambiente"],
+     "municipio": "medellin", "barrio": "Santa Elena",
+     "descripcion_corta": "Dramaturgia local entre la ciudad rural y urbana. Miembro de Medellín en Escena.",
+     "lat": 6.2350, "lng": -75.5100,
+     "instagram_handle": "elementalteatro",
+     "sitio_web": "https://www.elementalteatro.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa del Teatro y Biblioteca Gilberto Martínez", "slug": "casa-del-teatro-gilberto-martinez",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "biblioteca", "investigacion"],
+     "municipio": "medellin", "barrio": "Prado Centro", "comuna": "La Candelaria",
+     "direccion": "Calle 59 #50A-25", "lat": 6.2620, "lng": -75.5640,
+     "descripcion_corta": "Biblioteca de dramaturgia más importante de la ciudad. Guardiana de la escena local.",
+     "instagram_handle": "casadelteatro", "instagram_seguidores": 10000,
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Teatro Prado – El Águila Descalza", "slug": "el-aguila-descalza",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "humor"],
+     "municipio": "medellin", "barrio": "Prado", "comuna": "La Candelaria",
+     "direccion": "Cra 45D #59-01", "lat": 6.2625, "lng": -75.5650,
+     "descripcion_corta": "Humor costumbrista y comedia nacional. Referente del teatro popular en Prado.",
+     "sitio_web": "https://www.aguiladescalza.com.co",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Solar del Águila", "slug": "solar-del-aguila",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "cafe", "literatura"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "direccion": "Calle 47 #42-57", "lat": 6.2492, "lng": -75.5632,
+     "descripcion_corta": "Café-teatro íntimo para lecturas dramatizadas y pequeño formato.",
+     "instagram_handle": "solardelaguila",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa Teatro El Poblado", "slug": "casa-teatro-el-poblado",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro"],
+     "municipio": "medellin", "barrio": "El Poblado", "comuna": "El Poblado",
+     "direccion": "Cra 47B #17B Sur-30", "lat": 6.2005, "lng": -75.5645,
+     "descripcion_corta": "Artes escénicas en la zona sur de Medellín.",
+     "instagram_handle": "casateatroep", "instagram_seguidores": 22000,
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Corporación Cultural Nuestra Gente", "slug": "corporacion-nuestra-gente",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro",
+     "categorias": ["teatro", "titeres", "muralismo", "radio", "comunitario"],
+     "municipio": "medellin", "barrio": "Santa Cruz", "comuna": "2 - Santa Cruz",
+     "lat": 6.2801, "lng": -75.5514,
+     "descripcion_corta": "Teatro comunitario desde 1987. Paz, mediación de conflictos y empoderamiento barrial.",
+     "descripcion": "Practican un teatro profundamente inmerso en la comunidad, utilizando las artes dramáticas para procesos de paz, mediación de conflictos y empoderamiento de liderazgos de ladera. Una de las corporaciones culturales comunitarias más antiguas de Colombia.",
+     "instagram_handle": "nuestragente", "instagram_seguidores": 4900,
+     "sitio_web": "https://www.nuestragente.com.co",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "año_fundacion": 1987, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Corporación La Fanfarria", "slug": "corporacion-la-fanfarria",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "titeres"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "direccion": "Cra 84 #42C-54", "lat": 6.2480, "lng": -75.6050,
+     "descripcion_corta": "Teatro de títeres desde 1972. Patrimonio cultural de la ciudad.",
+     "facebook": "La Fanfarria",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "año_fundacion": 1972, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Teatro La Hora 25", "slug": "teatro-la-hora-25",
+     "tipo": "espacio_fisico", "categoria_principal": "teatro", "categorias": ["teatro", "tragedia"],
+     "municipio": "medellin", "barrio": "Fátima (Belén)",
+     "lat": 6.2340, "lng": -75.5920,
+     "descripcion_corta": "Tragedia griega e isabelinos con estilo actoral físico, expresionista y oscuro.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- HIP HOP, RAP Y CULTURA URBANA ---
+HIP_HOP = [
+    {"nombre": "Casa Kolacho", "slug": "casa-kolacho",
+     "tipo": "espacio_fisico", "categoria_principal": "hip_hop",
+     "categorias": ["hip_hop", "graffiti", "breakdance", "formacion"],
+     "municipio": "medellin", "barrio": "San Javier", "comuna": "13 - San Javier",
+     "lat": 6.2575, "lng": -75.6155,
+     "descripcion_corta": "Graffitour, rap, breakdance y Escuela CK en el corazón de la Comuna 13.",
+     "descripcion": "Fundada en 2013 como respuesta directa a las incursiones militares y paramilitares. Bajo la premisa de 'hacer más ruido que las balas', utiliza el hip hop como instrumento contrahegemónico frente al juvenicidio. Graffitour, Escuela CK y programa de formación artística.",
+     "instagram_handle": "casakolacho", "instagram_seguidores": 18000,
+     "sitio_web": "https://www.casakolacho.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "modelo_sostenibilidad": "Graffitour + cooperación internacional + becas",
+     "año_fundacion": 2013, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Crew Peligrosos", "slug": "crew-peligrosos",
+     "tipo": "colectivo", "categoria_principal": "hip_hop",
+     "categorias": ["hip_hop", "musica_fusion", "formacion"],
+     "municipio": "medellin", "barrio": "Aranjuez", "comuna": "4 - Aranjuez",
+     "lat": 6.2742, "lng": -75.5584,
+     "descripcion_corta": "Rap fusión (cumbia, salsa, funk) y 4 Elementos Skuela con 400+ estudiantes.",
+     "descripcion": "Colectivo de hip hop que fusiona rap con cumbia, salsa y funk. Operan la 4 Elementos Skuela, la escuela de hip hop más grande de la ciudad con 400+ estudiantes. Conectan hip hop con músicas tropicales y electrónica a través de su sello Polen Records.",
+     "instagram_handle": "crewpeligrosos", "instagram_seguidores": 17000,
+     "sitio_web": "https://www.crewpeligrosos.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "modelo_sostenibilidad": "Sello Polen Records + conciertos + becas",
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "4 Elementos Skuela", "slug": "4-elementos-skuela",
+     "tipo": "espacio_fisico", "categoria_principal": "hip_hop",
+     "categorias": ["hip_hop", "formacion", "breakdance"],
+     "municipio": "medellin", "barrio": "Aranjuez", "comuna": "4 - Aranjuez",
+     "lat": 6.2748, "lng": -75.5580,
+     "descripcion_corta": "Escuela de hip hop gratuita con 400+ estudiantes. La más grande de la ciudad.",
+     "instagram_handle": "4Eskuela",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "AgroArte Colombia", "slug": "agroarte-colombia",
+     "tipo": "colectivo", "categoria_principal": "hip_hop",
+     "categorias": ["hip_hop", "agricultura_urbana", "memoria", "activismo"],
+     "municipio": "medellin", "barrio": "San Javier", "comuna": "13 - San Javier",
+     "lat": 6.2568, "lng": -75.6148,
+     "descripcion_corta": "Hip hop agrario, memoria y agricultura urbana. Arte cruza con tierra.",
+     "instagram_handle": "agroartecolombia", "instagram_seguidores": 1600,
+     "sitio_web": "https://www.agroartecolombia.co",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Son Batá", "slug": "son-bata",
+     "tipo": "colectivo", "categoria_principal": "hip_hop",
+     "categorias": ["hip_hop", "musica_afrocolombiana", "chirimia"],
+     "municipio": "medellin", "barrio": "San Javier", "comuna": "13 - San Javier",
+     "lat": 6.2582, "lng": -75.6162,
+     "descripcion_corta": "Hip hop + ritmos afrocolombianos (chirimía, son). Fusión única.",
+     "facebook": "sonbatac13",
+     "sitio_web": "https://www.sonbata.org",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Morada", "slug": "morada-comuna-13",
+     "tipo": "espacio_fisico", "categoria_principal": "hip_hop",
+     "categorias": ["hip_hop", "radio_comunitaria", "talleres"],
+     "municipio": "medellin", "barrio": "San Javier", "comuna": "13 - San Javier",
+     "lat": 6.2590, "lng": -75.6170,
+     "descripcion_corta": "Casa cultural de puertas abiertas. Radio comunitaria y talleres juveniles.",
+     "sitio_web": "https://www.morada.co",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Escuela Supernatural (Bello)", "slug": "escuela-supernatural-bello",
+     "tipo": "colectivo", "categoria_principal": "hip_hop",
+     "categorias": ["hip_hop", "breakdance", "formacion"],
+     "municipio": "bello", "barrio": "Bello",
+     "lat": 6.3370, "lng": -75.5565,
+     "descripcion_corta": "Breakdance purista vinculado a Universal Zulu Nation. Santuario cultural en Bello.",
+     "descripcion": "En el complejo contexto de Bello, cruzado por fronteras invisibles, establece santuarios culturales fundamentados en el 'Evangelio del Hip Hop'. Enlazados globalmente con la Universal Zulu Nation.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Elemento Ilegal", "slug": "elemento-ilegal",
+     "tipo": "colectivo", "categoria_principal": "hip_hop",
+     "categorias": ["hip_hop", "formacion", "primera_infancia"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2650, "lng": -75.5600,
+     "descripcion_corta": "Intervención pacífica directa en primera infancia y adolescencia a través del rap.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- BATALLAS DE FREESTYLE (como eventos recurrentes en lugares) ---
+BATALLAS = [
+    {"nombre": "La Liga del Barrio", "slug": "la-liga-del-barrio",
+     "tipo": "colectivo", "categoria_principal": "batalla_freestyle",
+     "categorias": ["hip_hop", "batalla_freestyle"],
+     "municipio": "medellin", "barrio": "Barrio Antioquia (Trinidad)",
+     "lat": 6.2370, "lng": -75.5685,
+     "descripcion_corta": "Freestyle rap semanal cada miércoles. La más masiva del circuito nocturno.",
+     "nivel_actividad": "muy_activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Rey de la Villa", "slug": "rey-de-la-villa",
+     "tipo": "colectivo", "categoria_principal": "batalla_freestyle",
+     "categorias": ["hip_hop", "batalla_freestyle"],
+     "municipio": "medellin", "barrio": "Nueva Villa del Aburrá",
+     "lat": 6.2470, "lng": -75.6050,
+     "descripcion_corta": "Freestyle rap semanal cada viernes en Nueva Villa.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Rincón Free", "slug": "rincon-free",
+     "tipo": "colectivo", "categoria_principal": "batalla_freestyle",
+     "categorias": ["hip_hop", "batalla_freestyle"],
+     "municipio": "medellin", "barrio": "Belén Rincón",
+     "lat": 6.2470, "lng": -75.6100,
+     "descripcion_corta": "Freestyle rap semanal cada lunes en Belén Rincón.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Herederos al Trono", "slug": "herederos-al-trono",
+     "tipo": "colectivo", "categoria_principal": "batalla_freestyle",
+     "categorias": ["hip_hop", "batalla_freestyle"],
+     "municipio": "itagui", "barrio": "Parque del Artista",
+     "lat": 6.1850, "lng": -75.5990,
+     "descripcion_corta": "Freestyle rap semanal cada martes en Itagüí.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Welcome Prison", "slug": "welcome-prison",
+     "tipo": "colectivo", "categoria_principal": "batalla_freestyle",
+     "categorias": ["hip_hop", "batalla_freestyle"],
+     "municipio": "medellin", "barrio": "Doce de Octubre",
+     "lat": 6.2855, "lng": -75.5838,
+     "descripcion_corta": "Freestyle rap semanal cada sábado en Doce de Octubre.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Cuatro Barras", "slug": "cuatro-barras",
+     "tipo": "colectivo", "categoria_principal": "batalla_freestyle",
+     "categorias": ["hip_hop", "batalla_freestyle"],
+     "municipio": "medellin", "barrio": "Parque de los Deseos",
+     "lat": 6.2688, "lng": -75.5668,
+     "descripcion_corta": "Freestyle rap semanal cada domingo en Parque de los Deseos.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- JAZZ Y MÚSICA EN VIVO ---
+JAZZ_MUSICA = [
+    {"nombre": "El Club del Jazz", "slug": "el-club-del-jazz",
+     "tipo": "espacio_fisico", "categoria_principal": "jazz",
+     "categorias": ["jazz", "musica_en_vivo"],
+     "municipio": "medellin", "barrio": "Distrito San Ignacio", "comuna": "La Candelaria",
+     "lat": 6.2520, "lng": -75.5650,
+     "descripcion_corta": "'La casa del Jazz'. Jam sessions, tertulias pedagógicas y fomento a músicos de sesión.",
+     "instagram_handle": "elclubdeljazz", "instagram_seguidores": 28000,
+     "sitio_web": "https://www.elclubdeljazz.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Z Jazz Bar", "slug": "z-jazz-bar",
+     "tipo": "espacio_fisico", "categoria_principal": "jazz", "categorias": ["jazz", "musica_en_vivo"],
+     "municipio": "medellin", "barrio": "El Poblado",
+     "lat": 6.2090, "lng": -75.5678,
+     "descripcion_corta": "Jazz en vivo jueves a sábado en el Hotel Marquee.",
+     "instagram_handle": "zbarjazz",
+     "sitio_web": "https://marqueemedellin.com/z-jazz-bar",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "El Acontista", "slug": "el-acontista",
+     "tipo": "espacio_fisico", "categoria_principal": "jazz",
+     "categorias": ["jazz", "libreria", "gastronomia", "musica_en_vivo"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "direccion": "Calle 53 #43-81", "lat": 6.2535, "lng": -75.5630,
+     "descripcion_corta": "Lunes de Jazz + librería + gastronomía. Nodo cultural en el centro.",
+     "instagram_handle": "acontistacafelibrosrestaurante", "instagram_seguidores": 19000,
+     "sitio_web": "https://www.elacontista.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Trilogía Bar", "slug": "trilogia-bar",
+     "tipo": "espacio_fisico", "categoria_principal": "musica_en_vivo",
+     "categorias": ["musica_en_vivo", "rock", "covers"],
+     "municipio": "medellin", "barrio": "Ciudad del Río",
+     "lat": 6.2330, "lng": -75.5715,
+     "descripcion_corta": "Rock, covers y escenario giratorio. 79K seguidores.",
+     "instagram_handle": "trilogiabar", "instagram_seguidores": 79000,
+     "sitio_web": "https://www.trilogiabar.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "La Pascasia", "slug": "la-pascasia",
+     "tipo": "espacio_fisico", "categoria_principal": "musica_en_vivo",
+     "categorias": ["musica_en_vivo", "libreria", "galeria", "gastronomia", "musica_tropical"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "direccion": "Calle 47 #43-88", "lat": 6.2495, "lng": -75.5635,
+     "descripcion_corta": "Epicentro de la movida underground: galería, teatro, cantina, librería, sello Música Corriente.",
+     "descripcion": "Edificio patrimonial que engloba galería, teatro, cantina, restaurante, librería y el sello discográfico Música Corriente. Nodo más potente del centro con agenda febril de lanzamientos, debates y literatura. 89K seguidores en Instagram.",
+     "instagram_handle": "lapascasia", "instagram_seguidores": 89000,
+     "sitio_web": "https://www.lapascasia.org",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "modelo_sostenibilidad": "Gastro + eventos + librería + sello discográfico",
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "The Jazz Room", "slug": "the-jazz-room",
+     "tipo": "espacio_fisico", "categoria_principal": "jazz",
+     "categorias": ["jazz", "blues", "soul", "musica_en_vivo"],
+     "municipio": "medellin", "barrio": "El Poblado",
+     "lat": 6.2088, "lng": -75.5682,
+     "descripcion_corta": "Experiencia inmersiva estilo speakeasy años 20. Blues, Soul y clásicos.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Burdo", "slug": "burdo-provenza",
+     "tipo": "espacio_fisico", "categoria_principal": "musica_en_vivo",
+     "categorias": ["musica_en_vivo", "electronica", "bar"],
+     "municipio": "medellin", "barrio": "Provenza (El Poblado)",
+     "lat": 6.2085, "lng": -75.5684,
+     "descripcion_corta": "Bar urbano en Provenza. DJs experimentales y propuestas sonoras vibrantes.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Salón Málaga", "slug": "salon-malaga",
+     "tipo": "espacio_fisico", "categoria_principal": "musica_en_vivo",
+     "categorias": ["musica_en_vivo", "tango", "patrimonio"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "lat": 6.2500, "lng": -75.5630,
+     "descripcion_corta": "Patrimonio vivo del tango y la música de cantina. Icono del centro de Medellín.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Club Líbido", "slug": "club-libido",
+     "tipo": "espacio_fisico", "categoria_principal": "musica_en_vivo",
+     "categorias": ["musica_en_vivo", "punk", "rock_alternativo"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2480, "lng": -75.5660,
+     "descripcion_corta": "Venue alternativo: punk, rock alternativo, eventos underground.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- GALERÍAS Y ARTES VISUALES ---
+GALERIAS = [
+    {"nombre": "Galería La Cometa", "slug": "galeria-la-cometa",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "arte_contemporaneo"],
+     "municipio": "medellin", "barrio": "El Poblado",
+     "direccion": "Calle 10B #37-29", "lat": 6.2095, "lng": -75.5640,
+     "descripcion_corta": "Arte latinoamericano contemporáneo. Puente hacia mercados de Bogotá, Madrid y Miami.",
+     "descripcion": "Filial que actúa como puente logístico y comercial insertando artistas paisas en circuitos coleccionistas de Bogotá, Miami y Madrid. Participa en ARCO y ferias internacionales.",
+     "instagram_handle": "galerialacometa", "instagram_seguidores": 50000,
+     "sitio_web": "https://www.galerialacometa.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "La Balsa Arte", "slug": "la-balsa-arte",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "arte_contemporaneo"],
+     "municipio": "medellin", "barrio": "El Poblado",
+     "direccion": "Calle 10 #40-37", "lat": 6.2098, "lng": -75.5660,
+     "descripcion_corta": "Arte contemporáneo con presencia en ferias internacionales.",
+     "instagram_handle": "balsaarte", "instagram_seguidores": 16000,
+     "sitio_web": "https://www.labalsaarte.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Policroma", "slug": "policroma-galeria",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "arte_contemporaneo", "new_media"],
+     "municipio": "medellin", "barrio": "El Poblado",
+     "lat": 6.2080, "lng": -75.5655,
+     "descripcion_corta": "Discursos visuales jóvenes, formatos rupturistas y constantes recambios expositivos.",
+     "instagram_handle": "policromagaleria", "instagram_seguidores": 16000,
+     "sitio_web": "https://www.policroma.co",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Lokkus Arte Contemporáneo", "slug": "lokkus-arte-contemporaneo",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "arte_contemporaneo", "formacion"],
+     "municipio": "medellin", "barrio": "El Poblado",
+     "direccion": "Cra 36 #10A-35", "lat": 6.2100, "lng": -75.5632,
+     "descripcion_corta": "Arte contemporáneo y educación artística.",
+     "instagram_handle": "lokkusarte",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa Tres Patios (C3P)", "slug": "casa-tres-patios",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "arte_contemporaneo", "residencias", "pedagogia"],
+     "municipio": "medellin", "barrio": "Prado Centro",
+     "lat": 6.2610, "lng": -75.5625,
+     "descripcion_corta": "Centro de arte contemporáneo: residencias, pedagogía y justicia social.",
+     "instagram_handle": "c3patios", "instagram_seguidores": 5400,
+     "sitio_web": "https://www.casatrespatios.org",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Duque Arango Contemporáneo", "slug": "duque-arango-contemporaneo",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "arte_contemporaneo"],
+     "municipio": "medellin", "barrio": "Manila",
+     "direccion": "Cra 34 #8a-42", "lat": 6.2130, "lng": -75.5635,
+     "descripcion_corta": "Arte emergente respaldado por 40+ años de trayectoria en el mercado.",
+     "sitio_web": "https://www.dacontemporaneo.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Centro Plazarte", "slug": "centro-plazarte",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "ecologia", "comunitario"],
+     "municipio": "medellin", "barrio": "Prado Centro",
+     "lat": 6.2618, "lng": -75.5635,
+     "descripcion_corta": "Apropiación del territorio desde ecología, sustentabilidad y desarrollo visual consciente.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "MAMM - Museo de Arte Moderno de Medellín", "slug": "mamm",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "arte_contemporaneo", "cine", "editorial", "museo"],
+     "municipio": "medellin", "barrio": "Ciudad del Río",
+     "lat": 6.2335, "lng": -75.5720,
+     "descripcion_corta": "Arte moderno/contemporáneo, cine, editorial. 187K seguidores.",
+     "descripcion": "Principal museo de arte moderno y contemporáneo de Medellín. Programa cine independiente, alberga el mercado editorial 'Lo pequeño es ejemplar' y es referente latinoamericano.",
+     "instagram_handle": "elmamm", "instagram_seguidores": 187000,
+     "sitio_web": "https://www.elmamm.org",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Museo de Antioquia", "slug": "museo-de-antioquia",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "museo", "patrimonio"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "lat": 6.2518, "lng": -75.5636,
+     "descripcion_corta": "Casa de la colección Botero y referente del patrimonio artístico antioqueño.",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Centro Colombo Americano", "slug": "centro-colombo-americano",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "cine", "biblioteca", "formacion"],
+     "municipio": "medellin", "barrio": "Centro", "comuna": "La Candelaria",
+     "direccion": "Cra 45 #53-24", "lat": 6.2540, "lng": -75.5645,
+     "descripcion_corta": "Galería Paul Bardwell, cine independiente, biblioteca. 5 sedes.",
+     "instagram_handle": "colombomedellin", "instagram_seguidores": 33000,
+     "sitio_web": "https://www.colomboworld.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Deúniti", "slug": "deuniti",
+     "tipo": "colectivo", "categoria_principal": "galeria",
+     "categorias": ["galeria", "muralismo", "arte_urbano"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2500, "lng": -75.5650,
+     "descripcion_corta": "Muralismo, arte urbano e intervenciones en el espacio público.",
+     "sitio_web": "https://www.deuniti.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Campos de Gutiérrez", "slug": "campos-de-gutierrez",
+     "tipo": "espacio_fisico", "categoria_principal": "galeria",
+     "categorias": ["galeria", "residencias", "ceramica"],
+     "municipio": "medellin", "barrio": "Vereda Media Luna",
+     "lat": 6.2200, "lng": -75.5300,
+     "descripcion_corta": "Residencias artísticas internacionales y cerámica.",
+     "instagram_handle": "camposmedellin",
+     "sitio_web": "https://www.camposdegutierrez.org",
+     "nivel_actividad": "moderado", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- LIBRERÍAS INDEPENDIENTES ---
+LIBRERIAS = [
+    {"nombre": "Libros Antimateria", "slug": "libros-antimateria",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria", "cafe", "fanzines", "humanidades"],
+     "municipio": "medellin", "barrio": "Florida Nueva / Laureles",
+     "direccion": "Cll 45E #72-09", "lat": 6.2540, "lng": -75.5960,
+     "descripcion_corta": "Cómics, fanzines, filosofía y eventos culturales. Refugio humanístico.",
+     "descripcion": "Esencial espacio bibliográfico. Cura una de las mejores selecciones de humanidades, historietas independientes y fanzines. Foro de lectura, conversatorios y talleres de apreciación artística.",
+     "instagram_handle": "antimaterialibrosycafe", "instagram_seguidores": 29000,
+     "sitio_web": "https://www.librosantimateria.com",
+     "email": "librosantimateria@gmail.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Librería Grámmata", "slug": "libreria-grammata",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria"],
+     "municipio": "medellin", "barrio": "Estadio / Laureles",
+     "lat": 6.2480, "lng": -75.5920,
+     "descripcion_corta": "Editoriales independientes y búsqueda personalizada de libros.",
+     "instagram_handle": "libreriagrammata", "instagram_seguidores": 19000,
+     "sitio_web": "https://www.libreriagrammata.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Ítaca Librería-Bar", "slug": "itaca-libreria-bar",
+     "tipo": "colectivo", "categoria_principal": "libreria",
+     "categorias": ["libreria", "rutas_literarias"],
+     "municipio": "medellin", "barrio": "Itinerante",
+     "lat": 6.2510, "lng": -75.5700,
+     "descripcion_corta": "Librería itinerante. Rutas literarias a pie por la ciudad.",
+     "descripcion": "Gestionada por Rodnei Casares, librero venezolano. Conecta físicamente las librerías de Medellín a través de rutas literarias a pie.",
+     "instagram_handle": "itacalibreriabar", "instagram_seguidores": 17000,
+     "sitio_web": "https://www.itacalibreriabar.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Librería Palinuro", "slug": "libreria-palinuro",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria", "libros_antiguos"],
+     "municipio": "medellin", "barrio": "Estadio",
+     "direccion": "Calle 49B #75-33", "lat": 6.2490, "lng": -75.5925,
+     "descripcion_corta": "Humanidades, libros descatalogados y rarezas bibliográficas.",
+     "instagram_handle": "libreriapalinuro", "instagram_seguidores": 5300,
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Al Pie de la Letra", "slug": "al-pie-de-la-letra",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria", "ciencias_sociales"],
+     "municipio": "medellin", "barrio": "Suramericana",
+     "lat": 6.2490, "lng": -75.5870,
+     "descripcion_corta": "35.000 referencias: literatura, ciencias sociales y títulos independientes.",
+     "instagram_handle": "alpiedelaletra_libreria", "instagram_seguidores": 6700,
+     "sitio_web": "https://www.alpiedelaletralibreria.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Librería de La Pascasia", "slug": "libreria-de-la-pascasia",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria"],
+     "municipio": "medellin", "barrio": "Centro",
+     "lat": 6.2496, "lng": -75.5636,
+     "descripcion_corta": "Editoriales independientes y libros importados dentro de La Pascasia.",
+     "instagram_handle": "libreriadelapascasia", "instagram_seguidores": 4800,
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa Tragaluz", "slug": "casa-tragaluz",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria", "cafe", "galeria", "editorial"],
+     "municipio": "medellin", "barrio": "Astorga",
+     "direccion": "Calle 9 #43C-50", "lat": 6.2015, "lng": -75.5715,
+     "descripcion_corta": "Editorial Tragaluz + café + galería. Libro como obra de arte.",
+     "instagram_handle": "casatragaluz", "instagram_seguidores": 34000,
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Librería Fernando del Paso (FCE)", "slug": "libreria-fce-medellin",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria"],
+     "municipio": "medellin", "barrio": "Carlos E. Restrepo",
+     "lat": 6.2555, "lng": -75.5788,
+     "descripcion_corta": "15.000 títulos del Fondo de Cultura Económica. Programación cultural.",
+     "sitio_web": "https://www.fce.com.co",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Librería Bukz", "slug": "libreria-bukz",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria", "diseño"],
+     "municipio": "medellin", "barrio": "El Poblado",
+     "lat": 6.2090, "lng": -75.5660,
+     "descripcion_corta": "Catálogo en tendencias contemporáneas con sofisticada infraestructura digital.",
+     "sitio_web": "https://www.bukz.co",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Exlibris - Libros y Repostería", "slug": "exlibris-libros-reposteria",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria", "reposteria", "cafe"],
+     "municipio": "medellin", "barrio": "Carlos E. Restrepo",
+     "lat": 6.2553, "lng": -75.5790,
+     "descripcion_corta": "Rigor académico + literatura universal + pastelería artesanal = tertulia eterna.",
+     "sitio_web": "https://www.exlibris.com.co",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Ulises Café - Librería", "slug": "ulises-cafe-libreria",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria", "cafe"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2520, "lng": -75.5680,
+     "descripcion_corta": "Café de especialidad + catálogos locales alternativos. Editorial Esquina Tomada.",
+     "instagram_handle": "esquinatomada",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- CASAS DE CULTURA (INSTITUCIONALES) ---
+CASAS_CULTURA = [
+    {"nombre": "Casa de Cultura Ávila", "slug": "casa-de-cultura-avila",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "formacion", "comunitario"],
+     "municipio": "medellin", "barrio": "La Milagrosa", "comuna": "9 - Buenos Aires",
+     "direccion": "Cra 29A #38F-59", "lat": 6.2420, "lng": -75.5545,
+     "descripcion_corta": "Espacio público: exploración, creación y gestión cultural comunitaria.",
+     "telefono": "(604) 2936080", "email": "cdcavila@redcatul.org",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de Cultura El Poblado", "slug": "casa-de-cultura-el-poblado",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "formacion"],
+     "municipio": "medellin", "barrio": "El Poblado", "comuna": "14 - El Poblado",
+     "direccion": "Cra 43B #11B-20", "lat": 6.2100, "lng": -75.5670,
+     "descripcion_corta": "Talleres gratuitos enfocados en encuentro cívico e intergeneracional.",
+     "telefono": "(604) 2665665", "email": "cdcelpoblado@redcatul.org",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de Cultura Los Alcázares", "slug": "casa-de-cultura-los-alcazares",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "formacion", "presupuesto_participativo"],
+     "municipio": "medellin", "barrio": "Los Alcázares", "comuna": "12 - La América",
+     "direccion": "Cll 48B #88A-62", "lat": 6.2500, "lng": -75.6000,
+     "descripcion_corta": "Red Expresarte y Presupuesto Participativo en acción cultural.",
+     "telefono": "(604) 2642336", "email": "cdclosalcazares@redcatul.org",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de la Cultura Manrique", "slug": "casa-de-la-cultura-manrique",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "formacion"],
+     "municipio": "medellin", "barrio": "Manrique", "comuna": "3 - Manrique",
+     "direccion": "Cra 45 #72-62", "lat": 6.2745, "lng": -75.5482,
+     "descripcion_corta": "Nodo nororiental. Contención de violencia a través de agendas culturales.",
+     "telefono": "(604) 2117373", "email": "cdcmanrique@gmail.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de la Cultura Cerro del Ángel", "slug": "casa-cultura-cerro-del-angel",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "formacion"],
+     "municipio": "bello", "barrio": "Bello Centro",
+     "direccion": "Cll 53A #52-23", "lat": 6.3370, "lng": -75.5570,
+     "descripcion_corta": "Nacida en los sesentas por veedurías ciudadanas. Eje cultural de Bello.",
+     "telefono": "(604) 6047944", "email": "culturabellocomunicaciones@gmail.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "año_fundacion": 1960, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de la Cultura de Itagüí", "slug": "casa-de-la-cultura-itagui",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "patrimonio"],
+     "municipio": "itagui", "barrio": "Centro Itagüí",
+     "direccion": "Cll 36 #57-59", "lat": 6.1852, "lng": -75.5992,
+     "descripcion_corta": "Inmueble patrimonial de 1956 donado por Diego Echavarría Misas.",
+     "telefono": "(604) 3731244",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "año_fundacion": 1956, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa la Cultura La Barquereña", "slug": "casa-cultura-la-barquerena",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "teatro", "musica", "patrimonio"],
+     "municipio": "sabaneta", "barrio": "Centro Sabaneta",
+     "direccion": "Cll 68 Sur #42-40", "lat": 6.1511, "lng": -75.6159,
+     "descripcion_corta": "Estilo colonial californiano (1932-1947). Vitrales, mampostería y jardines.",
+     "telefono": "(604) 4406672",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "año_fundacion": 1932, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de la Cultura Miguel Uribe Restrepo", "slug": "casa-cultura-envigado",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "patrimonio", "formacion"],
+     "municipio": "envigado", "barrio": "Centro Envigado",
+     "direccion": "Cra 45 #34A Sur-65", "lat": 6.1743, "lng": -75.5815,
+     "descripcion_corta": "Construcción colonial restaurada. Identidad de la 'Ciudad Señorial'.",
+     "telefono": "(604) 3394000",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de La Cultura Caldas", "slug": "casa-cultura-caldas",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "formacion"],
+     "municipio": "caldas", "barrio": "Centro Caldas",
+     "direccion": "Cra 49 #128 Sur-44", "lat": 6.0893, "lng": -75.6353,
+     "descripcion_corta": "Cultura antioqueña cruzada con música popular y vallenata.",
+     "telefono": "(604) 2780740", "email": "comunicaciones@culturacaldas.gov.co",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de la Cultura Fundadora de Pueblos", "slug": "casa-cultura-copacabana",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "folklore", "formacion"],
+     "municipio": "copacabana", "barrio": "Centro Copacabana",
+     "direccion": "Cll 50 #47-59", "lat": 6.3475, "lng": -75.5121,
+     "descripcion_corta": "Procesos folclóricos y formativos con acceso universal.",
+     "telefono": "(604) 2740108", "email": "casadelacultura@copacabana.gov.co",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de la Cultura Pedrito Ruiz", "slug": "casa-cultura-girardota",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "audiovisual", "danza"],
+     "municipio": "girardota", "barrio": "Centro Girardota",
+     "direccion": "Cra 16 #11-37", "lat": 6.3789, "lng": -75.4451,
+     "descripcion_corta": "Creación audiovisual, música y danza para juventudes del norte.",
+     "telefono": "(604) 2891201", "email": "casa.cultura@girardota.gov.co",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de La Cultura Barbosa", "slug": "casa-cultura-barbosa",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "formacion"],
+     "municipio": "barbosa", "barrio": "Centro Barbosa",
+     "direccion": "Cra 10 #16-20", "lat": 6.4388, "lng": -75.3330,
+     "descripcion_corta": "Cierre norte del circuito metropolitano. Escuelas de arte locales.",
+     "telefono": "(604) 4062725", "email": "culturabarbosa1@gmail.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de la Cultura La Estrella", "slug": "casa-cultura-la-estrella",
+     "tipo": "espacio_fisico", "categoria_principal": "casa_cultura",
+     "categorias": ["casa_cultura", "patrimonio", "saberes_ancestrales"],
+     "municipio": "la_estrella", "barrio": "Centro La Estrella",
+     "direccion": "Cll 83A Sur #61-05", "lat": 6.1560, "lng": -75.6313,
+     "descripcion_corta": "Patrimonio, saberes ancestrales y formación transversal.",
+     "telefono": "(604) 3094899", "email": "cultura@laestrella.gov.co",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- ESPACIOS HÍBRIDOS, EDUCACIÓN EXPANDIDA Y OTROS ---
+HIBRIDOS = [
+    {"nombre": "Platohedro", "slug": "platohedro",
+     "tipo": "espacio_fisico", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "educacion_expandida", "cultura_digital", "feminismos", "ecologia"],
+     "municipio": "medellin", "barrio": "Buenos Aires", "comuna": "9 - Buenos Aires",
+     "direccion": "Cll 49A #36-93", "lat": 6.2415, "lng": -75.5550,
+     "descripcion_corta": "Educación ampliada, cultura digital, fungicultura urbana y feminismos decoloniales.",
+     "descripcion": "Plataforma colaborativa pionera en 'educación ampliada' y cultura digital comunitaria. Investigan Buen Vivir, feminismos decoloniales, software libre y sostienen un 'Laboratorio de Fungicultura urbana'.",
+     "sitio_web": "https://www.platohedro.org",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de las Estrategias", "slug": "casa-de-las-estrategias",
+     "tipo": "colectivo", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "pedagogia", "activismo", "migracion"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2500, "lng": -75.5640,
+     "descripcion_corta": "Ciudades Sin Miedo y Editores de Ciudad. 400 adolescentes formados.",
+     "descripcion": "Piensan la ciudad desde los márgenes. Proyectos Ciudades Sin Miedo y Editores de Ciudad: 400 adolescentes en pedagogía ciudadana, superación de narrativas xenófobas y protección de la vida.",
+     "sitio_web": "https://www.casadelasestrategias.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa Miradentro", "slug": "casa-miradentro",
+     "tipo": "espacio_fisico", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "cafe", "libreria", "feminismo", "psicologia"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2510, "lng": -75.5690,
+     "descripcion_corta": "Apoyo psicológico + pensamiento feminista + arte + círculos de palabra + café-librería.",
+     "instagram_handle": "casamiradentro",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Corporación Otraparte", "slug": "corporacion-otraparte",
+     "tipo": "espacio_fisico", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "filosofia", "literatura", "cafe", "cine", "museo"],
+     "municipio": "envigado", "barrio": "Centro Envigado",
+     "lat": 6.1745, "lng": -75.5818,
+     "descripcion_corta": "Casa-museo de Fernando González. Café, biblioteca, conciertos y cine. 45K seg.",
+     "descripcion": "Santuario del pensamiento del filósofo Fernando González. Funciona como centro cultural con café, biblioteca, conciertos y cine independiente. Nodo filosófico-literario de Envigado.",
+     "instagram_handle": "otraparte", "instagram_seguidores": 45000,
+     "sitio_web": "https://www.otraparte.org",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Corporación Tríade", "slug": "corporacion-triade",
+     "tipo": "colectivo", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "danza", "artesanias", "formacion"],
+     "municipio": "itagui", "barrio": "Itagüí",
+     "lat": 6.1855, "lng": -75.5995,
+     "descripcion_corta": "Cruce de saberes entre danza, plástica y artesanías en el sur del Valle.",
+     "telefono": "(604) 3384382",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Corporación Cultural Altavista", "slug": "corporacion-cultural-altavista",
+     "tipo": "colectivo", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "comunitario", "festival", "memoria_campesina"],
+     "municipio": "medellin", "barrio": "Altavista (corregimiento)",
+     "lat": 6.2280, "lng": -75.6090,
+     "descripcion_corta": "Festival de la Cometa, convivencia barrial y memoria campesina.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Fundación Casa Cultural La Chispa", "slug": "fundacion-la-chispa",
+     "tipo": "espacio_fisico", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "autogestion", "activismo", "performance"],
+     "municipio": "medellin", "barrio": "Centro",
+     "lat": 6.2505, "lng": -75.5625,
+     "descripcion_corta": "Autogestión pura. Refugio para militancias sociales y arte performático.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa Ninguno", "slug": "casa-ninguno",
+     "tipo": "espacio_fisico", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "fotografia", "cine_documental"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2490, "lng": -75.5670,
+     "descripcion_corta": "Creación visual: fotografía, cine documental y exhibiciones no tradicionales.",
+     "nivel_actividad": "activo", "es_underground": True, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Auditorium Centro de Eventos", "slug": "auditorium-centro-eventos",
+     "tipo": "espacio_fisico", "categoria_principal": "musica_en_vivo",
+     "categorias": ["musica_en_vivo", "electronica", "diversidad"],
+     "municipio": "medellin", "barrio": "Laureles / Estadio",
+     "lat": 6.2480, "lng": -75.5940,
+     "descripcion_corta": "Gran formato nocturno inclusivo. Agenda de diversidades y alta tecnología.",
+     "instagram_handle": "auditorium.med",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa Gardeliana", "slug": "casa-gardeliana",
+     "tipo": "espacio_fisico", "categoria_principal": "musica_en_vivo",
+     "categorias": ["musica_en_vivo", "tango", "patrimonio", "museo"],
+     "municipio": "medellin", "barrio": "Manrique", "comuna": "3 - Manrique",
+     "lat": 6.2740, "lng": -75.5490,
+     "descripcion_corta": "Museo y centro del tango. Patrimonio gardeliano de Medellín.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa Cultural del Tango Homero Manzi", "slug": "casa-tango-homero-manzi",
+     "tipo": "espacio_fisico", "categoria_principal": "musica_en_vivo",
+     "categorias": ["musica_en_vivo", "tango", "danza"],
+     "municipio": "medellin", "barrio": "Centro",
+     "lat": 6.2510, "lng": -75.5640,
+     "descripcion_corta": "Bailes, canto y poética del tango. La cultura gardeliana viva en la montaña.",
+     "instagram_handle": "homeromanzi1987",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "año_fundacion": 1987, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Castillo Prado", "slug": "castillo-prado",
+     "tipo": "espacio_fisico", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "patrimonio", "eventos", "arte"],
+     "municipio": "medellin", "barrio": "Prado Centro",
+     "lat": 6.2622, "lng": -75.5632,
+     "descripcion_corta": "Edificación de 1933. Muestras de arte, eventos y economía patrimonial.",
+     "sitio_web": "https://www.castilloprado.com",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "año_fundacion": 1933, "fuente_datos": "investigacion_base"},
+
+    {"nombre": "El Nido Cultural de Prado Centro", "slug": "nido-cultural-prado",
+     "tipo": "espacio_fisico", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "comunitario", "talleres"],
+     "municipio": "medellin", "barrio": "Prado Centro",
+     "lat": 6.2617, "lng": -75.5638,
+     "descripcion_corta": "Encuentro comunitario: talleres y turismo cultural en el centro histórico.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Casa de la Literatura San Germán", "slug": "casa-literatura-san-german",
+     "tipo": "espacio_fisico", "categoria_principal": "libreria",
+     "categorias": ["libreria", "residencias", "formacion"],
+     "municipio": "medellin", "barrio": "San Germán",
+     "direccion": "Cll 63 #75-86", "lat": 6.2600, "lng": -75.5950,
+     "descripcion_corta": "Residencias creativas para escritores. 'Cadena del libro' y promoción lectora.",
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Museo Casa de la Memoria", "slug": "museo-casa-de-la-memoria",
+     "tipo": "espacio_fisico", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "museo", "memoria", "derechos_humanos"],
+     "municipio": "medellin", "barrio": "Buenos Aires",
+     "lat": 6.2425, "lng": -75.5555,
+     "descripcion_corta": "Museo de memoria y derechos humanos. 59K seguidores.",
+     "instagram_handle": "museocasadelamemoria.med", "instagram_seguidores": 59000,
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": True,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- ELECTRÓNICA Y PLATAFORMAS ---
+ELECTRONICA = [
+    {"nombre": "MedellínStyle", "slug": "medellin-style",
+     "tipo": "plataforma", "categoria_principal": "electronica",
+     "categorias": ["electronica"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2500, "lng": -75.5660,
+     "descripcion_corta": "Plataforma electrónica más grande de Latam. 448K seguidores.",
+     "instagram_handle": "medellinstyle", "instagram_seguidores": 448000,
+     "sitio_web": "https://www.medellinstyle.com",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Compás Urbano", "slug": "compas-urbano",
+     "tipo": "plataforma", "categoria_principal": "hibrido",
+     "categorias": ["hibrido", "directorio", "recorridos"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2510, "lng": -75.5650,
+     "descripcion_corta": "Directorio cultural vivo: mapeos territoriales y recorridos por barrios. 48K seg.",
+     "instagram_handle": "compasurbano", "instagram_seguidores": 48000,
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- POESÍA Y FESTIVALES ---
+POESIA_FESTIVALES = [
+    {"nombre": "Festival Internacional de Poesía de Medellín", "slug": "festival-poesia-medellin",
+     "tipo": "festival", "categoria_principal": "poesia",
+     "categorias": ["poesia", "festival", "literatura"],
+     "municipio": "medellin", "barrio": "Medellín (150+ sedes)",
+     "lat": 6.2518, "lng": -75.5636,
+     "descripcion_corta": "36 ediciones en 150+ sedes. Julio 2026. 15K seguidores.",
+     "instagram_handle": "festivalpoesiamedellin", "instagram_seguidores": 15000,
+     "sitio_web": "https://www.festivaldepoesiademedellin.org",
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+
+    {"nombre": "Medellín en Escena", "slug": "medellin-en-escena",
+     "tipo": "red", "categoria_principal": "teatro",
+     "categorias": ["teatro", "red", "festival"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2510, "lng": -75.5640,
+     "descripcion_corta": "Asociación de salas. Fiesta de las Artes Escénicas (20 ediciones). 20K seg.",
+     "instagram_handle": "medellinenescena", "instagram_seguidores": 20000,
+     "nivel_actividad": "muy_activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# --- DANZA ---
+DANZA = [
+    {"nombre": "Malas Compañías Danza", "slug": "malas-companias-danza",
+     "tipo": "colectivo", "categoria_principal": "danza",
+     "categorias": ["danza"],
+     "municipio": "medellin", "barrio": "Medellín",
+     "lat": 6.2480, "lng": -75.5650,
+     "descripcion_corta": "Compañía de danza contemporánea. 3.1K seguidores.",
+     "instagram_handle": "malascompaniasdanza", "instagram_seguidores": 3100,
+     "nivel_actividad": "activo", "es_underground": False, "es_institucional": False,
+     "fuente_datos": "investigacion_base"},
+]
+
+# ============================================================
+# EVENTOS — 45+ eventos realistas (Abril 17 – Mayo 31, 2026)
+# ============================================================
+BASE_DATE = datetime(2026, 4, 17, 0, 0, 0)
+
+def dt(day_offset, hour, minute=0):
+    return (BASE_DATE + timedelta(days=day_offset)).replace(hour=hour, minute=minute).strftime("%Y-%m-%dT%H:%M:00-05:00")
+
+EVENTOS = [
+    # --- SEMANA 1 (Apr 17-23) ---
+    {"titulo": "Función: El Rey Lear según Matacandelas", "slug": "rey-lear-matacandelas-apr26",
+     "categoria_principal": "teatro", "categorias": ["teatro"],
+     "fecha_inicio": dt(0, 20), "nombre_lugar": "Teatro Matacandelas",
+     "municipio": "medellin", "barrio": "Centro", "es_gratuito": False,
+     "precio": "$30.000 COP", "fuente": "manual",
+     "descripcion": "Adaptación 'patafísica de El Rey Lear por el Colectivo Teatral Matacandelas. Dirigida por Cristóbal Peláez."},
+
+    {"titulo": "Jam Session nocturna", "slug": "jam-session-club-jazz-apr17",
+     "categoria_principal": "jazz", "categorias": ["jazz", "musica_en_vivo"],
+     "fecha_inicio": dt(0, 21), "nombre_lugar": "El Club del Jazz",
+     "municipio": "medellin", "barrio": "Distrito San Ignacio", "es_gratuito": False,
+     "precio": "$25.000 COP", "fuente": "manual",
+     "descripcion": "Jam session abierta con músicos de sesión locales. Improvisación libre."},
+
+    {"titulo": "Graffitour Comuna 13 — Edición especial", "slug": "graffitour-c13-apr18",
+     "categoria_principal": "hip_hop", "categorias": ["hip_hop", "graffiti", "tour"],
+     "fecha_inicio": dt(1, 10), "nombre_lugar": "Casa Kolacho",
+     "municipio": "medellin", "barrio": "San Javier", "es_gratuito": False,
+     "precio": "$60.000 COP", "fuente": "manual",
+     "descripcion": "Recorrido guiado por los murales de la Comuna 13 con artistas de Casa Kolacho."},
+
+    {"titulo": "Noche de cuentería y vino", "slug": "cuenteria-ateneo-apr18",
+     "categoria_principal": "teatro", "categorias": ["teatro", "poesia"],
+     "fecha_inicio": dt(1, 19, 30), "nombre_lugar": "Teatro Ateneo Porfirio Barba Jacob",
+     "municipio": "medellin", "barrio": "Bomboná", "es_gratuito": False,
+     "precio": "$20.000 COP", "fuente": "manual",
+     "descripcion": "Noche de cuentería en el Ateneo. Tres narradores invitados más micrófono abierto."},
+
+    {"titulo": "Exposición: Cartografías del Abandono", "slug": "cartografias-abandono-mamm",
+     "categoria_principal": "galeria", "categorias": ["galeria", "arte_contemporaneo"],
+     "fecha_inicio": dt(1, 10), "fecha_fin": dt(60, 18),
+     "nombre_lugar": "MAMM", "municipio": "medellin", "barrio": "Ciudad del Río",
+     "es_gratuito": True, "fuente": "manual",
+     "descripcion": "Muestra colectiva de artistas emergentes sobre memoria y territorio urbano."},
+
+    {"titulo": "Batalla de freestyle — La Liga del Barrio", "slug": "freestyle-liga-barrio-apr22",
+     "categoria_principal": "batalla_freestyle", "categorias": ["hip_hop", "batalla_freestyle"],
+     "fecha_inicio": dt(5, 20), "nombre_lugar": "Barrio Antioquia (Trinidad)",
+     "municipio": "medellin", "barrio": "Barrio Antioquia", "es_gratuito": True,
+     "fuente": "manual", "es_recurrente": True,
+     "patron_recurrencia": {"dia": "miercoles", "frecuencia": "semanal"},
+     "descripcion": "Batalla de freestyle semanal. Micrófono abierto para MCs."},
+
+    {"titulo": "Lunes de Jazz — El Acontista", "slug": "lunes-jazz-acontista-apr20",
+     "categoria_principal": "jazz", "categorias": ["jazz", "musica_en_vivo"],
+     "fecha_inicio": dt(3, 19), "nombre_lugar": "El Acontista",
+     "municipio": "medellin", "barrio": "Centro", "es_gratuito": False,
+     "precio": "$15.000 COP (consumo mínimo)", "fuente": "manual",
+     "descripcion": "Jazz en vivo cada lunes en El Acontista. Trío de jazz local."},
+
+    {"titulo": "Talleres de clown para adultos", "slug": "taller-clown-casa-clown-apr19",
+     "categoria_principal": "teatro", "categorias": ["teatro", "clown", "formacion"],
+     "fecha_inicio": dt(2, 14), "nombre_lugar": "Teatro Casa Clown",
+     "municipio": "medellin", "barrio": "Bomboná I", "es_gratuito": False,
+     "precio": "$80.000 COP (4 sesiones)", "fuente": "manual",
+     "descripcion": "Taller intensivo de clown y teatro gestual. Cupo limitado."},
+
+    {"titulo": "Apertura: Nuevas Voces — Duque Arango", "slug": "nuevas-voces-duque-arango-apr19",
+     "categoria_principal": "galeria", "categorias": ["galeria", "arte_contemporaneo"],
+     "fecha_inicio": dt(2, 18), "nombre_lugar": "Duque Arango Contemporáneo",
+     "municipio": "medellin", "barrio": "Manila", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Inauguración de muestra de artistas emergentes: Andrés Moreno y Julio Montero."},
+
+    {"titulo": "Ruta literaria nocturna por Laureles", "slug": "ruta-literaria-itaca-apr19",
+     "categoria_principal": "libreria", "categorias": ["libreria", "literatura", "tour"],
+     "fecha_inicio": dt(2, 17), "nombre_lugar": "Ítaca Librería-Bar",
+     "municipio": "medellin", "barrio": "Laureles", "es_gratuito": False,
+     "precio": "$25.000 COP", "fuente": "manual",
+     "descripcion": "Ruta literaria a pie por librerías de Laureles con Rodnei Casares."},
+
+    # --- SEMANA 2 (Apr 24-30) ---
+    {"titulo": "Función: Entrada libre — Pequeño Teatro", "slug": "funcion-libre-pequeno-apr25",
+     "categoria_principal": "teatro", "categorias": ["teatro"],
+     "fecha_inicio": dt(8, 19, 30), "nombre_lugar": "Pequeño Teatro de Medellín",
+     "municipio": "medellin", "barrio": "Centro", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Función de repertorio con entrada libre y aporte voluntario."},
+
+    {"titulo": "Concierto: Crew Peligrosos en vivo", "slug": "crew-peligrosos-vivo-apr25",
+     "categoria_principal": "hip_hop", "categorias": ["hip_hop", "musica_fusion"],
+     "fecha_inicio": dt(8, 20, 30), "nombre_lugar": "La Pascasia",
+     "municipio": "medellin", "barrio": "Centro", "es_gratuito": False,
+     "precio": "$40.000 COP", "fuente": "manual",
+     "descripcion": "Crew Peligrosos presenta su nuevo material fusionando rap con cumbia y salsa."},
+
+    {"titulo": "Conversatorio: Mujeres Filósofas", "slug": "mujeres-filosofas-apr26",
+     "categoria_principal": "poesia", "categorias": ["poesia", "filosofia", "feminismo"],
+     "fecha_inicio": dt(9, 16), "nombre_lugar": "Corporación Otraparte",
+     "municipio": "envigado", "barrio": "Centro Envigado", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Coloquio de Mujeres Filósofas y Pensamiento Feminista en Otraparte."},
+
+    {"titulo": "Mercadillo de fanzines y editoriales", "slug": "fanzines-antimateria-apr26",
+     "categoria_principal": "libreria", "categorias": ["libreria", "fanzines", "editorial"],
+     "fecha_inicio": dt(9, 11), "nombre_lugar": "Libros Antimateria",
+     "municipio": "medellin", "barrio": "Florida Nueva", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Mercadillo mensual de fanzines, cómics y editoriales independientes."},
+
+    {"titulo": "Blues & Soul Night — The Jazz Room", "slug": "blues-soul-jazz-room-apr24",
+     "categoria_principal": "jazz", "categorias": ["jazz", "blues", "soul"],
+     "fecha_inicio": dt(7, 21), "nombre_lugar": "The Jazz Room",
+     "municipio": "medellin", "barrio": "El Poblado", "es_gratuito": False,
+     "precio": "$50.000 COP", "fuente": "manual",
+     "descripcion": "Experiencia inmersiva estilo speakeasy. Clásicos de Louis Armstrong."},
+
+    {"titulo": "Taller de risografía — La Bruja Riso", "slug": "taller-risografia-apr26",
+     "categoria_principal": "galeria", "categorias": ["galeria", "fanzines", "taller"],
+     "fecha_inicio": dt(9, 10), "nombre_lugar": "El Poblado",
+     "municipio": "medellin", "barrio": "El Poblado", "es_gratuito": False,
+     "precio": "$120.000 COP (materiales incluidos)", "fuente": "manual",
+     "descripcion": "Taller práctico de risografía: diseño, impresión y encuadernación."},
+
+    {"titulo": "Rock en vivo — Trilogía Bar", "slug": "rock-trilogia-apr24",
+     "categoria_principal": "musica_en_vivo", "categorias": ["musica_en_vivo", "rock"],
+     "fecha_inicio": dt(7, 21, 30), "nombre_lugar": "Trilogía Bar",
+     "municipio": "medellin", "barrio": "Ciudad del Río", "es_gratuito": False,
+     "precio": "$30.000 COP", "fuente": "manual",
+     "descripcion": "Noche de rock en vivo con bandas locales en el escenario giratorio."},
+
+    {"titulo": "Herederos al Trono — Freestyle Itagüí", "slug": "herederos-trono-apr28",
+     "categoria_principal": "batalla_freestyle", "categorias": ["hip_hop", "batalla_freestyle"],
+     "fecha_inicio": dt(11, 19), "nombre_lugar": "Parque del Artista, Itagüí",
+     "municipio": "itagui", "barrio": "Centro", "es_gratuito": True,
+     "fuente": "manual", "es_recurrente": True,
+     "patron_recurrencia": {"dia": "martes", "frecuencia": "semanal"},
+     "descripcion": "Batalla de freestyle semanal en Itagüí."},
+
+    # --- SEMANA 3 (May 1-7) ---
+    {"titulo": "Día del Trabajo: Concierto solidario", "slug": "concierto-solidario-may1",
+     "categoria_principal": "musica_en_vivo", "categorias": ["musica_en_vivo", "hip_hop"],
+     "fecha_inicio": dt(14, 15), "nombre_lugar": "Parque de los Deseos",
+     "municipio": "medellin", "barrio": "Parque de los Deseos", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Concierto solidario con artistas del Valle de Aburrá. Rap, cumbia y rock."},
+
+    {"titulo": "Exposición Ruta 14: Cuatro Galerías", "slug": "ruta-14-mayo-2026",
+     "categoria_principal": "galeria", "categorias": ["galeria", "arte_contemporaneo"],
+     "fecha_inicio": dt(15, 18), "nombre_lugar": "Policroma / La Balsa / La Cometa",
+     "municipio": "medellin", "barrio": "El Poblado", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Apertura simultánea de cuatro galerías del circuito Ruta 14 en El Poblado."},
+
+    {"titulo": "Teatro comunitario en Santa Cruz", "slug": "teatro-nuestra-gente-may3",
+     "categoria_principal": "teatro", "categorias": ["teatro", "comunitario"],
+     "fecha_inicio": dt(16, 16), "nombre_lugar": "Corporación Cultural Nuestra Gente",
+     "municipio": "medellin", "barrio": "Santa Cruz", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Función de teatro comunitario. Mediación de conflictos a través del arte."},
+
+    {"titulo": "Tertulia filosófica: Fernando González hoy", "slug": "tertulia-otraparte-may4",
+     "categoria_principal": "poesia", "categorias": ["poesia", "filosofia"],
+     "fecha_inicio": dt(17, 11), "nombre_lugar": "Corporación Otraparte",
+     "municipio": "envigado", "barrio": "Centro Envigado", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Café filosófico sobre la vigencia del pensamiento de Fernando González."},
+
+    {"titulo": "Slam Poético — Edición Medellín", "slug": "slam-poetico-medellin-may5",
+     "categoria_principal": "poesia", "categorias": ["poesia", "literatura"],
+     "fecha_inicio": dt(18, 19), "nombre_lugar": "La Pascasia",
+     "municipio": "medellin", "barrio": "Centro", "es_gratuito": False,
+     "precio": "$10.000 COP", "fuente": "manual",
+     "descripcion": "Competencia de poesía hablada. Micrófono abierto para poetas locales."},
+
+    {"titulo": "Cine al aire libre — MAMM", "slug": "cine-mamm-may6",
+     "categoria_principal": "galeria", "categorias": ["galeria", "cine"],
+     "fecha_inicio": dt(19, 19, 30), "nombre_lugar": "MAMM",
+     "municipio": "medellin", "barrio": "Ciudad del Río", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Proyección de cine colombiano independiente en la terraza del MAMM."},
+
+    {"titulo": "Breakdance Battle — 4 Elementos Skuela", "slug": "breakdance-4elementos-may2",
+     "categoria_principal": "hip_hop", "categorias": ["hip_hop", "breakdance"],
+     "fecha_inicio": dt(15, 15), "nombre_lugar": "4 Elementos Skuela",
+     "municipio": "medellin", "barrio": "Aranjuez", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Exhibición de breakdance: estudiantes de la escuela vs. B-boys invitados."},
+
+    # --- SEMANA 4 (May 8-14) ---
+    {"titulo": "Festival de la Cometa — Altavista", "slug": "festival-cometa-altavista-may9",
+     "categoria_principal": "hibrido", "categorias": ["hibrido", "festival", "comunitario"],
+     "fecha_inicio": dt(22, 9), "nombre_lugar": "Corregimiento Altavista",
+     "municipio": "medellin", "barrio": "Altavista", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Festival Municipal de la Cometa. Cultura campesina y convivencia barrial."},
+
+    {"titulo": "Noche de tango — Salón Málaga", "slug": "tango-salon-malaga-may8",
+     "categoria_principal": "musica_en_vivo", "categorias": ["musica_en_vivo", "tango"],
+     "fecha_inicio": dt(21, 20), "nombre_lugar": "Salón Málaga",
+     "municipio": "medellin", "barrio": "Centro", "es_gratuito": False,
+     "precio": "$15.000 COP (consumo)", "fuente": "manual",
+     "descripcion": "Noche de tango con orquesta en vivo. Patrimonio cultural del centro."},
+
+    {"titulo": "Educación ampliada: Taller de fungicultura", "slug": "fungicultura-platohedro-may10",
+     "categoria_principal": "hibrido", "categorias": ["hibrido", "educacion_expandida", "ecologia"],
+     "fecha_inicio": dt(23, 10), "nombre_lugar": "Platohedro",
+     "municipio": "medellin", "barrio": "Buenos Aires", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Laboratorio de fungicultura urbana: cultivo de hongos y arte ecológico."},
+
+    {"titulo": "Apertura: Arte emergente — Policroma", "slug": "arte-emergente-policroma-may9",
+     "categoria_principal": "galeria", "categorias": ["galeria", "arte_contemporaneo"],
+     "fecha_inicio": dt(22, 18, 30), "nombre_lugar": "Policroma",
+     "municipio": "medellin", "barrio": "El Poblado", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Inauguración de muestra multidisciplinaria de artistas menores de 30."},
+
+    {"titulo": "Función de humor — El Águila Descalza", "slug": "humor-aguila-descalza-may10",
+     "categoria_principal": "teatro", "categorias": ["teatro", "humor"],
+     "fecha_inicio": dt(23, 19), "nombre_lugar": "El Águila Descalza",
+     "municipio": "medellin", "barrio": "Prado", "es_gratuito": False,
+     "precio": "$35.000 COP", "fuente": "manual",
+     "descripcion": "Comedia costumbrista paisa. Repertorio clásico del Águila Descalza."},
+
+    {"titulo": "Encuentro de editoriales independientes", "slug": "editoriales-indep-may10",
+     "categoria_principal": "libreria", "categorias": ["libreria", "editorial"],
+     "fecha_inicio": dt(23, 10), "nombre_lugar": "Casa Tragaluz",
+     "municipio": "medellin", "barrio": "Astorga", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Tragaluz, Sílaba, Angosta y 10 editoriales más en muestra-venta."},
+
+    # --- SEMANA 5 (May 15-21) ---
+    {"titulo": "Concierto: Son Batá — Afro hip hop", "slug": "son-bata-afro-may16",
+     "categoria_principal": "hip_hop", "categorias": ["hip_hop", "musica_afrocolombiana"],
+     "fecha_inicio": dt(29, 18), "nombre_lugar": "San Javier (Comuna 13)",
+     "municipio": "medellin", "barrio": "San Javier", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Son Batá en vivo: fusión hip hop con chirimía y son del Pacífico."},
+
+    {"titulo": "Taller de creación dramatúrgica", "slug": "taller-dramaturgia-may17",
+     "categoria_principal": "teatro", "categorias": ["teatro", "formacion"],
+     "fecha_inicio": dt(30, 10), "nombre_lugar": "Casa del Teatro y Biblioteca Gilberto Martínez",
+     "municipio": "medellin", "barrio": "Prado Centro", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Taller de escritura dramatúrgica con acceso a la biblioteca especializada."},
+
+    {"titulo": "DJ Set experimental — MedellínStyle", "slug": "dj-set-medellinstyle-may16",
+     "categoria_principal": "electronica", "categorias": ["electronica"],
+     "fecha_inicio": dt(29, 22), "nombre_lugar": "Auditorium Centro de Eventos",
+     "municipio": "medellin", "barrio": "Laureles", "es_gratuito": False,
+     "precio": "$45.000 COP", "fuente": "manual",
+     "descripcion": "Noche techno curada por MedellínStyle. DJs internacionales invitados."},
+
+    {"titulo": "Recorrido patrimonial: Barrio Prado", "slug": "recorrido-prado-may17",
+     "categoria_principal": "hibrido", "categorias": ["hibrido", "patrimonio", "tour"],
+     "fecha_inicio": dt(30, 9, 30), "nombre_lugar": "Castillo Prado",
+     "municipio": "medellin", "barrio": "Prado Centro", "es_gratuito": False,
+     "precio": "$20.000 COP", "fuente": "manual",
+     "descripcion": "Recorrido por las mansiones republicanas de Prado con guía histórico."},
+
+    {"titulo": "Noche de poesía y mezcal", "slug": "poesia-pascasia-may15",
+     "categoria_principal": "poesia", "categorias": ["poesia", "musica_en_vivo"],
+     "fecha_inicio": dt(28, 20), "nombre_lugar": "La Pascasia",
+     "municipio": "medellin", "barrio": "Centro", "es_gratuito": False,
+     "precio": "$15.000 COP", "fuente": "manual",
+     "descripcion": "Noche de poesía con mezcal. Poetas invitados + micrófono abierto."},
+
+    # --- SEMANA 6 (May 22-31) ---
+    {"titulo": "Circulart 2026 — Mercado iberoamericano", "slug": "circulart-2026",
+     "categoria_principal": "musica_en_vivo", "categorias": ["musica_en_vivo", "festival"],
+     "fecha_inicio": dt(39, 10), "fecha_fin": dt(42, 22),
+     "nombre_lugar": "Plaza Mayor y sedes varias",
+     "municipio": "medellin", "barrio": "Medellín", "es_gratuito": False,
+     "precio": "Varía por evento", "fuente": "manual",
+     "descripcion": "Mercado iberoamericano de música. Showcases, ruedas de negocio y formación."},
+
+    {"titulo": "Residencia abierta — Casa Tres Patios", "slug": "residencia-c3p-may23",
+     "categoria_principal": "galeria", "categorias": ["galeria", "residencias"],
+     "fecha_inicio": dt(36, 15), "nombre_lugar": "Casa Tres Patios (C3P)",
+     "municipio": "medellin", "barrio": "Prado Centro", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Puertas abiertas de la residencia artística. Charla con artistas en residencia."},
+
+    {"titulo": "Conversatorio: Hip Hop como biopolítica", "slug": "biopolitica-hiphop-may24",
+     "categoria_principal": "hip_hop", "categorias": ["hip_hop", "activismo", "filosofia"],
+     "fecha_inicio": dt(37, 16), "nombre_lugar": "Casa Kolacho",
+     "municipio": "medellin", "barrio": "San Javier", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Conversatorio sobre hip hop como resistencia biopolítica frente al juvenicidio."},
+
+    {"titulo": "Lo pequeño es ejemplar — Mercado Editorial MAMM", "slug": "lo-pequeno-ejemplar-may30",
+     "categoria_principal": "libreria", "categorias": ["libreria", "editorial", "festival"],
+     "fecha_inicio": dt(43, 10), "fecha_fin": dt(44, 18),
+     "nombre_lugar": "MAMM", "municipio": "medellin", "barrio": "Ciudad del Río",
+     "es_gratuito": True, "fuente": "manual",
+     "descripcion": "Mercado anual de editoriales independientes. 20+ sellos de Medellín."},
+
+    {"titulo": "Taller de agricultura urbana y rap", "slug": "agroarte-taller-may24",
+     "categoria_principal": "hip_hop", "categorias": ["hip_hop", "agricultura_urbana", "taller"],
+     "fecha_inicio": dt(37, 10), "nombre_lugar": "AgroArte Colombia",
+     "municipio": "medellin", "barrio": "San Javier", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Taller cruzado: técnicas de cultivo urbano + escritura de letras de rap."},
+
+    {"titulo": "Punk Nights — Club Líbido", "slug": "punk-club-libido-may23",
+     "categoria_principal": "musica_en_vivo", "categorias": ["musica_en_vivo", "punk"],
+     "fecha_inicio": dt(36, 21), "nombre_lugar": "Club Líbido",
+     "municipio": "medellin", "barrio": "Medellín", "es_gratuito": False,
+     "precio": "$20.000 COP", "fuente": "manual",
+     "descripcion": "Noche punk con tres bandas locales. Mosh pit garantizado."},
+
+    {"titulo": "Muralismo en acción — Deúniti", "slug": "muralismo-deuniti-may30",
+     "categoria_principal": "galeria", "categorias": ["galeria", "muralismo"],
+     "fecha_inicio": dt(43, 9), "nombre_lugar": "Medellín (muro comunitario)",
+     "municipio": "medellin", "barrio": "Centro", "es_gratuito": True,
+     "fuente": "manual",
+     "descripcion": "Intervención mural pública por artistas de Deúniti. Participación abierta."},
+]
+
+
+# ============================================================
+# Ejecutar inserción
+# ============================================================
+def upsert(table: str, data: list[dict], on_conflict: str = "slug") -> int:
+    """Upsert rows via Supabase REST API one-by-one. Returns count of rows."""
+    if not data:
+        return 0
+    url = f"{BASE}/{table}?on_conflict={on_conflict}"
+    headers = {**HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"}
+    ok = 0
+    for row in data:
+        clean = {k: v for k, v in row.items() if v is not None}
+        r = httpx.post(url, json=clean, headers=headers, timeout=15)
+        if r.status_code in (200, 201):
+            ok += 1
+        else:
+            print(f"    ERR {clean.get('slug', clean.get('titulo','?'))}: {r.text[:200]}")
+    return ok
+
+
+def main():
+    print("=" * 60)
+    print("COMPÁS CULTURAL — SEED COMPLETO")
+    print("=" * 60)
+
+    # 1. Zonas
+    print("\n▸ Zonas culturales...")
+    n = upsert("zonas_culturales", ZONAS)
+    print(f"  ✓ {n} zonas upserted")
+
+    # 2. Lugares (all categories)
+    all_lugares = (
+        TEATROS + HIP_HOP + BATALLAS + JAZZ_MUSICA + GALERIAS
+        + LIBRERIAS + CASAS_CULTURA + HIBRIDOS + ELECTRONICA
+        + POESIA_FESTIVALES + DANZA
+    )
+    print(f"\n▸ Lugares ({len(all_lugares)} espacios culturales)...")
+    n = upsert("lugares", all_lugares)
+    print(f"  ✓ {n} lugares upserted")
+
+    # 3. Eventos
+    print(f"\n▸ Eventos ({len(EVENTOS)} eventos)...")
+    # Convert special fields
+    for ev in EVENTOS:
+        if "patron_recurrencia" in ev and isinstance(ev["patron_recurrencia"], dict):
+            ev["patron_recurrencia"] = json.dumps(ev["patron_recurrencia"])
+        if "es_recurrente" not in ev:
+            ev["es_recurrente"] = False
+        if "es_gratuito" not in ev:
+            ev["es_gratuito"] = False
+    n = upsert("eventos", EVENTOS)
+    print(f"  ✓ {n} eventos upserted")
+
+    # Summary
+    print(f"\n{'=' * 60}")
+    print(f"TOTAL: {len(ZONAS)} zonas + {len(all_lugares)} lugares + {len(EVENTOS)} eventos")
+    print("=" * 60)
+
+    # Verify
+    r = httpx.get(f"{BASE}/lugares?select=id&limit=1000", headers=HEADERS, timeout=15)
+    if r.status_code == 200:
+        print(f"\n▸ Verificación: {len(r.json())} lugares en BD")
+    r = httpx.get(f"{BASE}/eventos?select=id&limit=1000", headers=HEADERS, timeout=15)
+    if r.status_code == 200:
+        print(f"▸ Verificación: {len(r.json())} eventos en BD")
+    r = httpx.get(f"{BASE}/zonas_culturales?select=id&limit=100", headers=HEADERS, timeout=15)
+    if r.status_code == 200:
+        print(f"▸ Verificación: {len(r.json())} zonas en BD")
+
+
+if __name__ == "__main__":
+    main()

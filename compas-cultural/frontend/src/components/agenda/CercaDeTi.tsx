@@ -1,0 +1,240 @@
+import { useState } from 'react'
+import EventCard from './EventCard'
+import {
+  getEventosSemana,
+  getEventosProximasSemanas,
+  type Evento,
+} from '../../lib/api'
+
+type GeoState = 'idle' | 'loading' | 'done' | 'error'
+
+// ─── Haversine (km) ──────────────────────────────────────────────────────────
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLng = ((lng2 - lng1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+// Coordenadas aproximadas de los municipios del Valle de Aburrá
+const MEDELLIN_CENTER = { lat: 6.2442, lng: -75.5812 }
+
+const MUNICIPIO_COORDS: Record<string, { lat: number; lng: number }> = {
+  medellin: MEDELLIN_CENTER,
+  medellín: MEDELLIN_CENTER,
+  envigado: { lat: 6.1752, lng: -75.5928 },
+  itagui: { lat: 6.1848, lng: -75.5990 },
+  itagüí: { lat: 6.1848, lng: -75.5990 },
+  bello: { lat: 6.3352, lng: -75.5574 },
+  sabaneta: { lat: 6.1514, lng: -75.6165 },
+  la_estrella: { lat: 6.1566, lng: -75.6425 },
+  'la estrella': { lat: 6.1566, lng: -75.6425 },
+  copacabana: { lat: 6.3494, lng: -75.5090 },
+  caldas: { lat: 6.0944, lng: -75.6362 },
+  girardota: { lat: 6.3783, lng: -75.4491 },
+}
+
+
+export default function CercaDeTi() {
+  const [geoState, setGeoState] = useState<GeoState>('idle')
+  const [geoError, setGeoError] = useState<string | null>(null)
+  const [lat, setLat] = useState<number | null>(null)
+  const [lng, setLng] = useState<number | null>(null)
+  const [radioKm, setRadioKm] = useState(5)
+  const [eventosProximos, setEventosProximos] = useState<(Evento & { distKm: number })[]>([])
+
+  const buscarCerca = async (userLat: number, userLng: number, radio: number) => {
+    setGeoState('loading')
+    setEventosProximos([])
+
+    try {
+      // Traer eventos de esta semana + próxima semana (ya filtrados por fecha en el servidor)
+      const [semana, proxima] = await Promise.all([
+        getEventosSemana(),
+        getEventosProximasSemanas(7, undefined, 1),
+      ])
+      const eventosData: Evento[] = [...semana, ...proxima].filter(
+        (e, i, arr) => arr.findIndex(x => x.id === e.id) === i  // dedup
+      )
+
+      const conDistancia = eventosData
+        .map(e => {
+          // 1. Coordenadas exactas del evento
+          if (e.lat != null && e.lng != null) {
+            return { ...e, distKm: haversineKm(userLat, userLng, e.lat, e.lng) }
+          }
+          // 2. Centro del municipio
+          const muni = (e.municipio ?? '').toLowerCase().trim()
+          const muniCoords = MUNICIPIO_COORDS[muni] ?? (muni.includes('medellin') || muni.includes('medellín') ? MEDELLIN_CENTER : null)
+          if (muniCoords) {
+            return { ...e, distKm: haversineKm(userLat, userLng, muniCoords.lat, muniCoords.lng) }
+          }
+          // 3. Sin municipio → asumir Medellín (la mayoría de eventos son ahí)
+          return { ...e, distKm: haversineKm(userLat, userLng, MEDELLIN_CENTER.lat, MEDELLIN_CENTER.lng) }
+        })
+        .filter(e => e.distKm <= radio)
+        .sort((a, b) => a.distKm - b.distKm)
+        .slice(0, 30)
+
+      setEventosProximos(conDistancia)
+      setGeoState('done')
+    } catch {
+      setGeoError('No fue posible cargar eventos de tu zona.')
+      setGeoState('error')
+    }
+  }
+
+  const handleUbicarme = () => {
+    if (!navigator.geolocation) {
+      setGeoError('Tu navegador no soporta geolocalización.')
+      setGeoState('error')
+      return
+    }
+    setGeoState('loading')
+    setGeoError(null)
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude, longitude } = pos.coords
+        setLat(latitude)
+        setLng(longitude)
+        void buscarCerca(latitude, longitude, radioKm)
+      },
+      err => {
+        setGeoError(
+          err.code === 1
+            ? 'Permiso de ubicación denegado. Habilitalo en tu navegador.'
+            : 'No se pudo obtener tu ubicación. Intentá de nuevo.',
+        )
+        setGeoState('error')
+      },
+      { timeout: 10000, maximumAge: 60000 },
+    )
+  }
+
+
+  const hayResultados = eventosProximos.length > 0
+
+  return (
+    <section id="cerca-de-ti" className="border-2 border-black mb-10 scroll-mt-24">
+      {/* Header */}
+      <div className="border-b-2 border-black px-5 py-4 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <span className="w-4 h-4 bg-black rounded-full animate-pulse" />
+          <h2 className="text-lg font-heading font-black uppercase tracking-wider">CERCA DE TI</h2>
+          <span className="text-[9px] font-mono font-bold opacity-50 uppercase tracking-wider">
+            Agenda de esta semana en tu zona
+          </span>
+        </div>
+
+        {geoState === 'idle' || geoState === 'error' ? (
+          <button
+            onClick={handleUbicarme}
+            className="px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-black text-white hover:bg-neutral-800 transition-all flex items-center gap-2"
+          >
+            📍 Usar mi ubicación
+          </button>
+        ) : geoState === 'loading' ? (
+          <span className="text-[10px] font-mono font-bold opacity-60 flex items-center gap-2">
+            <span className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin inline-block" />
+            Buscando...
+          </span>
+        ) : (
+          <div className="flex items-center gap-3">
+            <label className="text-[10px] font-mono font-bold opacity-60 flex items-center gap-1.5">
+              Radio:
+              <select
+                value={radioKm}
+                onChange={e => {
+                  const r = Number(e.target.value)
+                  setRadioKm(r)
+                  if (lat != null && lng != null) void buscarCerca(lat, lng, r)
+                }}
+                className="border border-black px-1 py-0.5 text-[10px] font-mono bg-white"
+              >
+                <option value={1}>1 km</option>
+                <option value={3}>3 km</option>
+                <option value={5}>5 km</option>
+                <option value={10}>10 km</option>
+              </select>
+            </label>
+            <button
+              onClick={handleUbicarme}
+              className="px-3 py-1 text-[9px] font-mono font-bold uppercase tracking-wider border border-black hover:bg-black hover:text-white transition-all"
+            >
+              Actualizar
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Error */}
+      {geoError && (
+        <div className="px-5 py-3 text-[11px] font-mono border-b border-black/20 bg-red-50">
+          {geoError}
+        </div>
+      )}
+
+      {/* Idle state */}
+      {geoState === 'idle' && (
+        <div className="px-5 py-12 text-center">
+          <div className="text-4xl mb-3">📍</div>
+          <p className="text-sm font-mono opacity-60 max-w-sm mx-auto">
+            Compartí tu ubicación y te mostramos los eventos culturales de esta semana a menos de {radioKm} km de vos.
+          </p>
+        </div>
+      )}
+
+      {/* Loading skeleton */}
+      {geoState === 'loading' && (
+        <div className="px-5 py-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="animate-pulse border border-black h-48" />
+          ))}
+        </div>
+      )}
+
+      {/* Results */}
+      {geoState === 'done' && (
+        <div className="px-5 py-6">
+          {!hayResultados && (
+            <p className="text-sm font-mono opacity-60 text-center py-8">
+              No encontramos eventos de esta semana a {radioKm} km de tu ubicación. Probá aumentar el radio.
+            </p>
+          )}
+
+          {/* Eventos cercanos */}
+          {eventosProximos.length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="w-3 h-3 bg-red-500 animate-pulse" />
+                <h3 className="text-sm font-heading font-black uppercase tracking-wider">
+                  Esta semana cerca de ti
+                </h3>
+                <span className="text-[9px] font-mono font-bold opacity-50">
+                  {eventosProximos.length} a menos de {radioKm} km
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {eventosProximos.map(ev => (
+                  <div key={ev.id} className="relative">
+                    <EventCard evento={ev} />
+                    <div className="absolute top-2 right-2 bg-black text-white text-[8px] font-mono font-bold px-1.5 py-0.5 z-10">
+                      {ev.distKm < 1
+                        ? `${Math.round(ev.distKm * 1000)} m`
+                        : `${ev.distKm.toFixed(1)} km`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}

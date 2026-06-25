@@ -1,0 +1,814 @@
+{
+  "pageProps": {
+    "agenda": {
+      "id": 2,
+      "name": "Agenda",
+      "slug": "agenda",
+      "thumbnail": null,
+      "header": null,
+      "popUp": null,
+      "descriptors": [],
+      "compositionTop": {
+        "id": 27,
+        "name": "Encabezado Agenda",
+        "slug": "agenda",
+        "title": "<h3>Agenda</h3>",
+        "titleSecondLine": "",
+        "content": "",
+        "thumbnail": null,
+        "header": {
+          "id": 24,
+          "textColor": "#ffffff",
+          "image": {
+            "id": "110",
+            "name": "Banners página web agenda-14.png",
+            "alternativeText": null,
+            "caption": null,
+            "ext": ".png",
+            "mime": "image/png",
+            "formats": {
+              "original": {
+                "url": "https://bppprod-storage.s3.us-east-1.amazonaws.com/Banners_pagina_web_agenda_14_405fb21911.png",
+                "width": 1340,
+                "height": 442
+              },
+              "xlarge": null,
+              "large": {
+                "url": "https://bppprod-storage.s3.us-east-1.amazonaws.com/large_Banners_pagina_web_agenda_14_405fb21911.png",
+                "width": 1000,
+                "height": 330
+              },
+              "medium": {
+                "url": "https://bppprod-storage.s3.us-east-1.amazonaws.com/medium_Banners_pagina_web_agenda_14_405fb21911.png",
+                "width": 750,
+                "height": 247
+              },
+              "small": {
+                "url": "https://bppprod-storage.s3.us-east-1.amazonaws.com/small_Banners_pagina_web_agenda_14_405fb21911.png",
+                "width": 500,
+                "height": 165
+              },
+              "thumbnail": {
+                "url": "https://bppprod-storage.s3.us-east-1.amazonaws.com/thumbnail_Banners_pagina_web_agenda_14_405fb21911.png",
+                "width": 245,
+                "height": 81
+              }
+            }
+          },
+          "imageMobile": null
+        },
+        "embeds": [],
+        "mainImages": [],
+        "sliders": [],
+        "slidersRandom": false,
+        "sections": [],
+        "widgets": [],
+        "reusableSections": [],
+        "popUp": null,
+        "buttonGoUp": false,
+        "shareButtonStyle": "En el título",
+        "anchorsNav": [],
+        "tags": [],
+        "type": "Página",
+        "anchorBackgroundColor": null,
+        "anchorTextColor": null
+      },
+      "compositionBottom": null
+    },
+    "navInfo": {
+      "usuario": [
+        {
+          "id": 164,
+          "name": "Ayuda",
+          "link": "/ayuda-al-usuario",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 42,
+          "name": "Afíliate",
+          "link": "/afiliacion-y-prestamo",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 43,
+          "name": "Contacto",
+          "link": "/contactanos",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 41,
+          "name": "PQRS",
+          "link": "/pqrs",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 174,
+          "name": "Intranet",
+          "link": "https://sig.bibliotecapiloto.gov.co/",
+          "newWindow": false,
+          "items": []
+        }
+      ],
+      "principal": [
+        {
+          "id": 1,
+          "name": "La Piloto",
+          "link": "/",
+          "newWindow": false,
+          "items": [
+            {
+              "id": 2,
+              "name": "Conoce La Piloto",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 4,
+                  "name": "Nuestra Historia",
+                  "link": "/nuestra-historia",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 8,
+                  "name": "Nuestra politica integral de gestión",
+                  "link": "/plan-estrategico",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 3,
+              "name": "Información General",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 148,
+                  "name": "Sedes",
+                  "link": "/sedes",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 152,
+                  "name": "Nuestros espacios",
+                  "link": "/nuestros-espacios",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 149,
+                  "name": "Directorio",
+                  "link": "/directorio",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 153,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 10,
+              "name": "Te recomendamos",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 11,
+                  "name": "Biblioteca Digital",
+                  "link": "/biblioteca_digital",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "name": "Visítanos",
+          "link": "",
+          "newWindow": false,
+          "items": [
+            {
+              "id": 15,
+              "name": "Vive La Piloto",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 18,
+                  "name": "Horarios",
+                  "link": "/horarios",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 17,
+                  "name": "Visitas guiadas",
+                  "link": "/visitas-guiadas",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 16,
+              "name": "Un corazón en todas partes",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 62,
+                  "name": "Barrio Carlos E. Restrepo",
+                  "link": "/carlos-e-restrepo",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 61,
+                  "name": "Barrio Campo Valdés",
+                  "link": "/filial-juan-zuleta",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 60,
+                  "name": "Barrio Florencia",
+                  "link": "/filial-carlos-castro-saavedra",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 58,
+                  "name": "C. San Antonio de Prado",
+                  "link": "/filial-san-antonio-de-prado",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 59,
+                  "name": "Vereda La Loma",
+                  "link": "/filial-la-loma",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 94,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 63,
+              "name": "Te recomendamos",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 66,
+                  "name": "Museo Cámara de Maravillas",
+                  "link": "/museo-camara-de-maravillas",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": 54,
+          "name": "Servicios",
+          "link": "",
+          "newWindow": false,
+          "items": [
+            {
+              "id": 78,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 80,
+                  "name": "Consulta y referencia",
+                  "link": "/consulta-referencia",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 79,
+                  "name": "Afiliación y prestamo",
+                  "link": "/afiliacion-y-prestamo",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 139,
+                  "name": "Renovación de materiales",
+                  "link": "/renovacion-de-material",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 82,
+                  "name": "Servicios Básicos Bibliotecarios",
+                  "link": "/servicios-bibliotecarios",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 90,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 91,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 86,
+              "name": "Te recomendamos",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 157,
+                  "name": "Servicio social estudiantil",
+                  "link": "/servicio-social",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 88,
+                  "name": "Donación de libros",
+                  "link": "https://forms.office.com/r/wB5SGfPuuW",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 159,
+                  "name": "Reserva de espacios",
+                  "link": "/nuestros-espacios",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 165,
+                  "name": "Talleres BPP",
+                  "link": "/talleres-bpp-2026",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": 53,
+          "name": "Patrimonio",
+          "link": "",
+          "newWindow": false,
+          "items": [
+            {
+              "id": 74,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 75,
+                  "name": "Sala Antioquia",
+                  "link": "/sala-antioquia",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 77,
+                  "name": "Archivo Fotográfico",
+                  "link": "/archivo-fotografico",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 76,
+                  "name": "Museo Cámara de Maravillas",
+                  "link": "/museo-camara-de-maravillas",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 168,
+                  "name": "Catálogo patrimonial",
+                  "link": "https://bibliotecapiloto.janium.net/opac",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 92,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 93,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 70,
+              "name": "Te recomendamos",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 156,
+                  "name": "Boletín Patrimonial",
+                  "link": "https://lavidadelosarchivos.substack.com/",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 160,
+                  "name": "Escritos desde la Sala",
+                  "link": "https://shorturl.at/dGW9p",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 163,
+                  "name": "Medellín 350 años",
+                  "link": "/medellin-350-anos",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 166,
+                  "name": "Exposiciones digitales",
+                  "link": "/el-presentimiento-de-las-imagenes",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": 56,
+          "name": "Fomento LEO",
+          "link": "/fomento-leo",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 55,
+          "name": "Agenda",
+          "link": "/agenda",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 57,
+          "name": "Biblioteca Digital",
+          "link": "",
+          "newWindow": true,
+          "items": [
+            {
+              "id": 117,
+              "name": "Libros y revistas digitales",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 118,
+                  "name": "Libby",
+                  "link": "https://libbyapp.com/library/colecciondigital",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 119,
+                  "name": "Make Make",
+                  "link": "/make-make",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 175,
+                  "name": "Secretos para contar",
+                  "link": "/secretos-para-contar",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 121,
+              "name": "Biblioteca Digital BPP",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 169,
+                  "name": "Acceso Biblioteca Digital",
+                  "link": "/biblioteca_digital",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 132,
+                  "name": "Archivo fotográfico",
+                  "link": "http://bibliotecapiloto.janium.net/opac",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 133,
+                  "name": "Archivo Sonoro",
+                  "link": "https://bibliotecapiloto.janium.net/janium-bin/janium_login_opac_re_lnk.pl",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 154,
+                  "name": "Revistas y periódicos de la región",
+                  "link": "https://rbmam.janium.net/janium-bin/janium_login_opac.pl?find&tag=BD_sala_antioquia",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 122,
+              "name": "Cosmoteca",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 170,
+                  "name": "Ingresa a Cosmoteca",
+                  "link": "/cosmoteca",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 129,
+                  "name": "Deseatorium",
+                  "link": "/deseatorium",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 127,
+                  "name": "Inspector tiempo",
+                  "link": "/inspector-tiempo",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 128,
+                  "name": "Cita a ciegas",
+                  "link": "/cita-a-ciegas",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 130,
+                  "name": "La aprendicería",
+                  "link": "/la-aprendiceria",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 131,
+                  "name": "Blog",
+                  "link": "/blog",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            },
+            {
+              "id": 171,
+              "name": "Te recomendamos",
+              "link": "",
+              "newWindow": false,
+              "items": [
+                {
+                  "id": 172,
+                  "name": "NABE 2026",
+                  "link": "/nabe-2026",
+                  "newWindow": false,
+                  "items": []
+                },
+                {
+                  "id": 173,
+                  "name": "Colección digital del mes",
+                  "link": "/coleccion-la-lengua-registro-de-un-mundo",
+                  "newWindow": false,
+                  "items": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "footer": [
+        {
+          "id": 140,
+          "name": "Enlaces de interés",
+          "link": "",
+          "newWindow": false,
+          "items": [
+            {
+              "id": 143,
+              "name": "Política de tratamiento de datos personales",
+              "link": "/politica-de-tratamiento-de-datos-personales",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 141,
+              "name": "Términos y condiciones",
+              "link": "/terminos-y-condiciones",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 142,
+              "name": "Preguntas frecuentes",
+              "link": "/preguntas-frecuentes",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 145,
+              "name": "Reglamento",
+              "link": "/reglamento",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 146,
+              "name": "Glosario",
+              "link": "/glosario",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 147,
+              "name": "Inicio de sesión para empleados, contratistas y proveedores",
+              "link": "http://190.248.133.154:8003/sxgelweb/login.aspx",
+              "newWindow": false,
+              "items": []
+            }
+          ]
+        },
+        {
+          "id": 150,
+          "name": "Sistema integral de gestión",
+          "link": "https://sig.bibliotecapiloto.gov.co/",
+          "newWindow": false,
+          "items": [
+            {
+              "id": 151,
+              "name": ".",
+              "link": "",
+              "newWindow": false,
+              "items": []
+            }
+          ]
+        }
+      ],
+      "legal": [
+        {
+          "id": 34,
+          "name": "Mapa del sitio",
+          "link": "/mapa-del-sitio",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 33,
+          "name": "Transparencia y acceso a la información pública",
+          "link": "/transparencia",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 35,
+          "name": "Portal único del Estado Colombiano",
+          "link": "https://gobiernodigital.mintic.gov.co/portal/Iniciativas/Portal-Unico-del-Estado-Colombiano/",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 36,
+          "name": "Atención y servicios a la ciudadanía",
+          "link": "/atencion-y-servicios-a-la-ciudadania",
+          "newWindow": true,
+          "items": []
+        },
+        {
+          "id": 37,
+          "name": "Convertic#TecnologíaParaVer",
+          "link": "https://www.convertic.gov.co/641/w3-channel.html",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 38,
+          "name": "SUIT",
+          "link": "https://www1.funcionpublica.gov.co/web/suit",
+          "newWindow": false,
+          "items": []
+        },
+        {
+          "id": 39,
+          "name": "Menú Participa",
+          "link": "https://www.bibliotecapiloto.gov.co/menu-participa/",
+          "newWindow": false,
+          "items": [
+            {
+              "id": 47,
+              "name": "Participación para el diagnóstico e identificación de problemas",
+              "link": "/participacion-para-el-diagnostico-e-identificacion-de-problemas/",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 48,
+              "name": "Planeación y presupuesto participativo",
+              "link": "/planeacion-y-presupuesto-participativo",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 49,
+              "name": "Consulta ciudadana",
+              "link": "/consulta-ciudadana",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 50,
+              "name": "Colaboración e innovación",
+              "link": "/colaboracion-e-innovacion",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 51,
+              "name": "Rendición de cuentas",
+              "link": "/rendicion-de-cuentas",
+              "newWindow": false,
+              "items": []
+            },
+            {
+              "id": 52,
+              "name": "Control social",
+              "link": "/control-social",
+              "newWindow": false,
+              "items": []
+            }
+          ]
+        }
+      ],
+      "fondo": [
+        {
+          "id": 167,
+          "name": "Notificaciones judiciales: notificacionesjudiciales@bpp.gov.co",
+          "link": "mailto:notificacionesjudiciales@bpp.gov.co",
+          "newWindow": false,
+          "items": []
+        }
+      ]
+    }
+  },
+  "__N_SSP": true
+}

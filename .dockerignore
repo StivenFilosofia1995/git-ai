@@ -1,0 +1,17 @@
+# Frontend build artifacts — rebuilt inside Docker
+compas-cultural/frontend/node_modules
+compas-cultural/frontend/dist
+
+# Python artifacts
+compas-cultural/backend/__pycache__
+compas-cultural/backend/**/__pycache__
+compas-cultural/backend/**/*.pyc
+compas-cultural/backend/.pytest_cache
+compas-cultural/backend/.env
+compas-cultural/backend/venv
+compas-cultural/backend/.venv
+
+# Git / editor
+.git
+.gitignore
+**/.DS_Store

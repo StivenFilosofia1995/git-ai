@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+.env
+.venv
+venv
+*.log
+.git
+tests
+seeds
+create_tables.py
+migration_add_missing_tables.sql

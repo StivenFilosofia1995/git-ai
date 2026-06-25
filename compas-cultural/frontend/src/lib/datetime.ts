@@ -1,0 +1,134 @@
+/**
+ * datetime.ts
+ * Fixes 2026-04:
+ * - Respeta el campo backend `hora_confirmada` (nuevo).
+ * - Trata 19:00:00 exacto con fuente auto_scraper/agenda como legacy no confiable
+ *   (durante período transicional, hasta que todos los eventos sean re-scrapeados).
+ * - Cuando hora no es confiable, formatEventTime devuelve "Hora por confirmar".
+ */
+const CO_TZ = 'America/Bogota'
+
+const HAS_TIMEZONE_RE = /(Z|[+-]\d{2}:\d{2})$/
+const LOCAL_ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/
+
+type DateFormatOptions = Intl.DateTimeFormatOptions
+type EventDateInput =
+  | string
+  | null
+  | undefined
+  | {
+      fecha_inicio?: string | null
+      fuente?: string | null
+      hora_confirmada?: boolean | null
+    }
+
+function getInputContext(value: EventDateInput) {
+  if (typeof value === 'string' || value == null) {
+    return { fecha_inicio: value ?? null, fuente: null, hora_confirmada: null }
+  }
+
+  return {
+    fecha_inicio: value.fecha_inicio ?? null,
+    fuente: value.fuente ?? null,
+    hora_confirmada: value.hora_confirmada ?? null,
+  }
+}
+
+function isValidDate(value: Date): boolean {
+  return !Number.isNaN(value.getTime())
+}
+
+function parseLocalBogotaIso(value: string): Date | null {
+  const match = value.match(LOCAL_ISO_RE)
+  if (!match) return null
+
+  const [
+    ,
+    year,
+    month,
+    day,
+    hour = '00',
+    minute = '00',
+    second = '00',
+    millisecond = '0',
+  ] = match
+
+  const utcMillis = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour) + 5,
+    Number(minute),
+    Number(second),
+    Number(millisecond.padEnd(3, '0')),
+  )
+
+  return new Date(utcMillis)
+}
+
+export function parseEventDate(value?: string | null): Date | null {
+  if (!value) return null
+
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  if (HAS_TIMEZONE_RE.test(trimmed)) {
+    const parsed = new Date(trimmed)
+    return isValidDate(parsed) ? parsed : null
+  }
+
+  const bogotaLocal = parseLocalBogotaIso(trimmed)
+  if (bogotaLocal) return bogotaLocal
+
+  const fallback = new Date(trimmed)
+  return isValidDate(fallback) ? fallback : null
+}
+
+export function hasReliableEventTime(value: EventDateInput): boolean {
+  const context = getInputContext(value)
+  return context.hora_confirmada === true
+}
+
+export function formatEventDate(
+  value: string | null | undefined,
+  options: DateFormatOptions,
+  fallback = 'Por confirmar',
+): string {
+  const parsed = parseEventDate(value)
+  if (!parsed) return fallback
+
+  return new Intl.DateTimeFormat('es-CO', {
+    timeZone: CO_TZ,
+    ...options,
+  }).format(parsed)
+}
+
+export function formatEventTime(value: EventDateInput, fallback = 'Hora por confirmar'): string {
+  const context = getInputContext(value)
+  if (!hasReliableEventTime(value)) return fallback
+  return formatEventDate(
+    context.fecha_inicio,
+    { hour: '2-digit', minute: '2-digit' },
+    fallback,
+  )
+}
+
+export function getEventDateParts(value: EventDateInput) {
+  const context = getInputContext(value)
+
+  return {
+    diaCorto: formatEventDate(context.fecha_inicio, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    }),
+    diaLargo: formatEventDate(context.fecha_inicio, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }),
+    hora: null,
+    horaConfiable: false,
+  }
+}

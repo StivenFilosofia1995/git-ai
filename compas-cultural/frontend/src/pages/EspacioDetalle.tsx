@@ -1,0 +1,345 @@
+import { useParams, Link } from 'react-router-dom'
+import { Helmet } from 'react-helmet-async'
+import { useEffect, useState } from 'react'
+import { commitEventosDescubiertos, discoverEventosAI, getEspacio, getEventosByEspacio, getEspacios, registrarInteraccion, type Espacio, type Evento } from '../lib/api'
+import { useAuth } from '../lib/AuthContext'
+import ReviewSection from '../components/ui/ReviewSection'
+import { formatEventDate, getEventDateParts } from '../lib/datetime'
+import BuscarConAI from '../components/ui/BuscarConAI'
+
+function renderHorarioEvento(horaConfirmada: string | false | null | undefined, fuenteUrl?: string | null) {
+  if (horaConfirmada) return `🕐 ${horaConfirmada}`
+  if (fuenteUrl) {
+    return (
+      <a
+        href={fuenteUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline opacity-70"
+        onClick={e => e.stopPropagation()}
+      >
+        Horario en el enlace
+      </a>
+    )
+  }
+  return 'Horario en el enlace'
+}
+
+export default function EspacioDetalle() {
+  const { slug } = useParams()
+  const { user } = useAuth()
+  const [espacio, setEspacio] = useState<Espacio | null>(null)
+  const [eventos, setEventos] = useState<Evento[]>([])
+  const [cercanos, setCercanos] = useState<Espacio[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const cargarEspacio = async () => {
+      if (!slug) {
+        setError('Espacio no valido.')
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      setError(null)
+      try {
+        let data: Espacio | null = null
+        let lastErr: unknown = null
+
+        // Retry to survive short DB propagation delays right after registration.
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          try {
+            data = await getEspacio(slug)
+            break
+          } catch (err) {
+            lastErr = err
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 800))
+            }
+          }
+        }
+
+        if (!data) throw lastErr ?? new Error('Espacio no encontrado')
+
+        setEspacio(data)
+        if (user) {
+          registrarInteraccion({ tipo: 'view_espacio', item_id: data.id, categoria: data.categoria_principal }, user.id)
+        }
+        // Load events for this space
+        getEventosByEspacio(data.id).then(setEventos).catch(() => {})
+        // Load nearby spaces (same municipio)
+        getEspacios({ limit: 5, municipio: data.municipio })
+          .then(list => setCercanos(list.filter(e => e.id !== data.id).slice(0, 4)))
+          .catch(() => {})
+      } catch {
+        setError('No fue posible cargar este espacio.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void cargarEspacio()
+  }, [slug, user])
+
+  if (loading) return <div className="p-8 font-mono">Cargando...</div>
+  if (error) return <div className="p-8 font-mono border-2 border-black">{error}</div>
+  if (!espacio) return <div className="p-8 font-mono">Espacio no encontrado</div>
+
+  const mapsSearch = `${espacio.nombre}, ${espacio.municipio}, Colombia`
+
+  return (
+    <>
+      <Helmet>
+        <title>{espacio.nombre} - Cultura ETÉREA</title>
+      </Helmet>
+
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <Link to="/" className="text-sm font-mono font-bold uppercase tracking-wider mb-8 inline-block hover:underline">
+          ← VOLVER
+        </Link>
+
+        <div className="space-y-8">
+          {/* Header */}
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="inline-block px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider border-2 border-black">
+                {espacio.categoria_principal?.replaceAll('_', ' ')}
+              </span>
+              {espacio.nivel_actividad && (
+                <span className="inline-block px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider border border-black/40 text-black/60">
+                  {espacio.nivel_actividad}
+                </span>
+              )}
+              {eventos.length > 0 && (
+                <span className="inline-block px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider bg-black text-white">
+                  {eventos.length} evento{eventos.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <h1 className="text-3xl md:text-4xl font-black tracking-tight uppercase mb-2" style={{ fontFamily: "'Sora', 'Arial Black', sans-serif" }}>
+              {espacio.nombre}
+            </h1>
+            <p className="text-sm font-mono text-black/60">
+              {[espacio.barrio, espacio.municipio].filter(Boolean).join(', ')}
+            </p>
+          </div>
+
+          {/* Descripción */}
+          {(espacio.descripcion_corta || espacio.descripcion) && (
+            <div className="border-t-2 border-black pt-6">
+              {espacio.descripcion_corta && <p className="text-base font-medium mb-3">{espacio.descripcion_corta}</p>}
+              {espacio.descripcion && espacio.descripcion !== espacio.descripcion_corta && (
+                <p className="text-sm leading-relaxed text-black/80">{espacio.descripcion}</p>
+              )}
+            </div>
+          )}
+
+          {/* Contacto + Mapa */}
+          <div className="border-t-2 border-black pt-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Contacto */}
+            <div>
+              <h3 className="font-mono font-bold mb-3 uppercase tracking-wider text-xs">CONTACTO</h3>
+              <div className="flex flex-wrap gap-2">
+                {espacio.instagram_handle && (
+                  <a
+                    href={`https://instagram.com/${espacio.instagram_handle.replace(/^@/, '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
+                  >
+                    📸 @{espacio.instagram_handle.replace(/^@/, '')}
+                  </a>
+                )}
+                {espacio.sitio_web && (
+                  <a
+                    href={espacio.sitio_web}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
+                  >
+                    🌐 {espacio.sitio_web.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  </a>
+                )}
+                <a
+                  href={
+                    espacio.lat && espacio.lng
+                      ? `https://www.google.com/maps?q=${espacio.lat},${espacio.lng}`
+                      : `https://www.google.com/maps/search/${encodeURIComponent(mapsSearch)}`
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm font-mono border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all"
+                >
+                  📍 {[espacio.direccion, espacio.barrio].filter(Boolean).join(', ') || 'Ver en mapa'}
+                </a>
+              </div>
+            </div>
+
+            {/* Mapa embebido */}
+            {espacio.lat && espacio.lng ? (
+              <div>
+                <h3 className="font-mono font-bold mb-3 uppercase tracking-wider text-xs">DÓNDE ESTÁ</h3>
+                <div className="border-2 border-black overflow-hidden">
+                  <iframe
+                    title={`Mapa ${espacio.nombre}`}
+                    width="100%"
+                    height="200"
+                    loading="lazy"
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${espacio.lng - 0.006},${espacio.lat - 0.006},${espacio.lng + 0.006},${espacio.lat + 0.006}&layer=mapnik&marker=${espacio.lat},${espacio.lng}`}
+                    className="block"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div>
+                <h3 className="font-mono font-bold mb-3 uppercase tracking-wider text-xs">UBICACIÓN</h3>
+                {espacio.direccion && <p className="font-mono text-sm">{espacio.direccion}</p>}
+                {espacio.barrio && espacio.barrio !== 'Sin barrio' && <p className="font-mono text-sm">{espacio.barrio}</p>}
+                <p className="font-mono text-sm capitalize">{espacio.municipio}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t-2 border-black pt-8">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-mono font-bold uppercase tracking-wider text-xs">PRÓXIMOS EVENTOS</h3>
+              <BuscarConAI
+                label="Web search"
+                allowTextInput
+                searchPlaceholder={`Busca eventos para ${espacio.nombre}`}
+                helperText="Puedes buscar por tema o por barrio. Ejemplos: rock, metal, hip hop, poesía, literatura, Aranjuez, Laureles."
+                suggestions={[
+                  `${espacio.nombre} agenda`,
+                  `${espacio.categoria_principal.replaceAll('_', ' ')} ${espacio.municipio}`,
+                  `${espacio.barrio || espacio.municipio} cultura`,
+                ]}
+                initialQuery={espacio.nombre}
+                onSearch={async (query) => {
+                  const res = await discoverEventosAI({
+                    colectivo_slug: espacio.slug,
+                    municipio: espacio.municipio,
+                    categoria: espacio.categoria_principal,
+                    texto: query || espacio.nombre,
+                    max_queries: 4,
+                    max_results_per_query: 8,
+                    days_ahead: 21,
+                    auto_insert: false,
+                  })
+                  return {
+                    message: res.message,
+                    candidatos: res.result.candidatos ?? [],
+                    variables: {
+                      tipo_evento: espacio.categoria_principal,
+                      zona: espacio.municipio,
+                      fecha_actual: new Date().toISOString().slice(0, 10),
+                    },
+                  }
+                }}
+                onCommit={async candidatos => {
+                  const saved = await commitEventosDescubiertos(candidatos)
+                  return saved.message
+                }}
+                onComplete={() => {
+                  getEventosByEspacio(espacio.id).then(setEventos).catch(() => {})
+                }}
+              />
+            </div>
+            {eventos.length === 0 ? (
+              <p className="font-mono text-sm">No hay eventos próximos programados en este espacio.</p>
+            ) : (
+              <div className="space-y-6">
+                {Object.entries(
+                  eventos.reduce<Record<string, Evento[]>>((acc, ev) => {
+                    const { diaLargo } = getEventDateParts(ev)
+                    const key = diaLargo ?? 'Sin fecha'
+                    if (!acc[key]) acc[key] = []
+                    acc[key].push(ev)
+                    return acc
+                  }, {})
+                ).map(([dia, evsDia]) => (
+                  <div key={dia}>
+                    <div className="text-[10px] font-mono font-bold uppercase tracking-widest border-b-2 border-black pb-1 mb-2 capitalize">
+                      {dia}
+                    </div>
+                    <div className="border-2 border-black">
+                      {evsDia.map(ev => {
+                        const { hora } = getEventDateParts(ev)
+                        const horaConfirmada = ev.hora_confirmada === true && hora
+                        const enCurso = (ev as Evento & { _en_curso?: boolean })._en_curso
+                        return (
+                          <Link
+                            key={ev.id}
+                            to={`/evento/${ev.slug}`}
+                            className="flex items-stretch border-b-2 border-black last:border-b-0 hover:bg-black hover:text-white transition-all duration-300 group"
+                          >
+                            {ev.imagen_url && (
+                              <div className="w-16 shrink-0 border-r-2 border-black overflow-hidden">
+                                <img
+                                  src={ev.imagen_url}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                />
+                              </div>
+                            )}
+                            <div className="flex-1 p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  {enCurso && (
+                                    <span className="text-[9px] font-mono font-bold bg-red-600 text-white px-1.5 py-0.5 mr-2 uppercase">EN CURSO</span>
+                                  )}
+                                  <p className="font-heading font-bold uppercase tracking-wider text-sm truncate">{ev.titulo}</p>
+                                  <p className="text-xs font-mono mt-1 opacity-70">
+                                    {renderHorarioEvento(horaConfirmada, ev.fuente_url)}
+                                    {ev.fecha_fin && (
+                                      <> → {formatEventDate(ev.fecha_fin, { day: 'numeric', month: 'short' })}</>
+                                    )}
+                                  </p>
+                                </div>
+                                {ev.es_gratuito && (
+                                  <span className="text-[10px] font-mono font-bold border-2 border-current px-2 py-0.5 uppercase shrink-0">Gratis</span>
+                                )}
+                              </div>
+                            </div>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t-2 border-black pt-8">
+            <h3 className="font-mono font-bold mb-4 uppercase tracking-wider text-xs">ESPACIOS CERCANOS</h3>
+            {cercanos.length === 0 ? (
+              <p className="font-mono text-sm">No se encontraron espacios cercanos.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {cercanos.map(esp => (
+                  <Link
+                    key={esp.id}
+                    to={`/espacio/${esp.slug}`}
+                    className="block border-2 border-black p-4 hover:bg-black hover:text-white transition-all duration-300"
+                  >
+                    <p className="font-heading font-bold text-sm uppercase tracking-wider">{esp.nombre}</p>
+                    <p className="text-xs font-mono mt-1">
+                      {esp.categoria_principal?.replaceAll('_', ' ')} · {esp.barrio ?? esp.municipio}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Reviews */}
+          <ReviewSection tipo="espacio" itemId={espacio.id} itemNombre={espacio.nombre} />
+        </div>
+      </div>
+    </>
+  )
+}
