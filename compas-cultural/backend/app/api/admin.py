@@ -1186,6 +1186,134 @@ async def trigger_ig_colectivos(
     return {"ok": True, **stats}
 
 
+
+# ── IG Feed Scanner — escaneo del feed personal con login ─────────────────
+
+class IgFeedScanRequest(BaseModel):
+    email: str
+    password: str
+    max_posts: int = 60
+
+
+class IgFeedImportRequest(BaseModel):
+    eventos: list[dict]
+
+
+@router.post("/ig-feed-scan")
+async def ig_feed_scan(
+    body: IgFeedScanRequest,
+    background_tasks: BackgroundTasks,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """
+    Inicia sesión en Instagram con las credenciales proporcionadas y escanea el
+    feed personal buscando eventos culturales. Devuelve job_id para hacer polling.
+
+    Las credenciales NO se almacenan ni se loguean en ningún momento.
+    """
+    _check_key(x_api_key)
+    import uuid, asyncio
+
+    job_id = str(uuid.uuid4())[:12]
+
+    async def _run():
+        from app.services.ig_feed_scraper import scan_ig_feed
+        await scan_ig_feed(
+            email=body.email,
+            password=body.password,
+            max_posts=min(body.max_posts, 120),
+            job_id=job_id,
+        )
+
+    background_tasks.add_task(lambda: asyncio.create_task(_run()))
+    return {"ok": True, "job_id": job_id}
+
+
+@router.get("/ig-feed-scan/{job_id}")
+def ig_feed_scan_status(
+    job_id: str,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Polling: estado del escaneo de Instagram Feed."""
+    _check_key(x_api_key)
+    from app.services.ig_feed_scraper import get_job_status
+    data = get_job_status(job_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return data
+
+
+@router.post("/ig-feed-import")
+def ig_feed_import(
+    body: IgFeedImportRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Importa a la BD los eventos seleccionados del escaneo del feed de Instagram."""
+    _check_key(x_api_key)
+    import time
+    from app.database import supabase
+
+    nuevos = ya_existentes = errores = 0
+
+    for ev in body.eventos:
+        try:
+            titulo = (ev.get("titulo") or "")[:200].strip()
+            if not titulo:
+                continue
+
+            t_norm = unicodedata.normalize("NFD", titulo.lower())
+            t_norm = "".join(c for c in t_norm if unicodedata.category(c) != "Mn")
+            t_norm = re.sub(r"[^a-z0-9]+", "-", t_norm).strip("-")[:60]
+            fecha_part = (ev.get("fecha_inicio") or "")[:10]
+            slug = f"{t_norm}-{fecha_part}-{int(time.time()) % 99999}" if fecha_part else f"{t_norm}-{int(time.time()) % 99999}"
+
+            payload: dict = {
+                "titulo": titulo,
+                "slug": slug,
+                "fecha_inicio": ev.get("fecha_inicio") or "",
+                "fecha_fin": ev.get("fecha_fin") or None,
+                "categoria_principal": ev.get("categoria_principal") or "otro",
+                "categorias": ev.get("categorias") or [ev.get("categoria_principal") or "otro"],
+                "municipio": ev.get("municipio") or "medellin",
+                "barrio": ev.get("barrio") or None,
+                "nombre_lugar": (ev.get("nombre_lugar") or "")[:200] or None,
+                "descripcion": (ev.get("descripcion") or "")[:500] or None,
+                "imagen_url": ev.get("imagen_url") or None,
+                "precio": (ev.get("precio") or "")[:100] or None,
+                "es_gratuito": bool(ev.get("es_gratuito", False)),
+                "es_recurrente": bool(ev.get("es_recurrente", False)),
+                "fuente": "ig_feed_manual",
+                "fuente_url": ev.get("fuente_url") or None,
+                "verificado": False,
+                "oculto": False,
+            }
+
+            if not payload["fecha_inicio"]:
+                errores += 1
+                continue
+
+            clean: dict = {}
+            for k, v in payload.items():
+                if isinstance(v, str):
+                    try:
+                        v = v.encode("utf-8", "replace").decode("utf-8")
+                    except Exception:
+                        v = ""
+                clean[k] = v
+
+            res = supabase.table("eventos").insert(clean).execute()
+            nuevos += 1 if res.data else 0
+        except Exception as e:
+            s = str(e).lower()
+            if "unique" in s or "duplicate" in s:
+                ya_existentes += 1
+            else:
+                print(f"[ig-feed-import] {e}")
+                errores += 1
+
+    return {"ok": True, "nuevos": nuevos, "ya_existentes": ya_existentes, "errores": errores}
+
+
 # ── Limpieza de eventos alucinados por IA ───────────────────────────────────
 
 AI_HALLUCINATION_SOURCES = [

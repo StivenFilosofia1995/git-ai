@@ -8,11 +8,12 @@ import {
   type AdminDashboard, type EventoAdminCreate, type ModeloIAStatus,
 } from '../lib/api'
 
+import IgFeedScanner from '../components/admin/IgFeedScanner'
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 const KEY_STORAGE = 'admin:apikey'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
-type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web'
+type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web' | 'ig_feed'
 
 const CAT_LABEL: Record<string, string> = {
   teatro: 'Teatro', hip_hop: 'Hip Hop', jazz: 'Jazz', galeria: 'Galería',
@@ -1252,6 +1253,23 @@ function TabBuscarWeb({ apiKey }: { apiKey: string }) {
   )
 }
 
+// ── TAB: IG FEED SCANNER ──────────────────────────────────────────────────────
+
+function TabIgFeed({ apiKey }: { apiKey: string }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-heading font-black text-2xl">Feed de Instagram</h2>
+        <p className="font-mono text-[11px] text-neutral-500 mt-1">
+          Inicia sesión con tu cuenta de Instagram, el sistema escanea tu feed
+          y extrae eventos culturales de las cuentas que sigues.
+        </p>
+      </div>
+      <IgFeedScanner apiKey={apiKey} />
+    </div>
+  )
+}
+
 // ── TAB: MODELO IA ────────────────────────────────────────────────────────────
 
 function TabModeloIA({ apiKey }: { apiKey: string }) {
@@ -1463,6 +1481,7 @@ export default function Admin() {
     { id: 'logs', label: 'Logs' },
     { id: 'subir_evento', label: '+ Subir Evento' },
     { id: 'buscar_web', label: '🌐 Buscar Web' },
+    { id: 'ig_feed', label: '📸 Feed IG' },
     { id: 'modelo_ia', label: 'Modelo IA' },
     { id: 'mapa', label: 'Mapa' },
   ]
@@ -1518,6 +1537,7 @@ export default function Admin() {
         {activeTab === 'logs' && <TabLogs apiKey={apiKey} />}
         {activeTab === 'subir_evento' && <TabSubirEvento apiKey={apiKey} />}
         {activeTab === 'buscar_web' && <TabBuscarWeb apiKey={apiKey} />}
+        {activeTab === 'ig_feed' && <TabIgFeed apiKey={apiKey} />}
         {activeTab === 'modelo_ia' && <TabModeloIA apiKey={apiKey} />}
         {activeTab === 'mapa' && (
           <div className="border-2 border-black overflow-hidden">
