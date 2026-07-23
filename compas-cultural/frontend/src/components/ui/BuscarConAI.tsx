@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { type DescubiertoEvento } from '../../lib/api'
 
 interface Props {
@@ -39,6 +39,14 @@ export default function BuscarConAI({
   const [query, setQuery] = useState(initialQuery)
   // Cancellation: flip this flag and the in-flight result is ignored
   const cancelledRef = useRef(false)
+
+  // Auto-search on mount when initialQuery is set (triggered by chip click via key prop remount)
+  useEffect(() => {
+    if (initialQuery.trim() && allowTextInput) {
+      void handleSearch(initialQuery)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleCancel = () => {
     cancelledRef.current = true

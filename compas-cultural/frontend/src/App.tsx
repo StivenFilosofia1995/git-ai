@@ -23,7 +23,6 @@ import NotFound from './pages/NotFound'
 import Aportes from './pages/Aportes'
 import Nosotros from './pages/Nosotros'
 import ProteccionDatos from './pages/ProteccionDatos'
-import RequireAuth from './components/auth/RequireAuth'
 import CercaDeTiPage from './pages/CercaDeTiPage'
 import WebSearch from './pages/WebSearch'
 import Admin from './pages/Admin'
@@ -33,7 +32,6 @@ import Descargar from './pages/Descargar'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import SplashOnboarding, { shouldShowOnboarding } from './components/app/SplashOnboarding'
-import InstallBanner from './components/app/InstallBanner'
 
 /** Soft guard: logged-in users with incomplete profile get nudged to /completar-perfil */
 function ProfileGuard({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -89,7 +87,6 @@ function App() {
   return (
     <AuthProvider>
       <GATracker />
-      <InstallBanner />
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Agenda />} />
@@ -106,7 +103,7 @@ function App() {
           <Route path="zona/:slug" element={<ZonaDetalle />} />
           <Route path="login" element={<Login />} />
           <Route path="completar-perfil" element={<CompletarPerfil />} />
-          <Route path="publicar" element={<RequireAuth><PublicarEvento /></RequireAuth>} />
+          <Route path="publicar" element={<PublicarEvento />} />
           <Route path="aportes" element={<Aportes />} />
           <Route path="nosotros" element={<Nosotros />} />
           <Route path="proteccion-datos" element={<ProteccionDatos />} />
