@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import EventCard from './EventCard'
 import {
-  getEventosSemana,
   getEventosProximasSemanas,
   type Evento,
 } from '../../lib/api'
@@ -53,14 +52,8 @@ export default function CercaDeTi() {
     setEventosProximos([])
 
     try {
-      // Traer eventos de esta semana + próxima semana (ya filtrados por fecha en el servidor)
-      const [semana, proxima] = await Promise.all([
-        getEventosSemana(),
-        getEventosProximasSemanas(7, undefined, 1),
-      ])
-      const eventosData: Evento[] = [...semana, ...proxima].filter(
-        (e, i, arr) => arr.findIndex(x => x.id === e.id) === i  // dedup
-      )
+      // Eventos desde hoy en adelante (próximos 8 días)
+      const eventosData: Evento[] = await getEventosProximasSemanas(8, undefined, 0)
 
       const conDistancia = eventosData
         .map(e => {
@@ -127,7 +120,7 @@ export default function CercaDeTi() {
           <span className="w-4 h-4 bg-black rounded-full animate-pulse" />
           <h2 className="text-lg font-heading font-black uppercase tracking-wider">CERCA DE TI</h2>
           <span className="text-[9px] font-mono font-bold opacity-50 uppercase tracking-wider">
-            Agenda de esta semana en tu zona
+            Próximos 8 días en tu zona
           </span>
         </div>
 
@@ -184,7 +177,7 @@ export default function CercaDeTi() {
         <div className="px-5 py-12 text-center">
           <div className="text-4xl mb-3">📍</div>
           <p className="text-sm font-mono opacity-60 max-w-sm mx-auto">
-            Compartí tu ubicación y te mostramos los eventos culturales de esta semana a menos de {radioKm} km de vos.
+            Compartí tu ubicación y te mostramos los eventos culturales de los próximos 8 días a menos de {radioKm} km de vos.
           </p>
         </div>
       )}
@@ -213,7 +206,7 @@ export default function CercaDeTi() {
               <div className="flex items-center gap-3 mb-4">
                 <span className="w-3 h-3 bg-red-500 animate-pulse" />
                 <h3 className="text-sm font-heading font-black uppercase tracking-wider">
-                  Esta semana cerca de ti
+                  Próximos 8 días cerca de ti
                 </h3>
                 <span className="text-[9px] font-mono font-bold opacity-50">
                   {eventosProximos.length} a menos de {radioKm} km

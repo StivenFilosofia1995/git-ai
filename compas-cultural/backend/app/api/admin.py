@@ -313,6 +313,50 @@ def admin_list_espacios(
         raise HTTPException(status_code=500, detail=f"admin/espacios error: {type(exc).__name__}: {exc}")
 
 
+@router.delete("/espacios/{espacio_id}")
+def admin_delete_espacio(
+    espacio_id: str,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Elimina un espacio/colectivo y todos sus eventos asociados."""
+    _check_key(x_api_key)
+    from app.database import supabase
+    # Cascade: delete associated events first
+    supabase.table("eventos").delete().eq("espacio_id", espacio_id).execute()
+    res = supabase.table("lugares").delete().eq("id", espacio_id).execute()
+    return {"ok": True, "deleted": len(res.data or [])}
+
+
+@router.get("/scraper-sources")
+def admin_get_scraper_sources(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Lista todas las fuentes del scraper (AGENDA_SOURCES + RSS + Playwright) con su estado."""
+    _check_key(x_api_key)
+    try:
+        from app.services.auto_scraper import AGENDA_SOURCES
+        agenda = [
+            {"tipo": "agenda_html", "nombre": s.get("nombre", ""), "url": s.get("url", ""), "municipio": s.get("municipio", ""), "categoria": s.get("categoria_default", "")}
+            for s in AGENDA_SOURCES
+        ]
+    except Exception:
+        agenda = []
+
+    try:
+        from app.services.rss_scraper import MEDIOS_INDEPENDIENTES_FEEDS
+        rss = [
+            {"tipo": "rss", "nombre": f.get("nombre", ""), "url": f.get("url", ""), "municipio": f.get("municipio", "medellin"), "categoria": f.get("categoria_default", "otro")}
+            for f in MEDIOS_INDEPENDIENTES_FEEDS
+        ]
+    except Exception:
+        rss = []
+
+    return {
+        "total": len(agenda) + len(rss),
+        "fuentes": agenda + rss,
+    }
+
+
 @router.get("/usuarios")
 def admin_list_usuarios(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),

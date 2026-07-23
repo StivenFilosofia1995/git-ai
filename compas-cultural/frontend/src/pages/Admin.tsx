@@ -14,7 +14,7 @@ const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 const KEY_STORAGE = 'admin:apikey'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
-type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web' | 'ig_feed' | 'ig_colectivos' | 'correo'
+type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web' | 'ig_feed' | 'ig_colectivos' | 'correo' | 'fuentes'
 
 const CAT_LABEL: Record<string, string> = {
   teatro: 'Teatro', hip_hop: 'Hip Hop', jazz: 'Jazz', galeria: 'Galería',
@@ -462,7 +462,7 @@ function TabEventos({ apiKey }: { apiKey: string }) {
     if (!confirm(`¿Borrar "${row.titulo}"?`)) return
     setDeleting(row.id as string)
     try {
-      await fetch(`${API_BASE}/eventos/${row.id}`, { method: 'DELETE', headers: { 'X-Scraper-Key': apiKey } })
+      await fetch(`${API_BASE}/admin/eventos/${row.id}`, { method: 'DELETE', headers: { 'X-API-Key': apiKey } })
       fetchData(page)
     } finally { setDeleting(null) }
   }
@@ -533,7 +533,7 @@ function TabEspacios({ apiKey }: { apiKey: string }) {
     if (!confirm(`¿Borrar "${row.nombre}" y todos sus eventos?`)) return
     setDeleting(row.id as string)
     try {
-      await fetch(`${API_BASE}/espacios/${row.id}`, { method: 'DELETE', headers: { 'X-Scraper-Key': apiKey } })
+      await fetch(`${API_BASE}/admin/espacios/${row.id}`, { method: 'DELETE', headers: { 'X-API-Key': apiKey } })
       fetchData(page)
     } finally { setDeleting(null) }
   }
@@ -1677,6 +1677,192 @@ function TabCorreo({ apiKey }: { apiKey: string }) {
   )
 }
 
+// ── TAB: FUENTES ─────────────────────────────────────────────────────────────
+
+interface FuenteScraper {
+  tipo: string; nombre: string; url: string; municipio: string; categoria: string
+}
+
+function TabFuentes({ apiKey }: { apiKey: string }) {
+  const [data, setData] = useState<FuenteScraper[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('')
+
+  useEffect(() => {
+    fetch(`${API_BASE}/admin/scraper-sources`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => r.json())
+      .then((j: { fuentes?: FuenteScraper[] }) => setData(j.fuentes || []))
+      .catch(() => setData([]))
+      .finally(() => setLoading(false))
+  }, [apiKey])
+
+  const filtered = filter
+    ? data.filter(f => f.nombre.toLowerCase().includes(filter.toLowerCase()) || f.municipio.toLowerCase().includes(filter.toLowerCase()))
+    : data
+
+  if (loading) return <p className="font-mono text-sm animate-pulse">Cargando fuentes...</p>
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4 flex-wrap">
+        <div>
+          <h2 className="font-heading font-black text-2xl">Fuentes del Scraper</h2>
+          <p className="font-mono text-[11px] text-neutral-500 mt-1">Sitios que el sistema revisa periódicamente para extraer eventos culturales.</p>
+        </div>
+        <span className="text-[10px] font-mono border border-black/30 px-2 py-0.5 text-neutral-500">{data.length} fuentes totales</span>
+      </div>
+      <input
+        value={filter} onChange={e => setFilter(e.target.value)}
+        placeholder="Filtrar por nombre o municipio..."
+        className="border-2 border-black px-3 py-2 font-mono text-xs outline-none focus:border-yellow-400 w-full max-w-xs"
+      />
+      <div className="border-2 border-black overflow-x-auto">
+        <table className="w-full text-[11px] font-mono">
+          <thead>
+            <tr className="bg-black text-white">
+              <th className="text-left px-3 py-2 font-bold uppercase tracking-wider w-16">Tipo</th>
+              <th className="text-left px-3 py-2 font-bold uppercase tracking-wider">Nombre</th>
+              <th className="text-left px-3 py-2 font-bold uppercase tracking-wider">URL</th>
+              <th className="text-left px-3 py-2 font-bold uppercase tracking-wider w-28">Municipio</th>
+              <th className="text-left px-3 py-2 font-bold uppercase tracking-wider w-28">Categoría</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={5} className="px-3 py-8 text-center text-neutral-400">Sin resultados</td></tr>
+            )}
+            {filtered.map((f, i) => (
+              <tr key={i} className="border-b border-black/10 hover:bg-yellow-50">
+                <td className="px-3 py-2">
+                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 ${f.tipo === 'rss' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                    {f.tipo === 'rss' ? 'RSS' : 'HTML'}
+                  </span>
+                </td>
+                <td className="px-3 py-2 font-bold">{f.nombre}</td>
+                <td className="px-3 py-2 max-w-[280px] truncate">
+                  <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{f.url}</a>
+                </td>
+                <td className="px-3 py-2 capitalize">{f.municipio}</td>
+                <td className="px-3 py-2">{f.categoria?.replace(/_/g, ' ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── TAB: MAPA ADMIN ───────────────────────────────────────────────────────────
+
+function TabMapaAdmin({ apiKey }: { apiKey: string }) {
+  const [municipioFilter, setMunicipioFilter] = useState('')
+  const [espaciosList, setEspaciosList] = useState<Record<string, unknown>[]>([])
+  const [loadingEspacios, setLoadingEspacios] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+
+  const buscarEspacios = async (municipio: string) => {
+    setLoadingEspacios(true)
+    setEspaciosList([])
+    try {
+      const params = new URLSearchParams({ per_page: '100' })
+      if (municipio) params.set('search', municipio)
+      const res = await fetch(`${API_BASE}/admin/espacios?${params}`, { headers: { 'X-API-Key': apiKey } })
+      const json = await res.json() as { data?: Record<string, unknown>[] }
+      setEspaciosList(json.data || [])
+    } catch { setEspaciosList([]) } finally { setLoadingEspacios(false) }
+  }
+
+  async function handleDeleteEspacio(row: Record<string, unknown>) {
+    if (!confirm(`¿Eliminar "${row.nombre}" y TODOS sus eventos?`)) return
+    setDeleting(row.id as string)
+    try {
+      const res = await fetch(`${API_BASE}/admin/espacios/${row.id}`, { method: 'DELETE', headers: { 'X-API-Key': apiKey } })
+      if (res.ok) {
+        setMsg({ text: `✓ "${row.nombre}" eliminado`, ok: true })
+        setEspaciosList(prev => prev.filter(e => e.id !== row.id))
+      } else {
+        setMsg({ text: `Error al eliminar`, ok: false })
+      }
+    } catch { setMsg({ text: 'Error de conexión', ok: false }) } finally { setDeleting(null) }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Map */}
+      <div className="border-2 border-black overflow-hidden">
+        <Suspense fallback={<div className="h-[500px] flex items-center justify-center font-mono text-sm text-neutral-400 animate-pulse">Cargando mapa...</div>}>
+          <CulturalMap />
+        </Suspense>
+      </div>
+
+      {/* Space manager */}
+      <div className="border-2 border-black p-5 space-y-4">
+        <div>
+          <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-1">Gestionar Espacios / Colectivos</p>
+          <p className="font-mono text-[11px] text-neutral-500">Busca y elimina colectivos o espacios scrapeados que no deberían aparecer en el mapa.</p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={municipioFilter}
+            onChange={e => setMunicipioFilter(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && void buscarEspacios(municipioFilter)}
+            placeholder="Buscar por nombre (ej: Telemedellín, Vivir en El Poblado...)"
+            className="flex-1 border-2 border-black px-3 py-2 font-mono text-xs outline-none focus:border-yellow-400"
+          />
+          <button
+            onClick={() => void buscarEspacios(municipioFilter)}
+            disabled={loadingEspacios}
+            className="px-4 py-2 bg-black text-white font-mono font-bold text-xs uppercase tracking-wider hover:bg-yellow-300 hover:text-black transition-colors disabled:opacity-50"
+          >
+            {loadingEspacios ? '...' : 'Buscar'}
+          </button>
+        </div>
+
+        {msg && (
+          <p className={`font-mono text-xs ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>{msg.text}</p>
+        )}
+
+        {espaciosList.length > 0 && (
+          <div className="border-2 border-black overflow-x-auto">
+            <table className="w-full text-[11px] font-mono">
+              <thead>
+                <tr className="bg-black text-white">
+                  <th className="text-left px-3 py-2 font-bold uppercase tracking-wider">Nombre</th>
+                  <th className="text-left px-3 py-2 font-bold uppercase tracking-wider">Municipio</th>
+                  <th className="text-left px-3 py-2 font-bold uppercase tracking-wider">Tipo</th>
+                  <th className="text-left px-3 py-2 font-bold uppercase tracking-wider">Instagram</th>
+                  <th className="px-3 py-2 w-20" />
+                </tr>
+              </thead>
+              <tbody>
+                {espaciosList.map((e, i) => (
+                  <tr key={i} className="border-b border-black/10 hover:bg-red-50">
+                    <td className="px-3 py-2 font-bold">{String(e.nombre ?? '—')}</td>
+                    <td className="px-3 py-2">{String(e.municipio ?? '—')}</td>
+                    <td className="px-3 py-2">{String(e.tipo ?? '—').replace(/_/g, ' ')}</td>
+                    <td className="px-3 py-2 text-blue-600">{e.instagram_handle ? String(e.instagram_handle) : '—'}</td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => void handleDeleteEspacio(e)}
+                        disabled={deleting === (e.id as string)}
+                        className="text-red-600 hover:text-red-800 font-bold text-[10px] uppercase tracking-wider disabled:opacity-50"
+                      >
+                        {deleting === (e.id as string) ? '...' : 'Borrar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -1736,6 +1922,7 @@ export default function Admin() {
     { id: 'correo', label: '📧 Correo' },
     { id: 'modelo_ia', label: 'Modelo IA' },
     { id: 'mapa', label: 'Mapa' },
+    { id: 'fuentes', label: '🔗 Fuentes' },
   ]
 
   return (
@@ -1793,13 +1980,8 @@ export default function Admin() {
         {activeTab === 'ig_colectivos' && <IgColectivosScanner apiKey={apiKey} />}
         {activeTab === 'correo' && <TabCorreo apiKey={apiKey} />}
         {activeTab === 'modelo_ia' && <TabModeloIA apiKey={apiKey} />}
-        {activeTab === 'mapa' && (
-          <div className="border-2 border-black overflow-hidden">
-            <Suspense fallback={<div className="h-[600px] flex items-center justify-center font-mono text-sm text-neutral-400 animate-pulse">Cargando mapa...</div>}>
-              <CulturalMap />
-            </Suspense>
-          </div>
-        )}
+        {activeTab === 'mapa' && <TabMapaAdmin apiKey={apiKey} />}
+        {activeTab === 'fuentes' && <TabFuentes apiKey={apiKey} />}
       </div>
     </>
   )
