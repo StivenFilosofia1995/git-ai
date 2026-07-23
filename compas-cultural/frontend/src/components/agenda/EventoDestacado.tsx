@@ -200,7 +200,7 @@ export default function EventoDestacado(_props: Props = {}) {
 
         {/* Etiqueta */}
         <span className="hidden sm:block text-[9px] font-mono font-black uppercase tracking-[0.25em] text-black/40 shrink-0">
-          EVENTOS DEL MES
+          PRÓXIMOS EVENTOS
         </span>
         <span className="hidden sm:block text-black/20 shrink-0 text-xs">|</span>
 
