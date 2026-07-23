@@ -1247,6 +1247,31 @@ async def trigger_medata(
     return {"ok": True, **stats}
 
 
+@router.post("/trigger-datos-gov-espacios")
+async def trigger_datos_gov_espacios(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    background_tasks: BackgroundTasks = None,
+    departamento: str = "Antioquia",
+    limit: int = 500,
+):
+    """
+    Importa espacios culturales del dataset PULEP/SINIC en datos.gov.co (te39-v28f).
+    Incluye teatros, salas, circos y otros venues con coordenadas del Valle de Aburrá.
+    Gratuito, sin API key.
+    """
+    _check_key(x_api_key)
+    from app.services.datos_gov_espacios import import_datos_gov_espacios
+
+    async def _run():
+        return await import_datos_gov_espacios(departamento=departamento, limit=limit)
+
+    if background_tasks:
+        background_tasks.add_task(lambda: __import__("asyncio").create_task(_run()))
+        return {"ok": True, "message": f"Import datos.gov.co espacios ({departamento}) iniciado"}
+    stats = await _run()
+    return {"ok": True, **stats}
+
+
 @router.post("/trigger-rss-medios")
 async def trigger_rss_medios(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
@@ -1405,6 +1430,138 @@ def ig_feed_import(
                 ya_existentes += 1
             else:
                 print(f"[ig-feed-import] {e}")
+                errores += 1
+
+    return {"ok": True, "nuevos": nuevos, "ya_existentes": ya_existentes, "errores": errores}
+
+
+# ── IG Colectivos Posts — escaneo de perfiles específicos ──────────────────
+
+class IgColectivosPostsRequest(BaseModel):
+    email: str
+    password: str
+    handles: list[str] = []  # Si vacío, usa handles almacenados en BD
+    max_posts_per_profile: int = 12
+
+
+@router.post("/ig-colectivos-scan")
+async def ig_colectivos_scan(
+    body: IgColectivosPostsRequest,
+    background_tasks: BackgroundTasks,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """
+    Visita perfiles de Instagram de colectivos culturales, extrae posts con afiches
+    y los analiza con Claude Haiku Vision para detectar eventos.
+
+    Si 'handles' está vacío, usa los colectivos almacenados en la BD.
+    Credenciales NUNCA se almacenan ni loguean.
+    """
+    _check_key(x_api_key)
+    import uuid, asyncio
+    from app.services.ig_colectivos_posts import get_stored_handles
+
+    job_id = str(uuid.uuid4())[:12]
+    handles = body.handles if body.handles else get_stored_handles(limit=30)
+
+    async def _run():
+        from app.services.ig_colectivos_posts import scan_ig_colectivo_profiles
+        await scan_ig_colectivo_profiles(
+            email=body.email,
+            password=body.password,
+            handles=handles,
+            max_posts_per_profile=body.max_posts_per_profile,
+            job_id=job_id,
+        )
+
+    background_tasks.add_task(lambda: asyncio.create_task(_run()))
+    return {"ok": True, "job_id": job_id, "profiles_to_scan": len(handles)}
+
+
+@router.get("/ig-colectivos-scan/{job_id}")
+def ig_colectivos_scan_status(
+    job_id: str,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Polling: estado del escaneo de perfiles de colectivos."""
+    _check_key(x_api_key)
+    from app.services.ig_colectivos_posts import get_job_status
+    data = get_job_status(job_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return data
+
+
+@router.post("/ig-colectivos-import")
+def ig_colectivos_import(
+    body: IgFeedImportRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """
+    Importa eventos extraídos del escaneo de perfiles de colectivos.
+    Misma lógica que /ig-feed-import — los formatos son compatibles.
+    """
+    _check_key(x_api_key)
+    import time as _time
+    from app.database import supabase
+
+    nuevos = ya_existentes = errores = 0
+
+    for ev in body.eventos:
+        try:
+            titulo = (ev.get("titulo") or "")[:200].strip()
+            if not titulo:
+                continue
+
+            t_norm = unicodedata.normalize("NFD", titulo.lower())
+            t_norm = "".join(c for c in t_norm if unicodedata.category(c) != "Mn")
+            t_norm = re.sub(r"[^a-z0-9]+", "-", t_norm).strip("-")[:60]
+            fecha_part = (ev.get("fecha_inicio") or "")[:10]
+            slug = f"{t_norm}-{fecha_part}-ig" if fecha_part else f"{t_norm}-{int(_time.time()) % 99999}"
+
+            fecha_inicio = ev.get("fecha_inicio") or ""
+            if not fecha_inicio:
+                continue
+
+            payload: dict = {
+                "titulo": titulo,
+                "slug": slug,
+                "fecha_inicio": fecha_inicio,
+                "fecha_fin": ev.get("fecha_fin") or None,
+                "categoria_principal": ev.get("categoria_principal") or "otro",
+                "categorias": [ev.get("categoria_principal") or "otro"],
+                "municipio": ev.get("municipio") or "medellin",
+                "barrio": ev.get("barrio") or None,
+                "nombre_lugar": ev.get("nombre_lugar") or None,
+                "descripcion": (ev.get("descripcion") or "")[:500] or None,
+                "precio": ev.get("precio") or None,
+                "es_gratuito": bool(ev.get("es_gratuito")),
+                "fuente": "ig_colectivos_posts",
+                "fuente_url": ev.get("fuente_url") or None,
+                "verificado": False,
+            }
+
+            clean = {}
+            for k, v in payload.items():
+                if v is None:
+                    clean[k] = None
+                elif isinstance(v, str):
+                    try:
+                        v = v.encode("utf-8", "replace").decode("utf-8")
+                    except Exception:
+                        v = ""
+                    clean[k] = v
+                else:
+                    clean[k] = v
+
+            supabase.table("eventos").insert(clean).execute()
+            nuevos += 1
+        except Exception as e:
+            s = str(e).lower()
+            if "unique" in s or "duplicate" in s:
+                ya_existentes += 1
+            else:
+                print(f"[ig-colectivos-import] {e}")
                 errores += 1
 
     return {"ok": True, "nuevos": nuevos, "ya_existentes": ya_existentes, "errores": errores}

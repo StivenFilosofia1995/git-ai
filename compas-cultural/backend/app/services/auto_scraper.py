@@ -1335,12 +1335,6 @@ AGENDA_SOURCES = [
         "municipio": "medellin",
     },
     {
-        "nombre": "Vivir en el Poblado - Agenda Cultural",
-        "url": "https://vivirenelpoblado.com/agenda-cultural/",
-        "categoria_default": "festival",
-        "municipio": "medellin",
-    },
-    {
         "nombre": "Teatro Pablo Tobón Uribe",
         "url": "https://www.teatropablotobon.com/programacion",
         "categoria_default": "teatro",
@@ -1879,12 +1873,6 @@ AGENDA_SOURCES = [
         "nombre": "Cámara de Comercio Medellín - Agenda Cultural",
         "url": "https://www.camaramedellin.com.co/cultura-camara/agenda-cultural",
         "categoria_default": "centro_cultural",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Vivir en El Poblado - Agenda Cultural",
-        "url": "https://vivirenelpoblado.com/agenda-cultural-en-medellin/",
-        "categoria_default": "festival",
         "municipio": "medellin",
     },
     {
@@ -2761,12 +2749,6 @@ AGENDA_SOURCES = [
     {
         "nombre": "Alcaldía de Medellín - Eventos Culturales",
         "url": "https://www.medellin.gov.co/es/agenda-cultural/",
-        "categoria_default": "festival",
-        "municipio": "medellin",
-    },
-    {
-        "nombre": "Telemedellín - Agenda Cultural",
-        "url": "https://www.telemedellin.tv/agenda-cultural/",
         "categoria_default": "festival",
         "municipio": "medellin",
     },

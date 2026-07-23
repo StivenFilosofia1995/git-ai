@@ -380,12 +380,6 @@ MEDIOS_INDEPENDIENTES_FEEDS: list[dict] = [
         "categoria_principal": "cultura",
     },
     {
-        "feed_url": "https://vivirenelpoblado.com/feed",
-        "nombre": "Vivir en El Poblado",
-        "municipio": "medellin",
-        "categoria_principal": "otro",
-    },
-    {
         "feed_url": "https://arteria.com.co/feed",
         "nombre": "Arteria Colombia",
         "municipio": "medellin",

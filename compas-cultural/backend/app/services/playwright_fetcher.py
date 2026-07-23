@@ -15,7 +15,6 @@ JS_HEAVY_DOMAINS = [
     "comfama.com",
     "fundacionepm.org",
     "distritosanignacio.com",
-    "vivirenelpoblado.com",
     "sistemabibliotecasmedellin.gov.co",
     "bibliotecapiloto.gov.co",
 ]
@@ -24,7 +23,6 @@ JS_HEAVY_DOMAINS = [
 _WAIT_SELECTORS: dict[str, str] = {
     "comfenalcoantioquia.com.co": "a[href*='evento']",
     "comfama.com": ".card, article",
-    "vivirenelpoblado.com": "article, .event",
     "bibliotecapiloto.gov.co": "article, .event-item, .agenda-item, h2, h3",
 }
 
