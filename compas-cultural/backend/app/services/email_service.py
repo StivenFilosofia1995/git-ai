@@ -1,4 +1,5 @@
 import smtplib
+import socket
 import logging
 import httpx
 import hashlib
@@ -172,6 +173,17 @@ def send_welcome_email(to_email: str, user_name: str | None = None) -> bool:
     )
 
 
+def _resolve_ipv4(hostname: str) -> str | None:
+    """Resuelve hostname a IPv4 explícita para evitar ENETUNREACH en contenedores sin IPv6."""
+    try:
+        infos = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
+        if infos:
+            return infos[0][4][0]
+    except Exception:
+        pass
+    return None
+
+
 def _deliver_via_smtp(to_email: str, subject: str, html: str, text: str) -> bool:
     if not settings.smtp_password:
         logger.warning(
@@ -188,27 +200,46 @@ def _deliver_via_smtp(to_email: str, subject: str, html: str, text: str) -> bool
     msg.attach(MIMEText(text, "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
 
-    try:
-        logger.info(
-            "Attempting SMTP connection: host=%s, port=%s, user=%s, from=%s, to=%s",
-            settings.smtp_host, settings.smtp_port, settings.smtp_user,
-            from_email, to_email,
-        )
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.send_message(msg)
-        logger.info("Email sent to %s via SMTP", to_email)
-        return True
-    except smtplib.SMTPAuthenticationError as e:
-        logger.error("SMTP auth failed for %s: %s (check App Password)", settings.smtp_user, e)
-        return False
-    except smtplib.SMTPConnectError as e:
-        logger.error("SMTP connection failed to %s:%s: %s", settings.smtp_host, settings.smtp_port, e)
-        return False
-    except Exception as e:
-        logger.error("Failed to send email to %s via SMTP: %s (%s)", to_email, type(e).__name__, e)
-        return False
+    host = settings.smtp_host
+    port = settings.smtp_port
+
+    # Estrategia 1: STARTTLS puerto 587 (forzando IPv4 para evitar ENETUNREACH en Railway)
+    # Estrategia 2: SSL directo puerto 465
+    attempts = [
+        ("starttls", host, port),
+        ("ssl", host, 465),
+    ]
+    ipv4 = _resolve_ipv4(host)
+    if ipv4:
+        logger.info("Resolved %s → %s (IPv4 forced)", host, ipv4)
+        attempts = [
+            ("starttls", ipv4, port),
+            ("ssl", ipv4, 465),
+        ]
+
+    for mode, h, p in attempts:
+        try:
+            logger.info("SMTP attempt mode=%s host=%s port=%s to=%s", mode, h, p, to_email)
+            if mode == "ssl":
+                ctx = smtplib.SMTP_SSL(h, p, timeout=15)
+            else:
+                ctx = smtplib.SMTP(h, p, timeout=15)
+                ctx.starttls()
+            with ctx as server:
+                server.login(settings.smtp_user, settings.smtp_password)
+                server.send_message(msg)
+            logger.info("Email sent to %s via SMTP mode=%s", to_email, mode)
+            return True
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error("SMTP auth failed: %s (verifica App Password de Gmail)", e)
+            return False  # Auth falla igual en todos los modos
+        except OSError as e:
+            logger.warning("SMTP %s:%s falló (%s: %s) — probando siguiente", mode, p, type(e).__name__, e)
+        except Exception as e:
+            logger.warning("SMTP %s:%s error (%s: %s) — probando siguiente", mode, p, type(e).__name__, e)
+
+    logger.error("Todos los métodos SMTP fallaron para %s. Configura RESEND_API_KEY en Railway.", to_email)
+    return False
 
 
 def _send_email(to_email: str, subject: str, html: str, text: str) -> bool:
@@ -905,11 +936,12 @@ def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False, force: 
 
         if _send_email(email, subject, html, text):
             _mark_digest_sent(week_start, email)
+            _set_digest_cursor(week_start, (idx + 1) % len(recipients))
             stats["sent"] = 1
         else:
+            # No avanzar cursor en fallo → el próximo tick reintenta este usuario
             stats["failed"] = 1
 
-        _set_digest_cursor(week_start, (idx + 1) % len(recipients))
         return stats
 
     stats["skipped"] = len(recipients)
