@@ -643,7 +643,7 @@ async def _save_comfama_events(events: list[dict]) -> dict:
                 "barrio": ev.get("barrio"),
                 "direccion": ev.get("direccion"),
                 "nombre_lugar": ev.get("nombre_lugar") or "Comfama",
-                "descripcion": ev.get("descripcion", "")[:1000],
+                "descripcion": (ev.get("descripcion") or "")[:1000] or None,
                 "imagen_url": ev.get("imagen_url"),
                 "precio": ev.get("precio") or "Consultar",
                 "es_gratuito": bool(ev.get("es_gratuito")),

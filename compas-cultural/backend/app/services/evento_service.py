@@ -442,7 +442,8 @@ def get_eventos_hoy(
     eventos = resp_inicio.data or []
 
     # Multi-day events that started within the last 2 days and end today or later
-    hace_30_dias = (hoy_inicio - timedelta(days=2)).isoformat()
+    # Exposiciones y temporadas que siguen abiertas también son planes de hoy
+    hace_30_dias = (hoy_inicio - timedelta(days=60)).isoformat()
     q_en_curso = (
         supabase.table("eventos")
         .select("*")

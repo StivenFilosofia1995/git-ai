@@ -407,45 +407,59 @@ def extract_events_from_ig_profile(
     municipio: str,
 ) -> list[dict]:
     """
-    Extract structured events from an Instagram profile dict
-    (as returned by instagram_pw_scraper.fetch_ig_profile).
-
-    Returns a list of event dicts (may be empty).
-    Zero AI tokens.
+    Eventos de un perfil de Instagram usando app/services/ig_precision.py:
+    solo con fecha anclada a la publicación, hora explícita y evidencia.
+    (El extractor anterior inventaba horas y años; se conserva _caption_to_event
+    solo por compatibilidad, ya no se usa aquí.)
     """
+    from app.services.ig_precision import analizar_post
+
     now = _now_co()
     events: list[dict] = []
-    seen_titles: set[str] = set()
-
+    seen: set[tuple[str, str]] = set()
     captions: list[str] = profile.get("captions") or []
     image_urls: list[str] = profile.get("image_urls") or []
     permalink_urls: list[str] = profile.get("permalink_urls") or []
     timestamps: list[int] = profile.get("timestamps") or []
 
     for i, caption in enumerate(captions):
-        post_time = now
+        publicado = None
         if i < len(timestamps) and timestamps[i]:
             try:
-                post_time = datetime.fromtimestamp(timestamps[i], tz=CO_TZ)
-                # Ignore posts older than 60 days
-                if (now - post_time).days > 60:
-                    continue
-            except (ValueError, TypeError):
-                pass
-                
-        img = image_urls[i] if i < len(image_urls) else None
-        permalink = permalink_urls[i] if i < len(permalink_urls) else None
-        
-        # Use post_time instead of now for context
-        ev = _caption_to_event(caption, img, nombre_lugar, categoria, municipio, post_time)
-        if ev:
-            title_key = ev["titulo"].lower()[:50]
-            if title_key not in seen_titles:
-                seen_titles.add(title_key)
-                if permalink:
-                    ev["_permalink"] = permalink
-                events.append(ev)
-
+                publicado = datetime.fromtimestamp(int(timestamps[i]), tz=CO_TZ)
+            except (ValueError, TypeError, OverflowError, OSError):
+                publicado = None
+        if publicado and (now - publicado).days > 120:
+            continue  # posts de hace más de 4 meses no anuncian eventos futuros
+        r = analizar_post(caption, publicado, now)
+        if not r.ok:
+            continue
+        clave = (r.titulo.lower()[:50], r.fecha_inicio.date().isoformat())
+        if clave in seen:
+            continue
+        seen.add(clave)
+        ev = {
+            "titulo": r.titulo[:120],
+            "categoria_principal": categoria,
+            "categorias": [categoria],
+            "fecha_inicio": r.fecha_inicio.isoformat(),
+            "fecha_fin": r.fecha_fin.isoformat() if r.fecha_fin else None,
+            "hora_confirmada": r.hora_confirmada,
+            "descripcion": r.descripcion or None,
+            "precio": r.precio,
+            "es_gratuito": r.es_gratuito,
+            "es_recurrente": False,
+            "imagen_url": image_urls[i] if i < len(image_urls) else None,
+            "_hora_detectada": r.hora_confirmada,
+            "_fuente": "instagram",
+            "_precision": True,
+            "_confianza": r.confianza,
+            "_decision_ig": r.decision,
+            "_evidencia": r.evidencia,
+        }
+        if i < len(permalink_urls) and permalink_urls[i]:
+            ev["_permalink"] = permalink_urls[i]
+        events.append(ev)
     return events
 
 

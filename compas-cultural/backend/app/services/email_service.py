@@ -193,6 +193,8 @@ def _deliver_via_smtp(to_email: str, subject: str, html: str, text: str) -> bool
         return False
 
     from_email = settings.smtp_from_email or settings.smtp_user
+    if (from_email or "").lower().endswith("@resend.dev") or "@" not in (from_email or ""):
+        from_email = settings.smtp_user  # Gmail no puede enviar "como" otro dominio (spam/DMARC)
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"{settings.smtp_from_name} <{from_email}>"
@@ -939,6 +941,22 @@ def enviar_digest_a(r: dict, week_start: str) -> str:
     return "failed"
 
 
+# Envío extraordinario pedido por Stiven (fuera del lunes). Es un día puntual: se borra
+# o se cambia a mano. Cada destinatario sigue marcado por semana: nunca recibe dos veces.
+ENVIOS_EXTRA = {"2026-10-01", "2026-10-02"}
+
+
+def _log_boletin(stats: dict) -> None:
+    try:
+        supabase.table("scraping_log").insert({
+            "fuente": "boletin_semanal", "registros_nuevos": stats.get("sent", 0),
+            "registros_actualizados": stats.get("pendientes", 0), "errores": stats.get("failed", 0),
+            "detalle": {k: v for k, v in stats.items() if k != "remitente"} | {"remitente": stats.get("remitente")},
+        }).execute()
+    except Exception:
+        pass
+
+
 def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
     """Envía el boletín semanal por lotes (lunes y martes, para recuperar fallos).
 
@@ -948,6 +966,8 @@ def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
     stats = {"week_start": _week_start_iso(), "sent": 0, "skipped": 0, "failed": 0,
              "pendientes": 0, "remitente_listo": listo, "remitente": motivo}
     now_co = datetime.now(CO_TZ)
+    if now_co.date().isoformat() in ENVIOS_EXTRA:
+        force = True
     if not force and (now_co.weekday() not in (0, 1) or now_co.hour < 7):
         stats["reason"] = "El boletín sale lunes desde las 7:00 (martes para reintentos)"
         return stats
@@ -965,6 +985,8 @@ def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
         stats[res if res in stats else "skipped"] = stats.get(res, 0) + 1
         time.sleep(0.6)  # Resend: ≤ 2 req/s
     stats["pendientes"] = max(0, len(pendientes) - stats["sent"])
+    if stats["sent"] or stats["failed"]:
+        _log_boletin(stats)  # visible en /api/v1/scraper/log (fuente boletin_semanal)
     return stats
 
 

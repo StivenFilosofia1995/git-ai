@@ -194,6 +194,21 @@ def _finalize_event_datetime(
     return fecha, hora_confirmada
 
 
+def _evidencia_texto(ev: dict) -> Optional[str]:
+    """'Fecha: «sábado 3 de octubre» · Hora: «8:00 p. m.» · Post: 2026-09-27 · Confianza: 6'"""
+    e = ev.get("_evidencia") or {}
+    partes = []
+    if e.get("fecha"):
+        partes.append(f"Fecha: «{e['fecha']}»")
+    if e.get("hora"):
+        partes.append(f"Hora: «{e['hora']}»")
+    if e.get("publicado"):
+        partes.append(f"Post: {e['publicado']}")
+    if ev.get("_confianza") is not None:
+        partes.append(f"Confianza: {ev['_confianza']}")
+    return " · ".join(partes) or None
+
+
 def _sanitize_text(value: Optional[str]) -> Optional[str]:
     """Drop lone surrogate characters that break UTF-8 inserts.
 
@@ -680,7 +695,8 @@ async def _scrape_lugar(lugar: dict) -> dict:
             titulo = _sanitize_text(ev.get("titulo"))
             if not titulo:
                 continue
-            if not is_likely_cultural_event(
+            # Los eventos de ig_precision ya pasaron reglas más estrictas (con evidencia)
+            if not ev.get("_precision") and not is_likely_cultural_event(
                 titulo,
                 ev.get("descripcion"),
                 fuente_url=ev.get("_fuente_url") or sitio,
@@ -702,11 +718,16 @@ async def _scrape_lugar(lugar: dict) -> dict:
                         fecha = fecha.astimezone(CO_TZ)
                     fecha = _normalize_scraped_datetime(fecha, ev.get("_fuente", "web"))
                     image_url = await _resolve_event_image(ev.get("imagen_url"), ev.get("_fuente_url") or sitio)
-                    fecha, hora_confirmada = _finalize_event_datetime(
-                        fecha,
-                        image_url=image_url,
-                        texts=(ev.get("descripcion"), titulo),
-                    )
+                    if ev.get("_precision"):
+                        # Fecha y hora ya vienen con evidencia: no se "re-detecta" la hora
+                        # (la re-detección leía "19 de febrero" como las 19:00).
+                        hora_confirmada = bool(ev.get("hora_confirmada"))
+                    else:
+                        fecha, hora_confirmada = _finalize_event_datetime(
+                            fecha,
+                            image_url=image_url,
+                            texts=(ev.get("descripcion"), titulo),
+                        )
                     fecha_fin = None
                     if fecha_fin_str:
                         try:
@@ -737,7 +758,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
             existing = supabase.table("eventos").select("id,fecha_inicio,fuente_url").eq("slug", slug_with_date).execute()
             if existing.data:
                 current = existing.data[0]
-                if str(ev.get("_fuente", "")).startswith("instagram") and ev.get("_hora_detectada"):
+                if str(ev.get("_fuente", "")).startswith("instagram") and ev.get("_hora_detectada") and ev.get("_precision"):
                     existing_fecha = _parse_iso_to_co(current.get("fecha_inicio"))
                     nueva_fecha = fecha.astimezone(CO_TZ)
                     if existing_fecha and (existing_fecha.hour != nueva_fecha.hour or existing_fecha.minute != nueva_fecha.minute):
@@ -760,7 +781,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                     ex_date = existing_event.data.get("fecha_inicio", "")[:10]
                     if ex_date == fecha_date_str:
                         legacy = existing_plain.data[0]
-                        if str(ev.get("_fuente", "")).startswith("instagram") and ev.get("_hora_detectada"):
+                        if str(ev.get("_fuente", "")).startswith("instagram") and ev.get("_hora_detectada") and ev.get("_precision"):
                             existing_fecha = _parse_iso_to_co(legacy.get("fecha_inicio"))
                             nueva_fecha = fecha.astimezone(CO_TZ)
                             if existing_fecha and (existing_fecha.hour != nueva_fecha.hour or existing_fecha.minute != nueva_fecha.minute):
@@ -820,6 +841,12 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "fuente_url": ev.get("_fuente_url"),
                 "verificado": False,
             }
+            if ev.get("_precision"):
+                evento_data["descripcion"] = ev.get("descripcion") or None  # sin "Hora del evento" fabricado
+                evento_data["evidencia"] = _evidencia_texto(ev)
+                if ev.get("_decision_ig") == "cuarentena":
+                    evento_data["oculto"] = True
+                    evento_data["oculto_motivo"] = f"ig:confianza_{ev.get('_confianza')}"
             evento_data = _sanitize_payload(evento_data)
             insertar_evento(evento_data)
             stats["nuevos"] += 1

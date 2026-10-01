@@ -309,6 +309,8 @@ def evaluar_evento(ev: dict, *, ahora: Optional[datetime] = None) -> Evaluacion:
     elif _FUERA_RE.search(cabecera) and not _VALLE_RE.search(cabecera) and not p.get("espacio_id"):
         rechazos.append("otra_ciudad")
 
+    _reglas_legado(p, ev, ini, ahora, motivos, rechazos)
+
     if rechazos:
         return Evaluacion("rechazar", rechazos + motivos, p)
 
@@ -326,10 +328,47 @@ def evaluar_evento(ev: dict, *, ahora: Optional[datetime] = None) -> Evaluacion:
                 motivos.append("no_parece_evento_cultural")
         except Exception:
             pass
-    dudosos = {"fuente_baja_sin_lugar", "titulo_era_bloque_de_texto", "no_parece_evento_cultural"}
+    dudosos = {"fuente_baja_sin_lugar", "titulo_era_bloque_de_texto", "no_parece_evento_cultural",
+               "ig_fecha_dudosa"}
     if dudosos & set(motivos):
         return Evaluacion("cuarentena", motivos, p)
     return Evaluacion("publicar", motivos, p)
+
+
+# ─── Eventos heredados de extractores viejos ───────────────────────────────
+_FUENTE_LLM = re.compile(r"(groq|ollama|gemini|llm|_ai\b|claude)")
+_FUENTE_IG = ("auto_scraper_instagram", "instagram", "smart_listener", "social_listener", "runner_ig")
+
+
+def _reglas_legado(p: dict, ev: dict, ini, ahora, motivos: list, rechazos: list) -> None:
+    """Datos que produjeron extractores anteriores (LLM o el extractor IG viejo)."""
+    fuente = (p.get("fuente") or "").lower()
+    if _FUENTE_LLM.search(fuente):
+        rechazos.append("generado_por_llm")
+        return
+    if not fuente.startswith(_FUENTE_IG) or p.get("evidencia"):
+        return  # con evidencia = ya pasó por ig_precision
+    from app.services.ig_precision import _FUERA, _NO_EVENTO, _VALLE, _norm as _n
+    texto = _n(f"{ev.get('titulo') or ''} {ev.get('descripcion') or ''}")
+    m = _NO_EVENTO.search(texto)
+    if m:
+        rechazos.append(f"ig_no_es_evento:{m.group(0)}")
+    m = _FUERA.search(texto)
+    if m and not _VALLE.search(texto):
+        rechazos.append(f"ig_otra_ciudad:{m.group(0)}")
+    # Hora inventada por el extractor viejo
+    desc = (ev.get("descripcion") or "")
+    if p.get("hora_confirmada") and ini is not None:
+        dia_como_hora = re.search(rf"\b{ini.hour}\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|"
+                                  rf"septiembre|octubre|noviembre|diciembre)", texto)
+        if "(estimada)" in desc.lower() or dia_como_hora:
+            p["hora_confirmada"] = False
+            motivos.append("ig_hora_inventada")
+    if desc.lower().startswith("hora del evento"):
+        p["descripcion"] = re.sub(r"^hora del evento[^.]*\.\s*", "", desc, flags=re.I) or None
+        motivos.append("ig_prefijo_hora_quitado")
+    if ini is not None and ini > ahora + timedelta(days=120):
+        motivos.append("ig_fecha_dudosa")
 
 
 # ─── Duplicados ────────────────────────────────────────────────────────────
@@ -515,6 +554,8 @@ def insertar_evento(payload: dict, *, upsert: bool = False) -> _Resp:
         print(f"    🚫 [gate] rechazado ({', '.join(ev.motivos[:3])}): {(payload.get('titulo') or '')[:60]}")
         return _Resp([], "rechazar", ev.motivos)
 
+    if ev.decision == "publicar" and p.get("oculto") is True:
+        ev.decision = "cuarentena"
     if ev.decision == "publicar" and fuente in fuentes_en_revision():
         ev.decision = "cuarentena"
         ev.motivos.append("fuente_en_revision")
@@ -527,14 +568,17 @@ def insertar_evento(payload: dict, *, upsert: bool = False) -> _Resp:
         q = supabase.table("eventos")
         return (q.upsert(datos, on_conflict="slug") if upsert else q.insert(datos)).execute()
 
-    try:
-        res = _ejecutar(p)
-    except Exception as exc:
-        if "oculto_motivo" in p and "oculto_motivo" in str(exc):
-            p.pop("oculto_motivo", None)  # columna aún no migrada
+    res = None
+    for _ in range(3):
+        try:
             res = _ejecutar(p)
-        else:
-            raise
+            break
+        except Exception as exc:
+            # Columnas opcionales que pueden no estar migradas todavía
+            faltante = next((c for c in ("oculto_motivo", "evidencia", "direccion") if c in p and c in str(exc)), None)
+            if not faltante:
+                raise
+            p.pop(faltante, None)
     GATE_STATS[fuente][ev.decision] += 1
     ini = _parse_dt(p.get("fecha_inicio"))
     if ini and res.data:
@@ -555,7 +599,7 @@ def planear_revision(eventos: list[dict], *, ahora: Optional[datetime] = None) -
             ocultar[e["id"]] = f"gate:{r.decision}:" + ",".join(
                 m for m in r.motivos if m not in ("titulo_limpiado", "descripcion_limpiada"))[:180]
             continue
-        cambios = {k: r.payload.get(k) for k in ("titulo", "descripcion", "fecha_fin")
+        cambios = {k: r.payload.get(k) for k in ("titulo", "descripcion", "fecha_fin", "hora_confirmada")
                    if k in e and r.payload.get(k) != e.get(k)}
         if cambios:
             actualizar[e["id"]] = cambios

@@ -57,6 +57,12 @@ def _completar(ev: dict, lugar: dict, fuente: str) -> dict:
     })
     if "hora_confirmada" not in out:
         out["hora_confirmada"] = bool(ev.get("_hora_detectada"))
+    if ev.get("_precision"):  # viene de ig_precision: guardar evidencia y respetar su decisión
+        from app.services.auto_scraper import _evidencia_texto
+        out["evidencia"] = _evidencia_texto(ev)
+        if ev.get("_decision_ig") == "cuarentena":
+            out["oculto"] = True
+            out["oculto_motivo"] = f"ig:confianza_{ev.get('_confianza')}"
     return out
 
 

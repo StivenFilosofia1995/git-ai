@@ -498,7 +498,8 @@ def start_scheduler():
     # Boletín semanal: lunes y martes, un lote de 10 cada 4 min (≈150/hora)
     scheduler.add_job(
         _run_weekly_digest,
-        trigger=CronTrigger(day_of_week="mon,tue", minute="*/4", timezone=CO_TZ),
+        # Todos los días cada 4 min; la función decide (lunes/martes o ENVIOS_EXTRA)
+        trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
         id="weekly_digest",
         name="Boletín semanal (lotes de 10, lunes y martes)",
         replace_existing=True,
