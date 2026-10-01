@@ -13,6 +13,7 @@ from fastapi import APIRouter, Query, HTTPException, Request, Header, UploadFile
 from typing import Annotated, List, Optional
 from datetime import datetime
 from app.services import evento_service
+from app.limiter import rate_limit
 
 router = APIRouter()
 
@@ -46,6 +47,7 @@ def get_eventos(
 
 
 @router.post("/publicar")
+@rate_limit("10/hour")
 async def publicar_evento(body: dict, request: Request):
     """Endpoint público para que colectivos/usuarios publiquen eventos.
     No requiere auth — cualquiera puede proponer un evento (queda sin verificar).
@@ -136,7 +138,8 @@ async def publicar_evento(body: dict, request: Request):
 
 
 @router.post("/extraer-afiche")
-async def extraer_afiche_publico(file: UploadFile = File(...)):
+@rate_limit("6/hour")
+async def extraer_afiche_publico(request: Request, file: UploadFile = File(...)):
     """
     Extrae datos de un evento a partir de una imagen de afiche usando Claude Haiku Vision.
     Endpoint público — no requiere autenticación.
@@ -257,6 +260,18 @@ def get_eventos_proximas_semanas(
     )
 
 
+@router.get("/cerca")
+def get_eventos_cerca(
+    lat: Annotated[float, Query(ge=-90, le=90)],
+    lng: Annotated[float, Query(ge=-180, le=180)],
+    radio_km: Annotated[float, Query(gt=0, le=50)] = 5.0,
+    dias: Annotated[int, Query(ge=1, le=30)] = 7,
+    limit: Annotated[int, Query(ge=1, le=200)] = 60,
+):
+    """Eventos cercanos a (lat, lng), ordenados por distancia real (incluye `distancia_km`)."""
+    return evento_service.get_eventos_cerca(lat=lat, lng=lng, radio_km=radio_km, dias=dias, limit=limit)
+
+
 @router.get("/destacados")
 def get_eventos_destacados(limit: Annotated[int, Query(ge=1, le=10)] = 5):
     """Top eventos de los próximos 14 días para el panel 'Evento de la Semana'."""
@@ -276,8 +291,8 @@ def delete_evento(
     """Elimina un evento. Requiere X-Scraper-Key de admin."""
     from app.config import settings
     from app.database import supabase
-    if x_scraper_key != settings.scraper_api_key:
-        raise HTTPException(status_code=403, detail="No autorizado")
+    from app.security import require_admin_key
+    require_admin_key(x_scraper_key)
     resp = supabase.table("eventos").delete().eq("id", evento_id).execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="Evento no encontrado")

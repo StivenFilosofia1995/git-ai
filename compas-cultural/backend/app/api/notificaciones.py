@@ -1,7 +1,7 @@
 """Push notification endpoints — FCM (Android) + Web Push VAPID (iPhone PWA)."""
 from __future__ import annotations
 import os, json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -162,8 +162,11 @@ def send_web_push_notification(title: str, body: str, url: str = "/") -> dict:
 def send_test_notification(
     title: str = "🎭 Cultura ETÉREA",
     body: str = "Hay eventos culturales nuevos hoy en Medellín",
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """Admin test: send push to ALL platforms (Android FCM + iPhone Web Push)."""
+    from app.security import require_admin_key
+    require_admin_key(x_api_key)
     fcm = send_push_notification(title, body)
     web = send_web_push_notification(title, body)
     return {"fcm": fcm, "web_push": web}

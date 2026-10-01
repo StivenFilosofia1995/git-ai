@@ -57,6 +57,87 @@ def _tomorrow_start_co() -> datetime:
     return hoy_inicio + timedelta(days=1)
 
 
+def _co_iso(dt: datetime) -> str:
+    """ISO con offset de Bogotá. Fechas naive se interpretan como hora local Colombia.
+
+    Antes se comparaban strings 'YYYY-MM-DD' contra timestamptz (= 00:00 UTC =
+    19:00 del día anterior en Bogotá) y las ventanas quedaban corridas 5 h.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=CO_TZ)
+    return dt.astimezone(CO_TZ).isoformat()
+
+
+# ── Enriquecimiento y saneamiento ──────────────────────────────────────────
+_LUGAR_CACHE: dict = {}
+
+
+def _sanitize_evento(ev: dict) -> dict:
+    """Corrige datos absurdos al leer (p. ej. fecha_fin en 2076 por un bug de parseo)."""
+    fin = ev.get("fecha_fin")
+    ini = ev.get("fecha_inicio")
+    try:
+        if fin:
+            fin_dt = datetime.fromisoformat(str(fin).replace("Z", "+00:00"))
+            ini_dt = datetime.fromisoformat(str(ini).replace("Z", "+00:00")) if ini else None
+            if fin_dt.year > _now_co().year + 1 or (ini_dt and fin_dt < ini_dt):
+                ev["fecha_fin"] = None
+    except Exception:
+        pass
+    return ev
+
+
+def enrich_eventos(eventos: List[dict]) -> List[dict]:
+    """Hereda lat/lng, barrio, municipio y nombre del lugar (espacio_id) si faltan.
+
+    ~70 % de los eventos tiene espacio_id pero no coordenadas propias: sin esto
+    "Cerca de ti" y el mapa usan centroides de municipio (distancias falsas).
+    """
+    if not eventos:
+        return eventos
+    missing = {
+        ev["espacio_id"] for ev in eventos
+        if ev.get("espacio_id") and (ev.get("lat") is None or not ev.get("nombre_lugar"))
+        and ev["espacio_id"] not in _LUGAR_CACHE
+    }
+    if missing:
+        ids = list(missing)
+        for i in range(0, len(ids), 150):
+            try:
+                resp = (
+                    supabase.table("lugares")
+                    .select("id,nombre,slug,lat,lng,barrio,municipio,direccion")
+                    .in_("id", ids[i:i + 150])
+                    .execute()
+                )
+                for lug in resp.data or []:
+                    _LUGAR_CACHE[lug["id"]] = lug
+            except Exception as exc:
+                print(f"[evento_service] enrich lugares error: {exc}")
+        for eid in missing:
+            _LUGAR_CACHE.setdefault(eid, None)
+        if len(_LUGAR_CACHE) > 5000:
+            _LUGAR_CACHE.clear()
+    for ev in eventos:
+        _sanitize_evento(ev)
+        lug = _LUGAR_CACHE.get(ev.get("espacio_id")) if ev.get("espacio_id") else None
+        if not lug:
+            continue
+        if ev.get("lat") is None and lug.get("lat") is not None and lug.get("lng") is not None:
+            ev["lat"], ev["lng"] = lug["lat"], lug["lng"]
+            ev["coords_origen"] = "lugar"
+        if not ev.get("nombre_lugar") and lug.get("nombre"):
+            ev["nombre_lugar"] = lug["nombre"]
+        if not ev.get("barrio") and lug.get("barrio"):
+            ev["barrio"] = lug["barrio"]
+        if not ev.get("municipio") and lug.get("municipio"):
+            ev["municipio"] = lug["municipio"]
+        if not ev.get("direccion") and lug.get("direccion"):
+            ev["direccion"] = lug["direccion"]
+        ev.setdefault("lugar_slug", lug.get("slug"))
+    return eventos
+
+
 def _sunday_of_next_week_iso() -> str:
     """Fin de semana próxima (domingo 23:59:59) en zona Colombia.
     
@@ -244,16 +325,15 @@ def get_eventos(
     query = supabase.table("eventos").select("*")
 
     if fecha_desde:
-        # Use date-only format to match DB rows that store date without timezone.
-        fecha_desde_str = fecha_desde.strftime("%Y-%m-%d")
-        query = query.or_(f"fecha_inicio.gte.{fecha_desde_str},fecha_fin.gte.{fecha_desde_str}")
+        desde_iso = _co_iso(fecha_desde)
+        query = query.or_(f"fecha_inicio.gte.{desde_iso},fecha_fin.gte.{desde_iso}")
     else:
         # Si no se pasa fecha_desde (ej: pestaña Todos), mostrar solo futuros o en curso
-        hoy = _now_co().strftime("%Y-%m-%d")
-        query = query.or_(f"fecha_inicio.gte.{hoy},fecha_fin.gte.{hoy}")
+        hoy_iso = _co_iso(_now_co().replace(hour=0, minute=0, second=0, microsecond=0))
+        query = query.or_(f"fecha_inicio.gte.{hoy_iso},fecha_fin.gte.{hoy_iso}")
 
     if fecha_hasta:
-        query = query.lte("fecha_inicio", fecha_hasta.strftime("%Y-%m-%d"))
+        query = query.lte("fecha_inicio", _co_iso(fecha_hasta))
 
     if municipio:
         # Fallback robusto: si el evento no tiene municipio pero el nombre del lugar
@@ -318,6 +398,16 @@ def get_eventos(
     # Post-retrieval ML ranking: reordenar por score compuesto
     # (urgencia + calidad + coincidencia textual)
     now = _now_co()
+    eventos = enrich_eventos(eventos)
+    # Tras sanear fecha_fin absurdas (2076), descartar lo que ya terminó.
+    limite = fecha_desde or now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if limite.tzinfo is None:
+        limite = limite.replace(tzinfo=CO_TZ)
+    eventos = [
+        ev for ev in eventos
+        if (_event_datetime_co(ev, "fecha_inicio") or limite) >= limite
+        or (_event_datetime_co(ev, "fecha_fin") or limite - timedelta(seconds=1)) >= limite
+    ]
     eventos.sort(key=lambda ev: _score_evento_ml(ev, now, texto), reverse=True)
     return eventos
 
@@ -339,18 +429,20 @@ def get_eventos_hoy(
     ahora = _now_co()
     hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_fin = hoy_inicio + timedelta(days=1)
-    hoy_str = hoy_inicio.strftime("%Y-%m-%d")
+    hoy_str = hoy_inicio.isoformat()
+    fin_str = hoy_fin.isoformat()
 
-    # Events that START today
+    # Events that START today (ventana real en hora Colombia)
     q_inicio = (
         supabase.table("eventos").select("*")
-        .eq("fecha_inicio", hoy_str)
+        .gte("fecha_inicio", hoy_str)
+        .lt("fecha_inicio", fin_str)
     )
     resp_inicio = q_inicio.order("fecha_inicio").execute()
     eventos = resp_inicio.data or []
 
     # Multi-day events that started within the last 2 days and end today or later
-    hace_30_dias = (hoy_inicio - timedelta(days=2)).strftime("%Y-%m-%d")
+    hace_30_dias = (hoy_inicio - timedelta(days=2)).isoformat()
     q_en_curso = (
         supabase.table("eventos")
         .select("*")
@@ -367,6 +459,7 @@ def get_eventos_hoy(
             seen_ids.add(ev["id"])
 
     # Final strict validation in Colombia timezone to avoid wrong-day leaks.
+    eventos = enrich_eventos(eventos)
     eventos = [ev for ev in eventos if _is_event_happening_today(ev, hoy_inicio, hoy_fin)]
     # Filtrar eventos ocultos (compatible si columna aún no existe en DB)
     eventos = [ev for ev in eventos if ev.get("oculto") is not True]
@@ -455,7 +548,50 @@ def get_evento_by_slug(slug: str) -> dict:
         .single()
         .execute()
     )
-    return response.data
+    data = response.data
+    if data:
+        enrich_eventos([data])
+    return data
+
+
+def get_eventos_cerca(
+    lat: float,
+    lng: float,
+    radio_km: float = 5.0,
+    dias: int = 7,
+    limit: int = 60,
+) -> List[dict]:
+    """Eventos de hoy a `dias` días, a menos de `radio_km` del punto, ordenados por distancia.
+
+    Usa coordenadas propias o heredadas del lugar. Los eventos sin ninguna
+    coordenada se excluyen (antes se ubicaban en el centroide del municipio).
+    """
+    from app.services.ml_utils import haversine_km
+
+    hoy_inicio = _now_co().replace(hour=0, minute=0, second=0, microsecond=0)
+    eventos = get_eventos(
+        fecha_desde=hoy_inicio,
+        fecha_hasta=hoy_inicio + timedelta(days=max(1, min(dias, 30))),
+        limit=800,
+        offset=0,
+    )
+    ahora = _now_co()
+    out = []
+    for ev in eventos:
+        if ev.get("lat") is None or ev.get("lng") is None:
+            continue
+        fin = _event_datetime_co(ev, "fecha_fin")
+        if fin and fin < ahora:
+            continue
+        try:
+            d = haversine_km(lat, lng, float(ev["lat"]), float(ev["lng"]))
+        except Exception:
+            continue
+        if d <= radio_km:
+            ev["distancia_km"] = round(d, 2)
+            out.append(ev)
+    out.sort(key=lambda e: (e["distancia_km"], e.get("fecha_inicio") or ""))
+    return out[:limit]
 
 
 def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
@@ -488,7 +624,7 @@ def get_eventos_by_espacio(espacio_id: str, limit: int = 10) -> List[dict]:
             eventos.insert(0, ev)
             seen_ids.add(ev["id"])
 
-    return [ev for ev in eventos if ev.get("oculto") is not True]
+    return enrich_eventos([ev for ev in eventos if ev.get("oculto") is not True])
 
 
 # ══════════════════════════════════════════════════════════════
@@ -533,7 +669,7 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
         pool = response.data or []
 
     if len(pool) <= limit:
-        return pool
+        return enrich_eventos(pool)
 
     # Puntuar cada evento con ML
     scored = [
@@ -564,7 +700,7 @@ def get_eventos_feed(limit: int = 20) -> List[dict]:
         if len(result) >= limit:
             break
 
-    return result
+    return enrich_eventos(result)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -629,7 +765,7 @@ def get_eventos_destacados(limit: int = 5) -> List[dict]:
         # Bonus verificado
         if ev.get("verificado"):
             base += 1.5
-        return base
+        return enrich_eventos(base)
 
     scored = sorted(pool, key=_score_destacado, reverse=True)
 
@@ -653,7 +789,7 @@ def get_eventos_destacados(limit: int = 5) -> List[dict]:
             if len(result) >= limit:
                 break
 
-    return result
+    return enrich_eventos(result)
 
 
 # ══════════════════════════════════════════════════════════════

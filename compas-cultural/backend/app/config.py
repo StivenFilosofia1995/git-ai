@@ -37,9 +37,9 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_per_minute: int = 60
 
-    # Scraper API key (protects /scraper/* endpoints)
-    # Set SCRAPER_API_KEY env var in Railway for a stable key
-    scraper_api_key: str = "cultura-eterea-scraper-2026"
+    # Clave admin (protege /admin/* y /scraper/*). OBLIGATORIA en Railway: SCRAPER_API_KEY.
+    # Sin ella los endpoints admin responden 503 (fallan cerrados). Ver app/security.py
+    scraper_api_key: str = ""
 
     # SMTP
     smtp_host: str = "smtp.gmail.com"

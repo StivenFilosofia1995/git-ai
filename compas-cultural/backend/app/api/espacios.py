@@ -132,8 +132,8 @@ def delete_espacio(
     """Elimina un espacio/colectivo y sus eventos. Requiere X-Scraper-Key de admin."""
     from app.config import settings
     from app.database import supabase
-    if x_scraper_key != settings.scraper_api_key:
-        raise HTTPException(status_code=403, detail="No autorizado")
+    from app.security import require_admin_key
+    require_admin_key(x_scraper_key)
     # Delete associated events first
     supabase.table("eventos").delete().eq("espacio_id", espacio_id).execute()
     resp = supabase.table("lugares").delete().eq("id", espacio_id).execute()

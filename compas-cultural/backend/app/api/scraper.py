@@ -2,7 +2,8 @@
 Endpoints para el sistema de auto-scraping, descubrimiento y social listener.
 """
 import asyncio
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
+from app.limiter import rate_limit
 from app.config import settings
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
@@ -56,8 +57,8 @@ def _get_discovery_services():
 
 def _verify_scraper_key(x_scraper_key: str = Header(..., alias="X-Scraper-Key")):
     """Verify the scraper API key from request header."""
-    if x_scraper_key != settings.scraper_api_key:
-        raise HTTPException(status_code=403, detail="Invalid scraper API key")
+    from app.security import require_admin_key
+    require_admin_key(x_scraper_key)
 
 
 @router.post("/run", dependencies=[Depends(_verify_scraper_key)])
@@ -106,7 +107,8 @@ async def trigger_lugar_scraper(lugar_id: str):
 
 
 @router.post("/lugar/{lugar_id}/publico")
-async def trigger_lugar_scraper_publico(lugar_id: str):
+@rate_limit("6/hour")
+async def trigger_lugar_scraper_publico(request: Request, lugar_id: str):
     """Scrape un lugar en vivo (acceso público, síncrono, timeout 90s).
     Intenta scraping directo; si no tiene web/IG, usa búsqueda con Claude.
     """
@@ -143,9 +145,11 @@ async def trigger_lugar_scraper_publico(lugar_id: str):
 
 
 @router.post("/zona/{municipio}/publico")
+@rate_limit("2/hour")
 async def trigger_zona_scraper_publico(
+    request: Request,
     municipio: str,
-    limit: int = Query(default=40, ge=5, le=120, description="Máx lugares a scrapear en la zona"),
+    limit: int = Query(default=20, ge=5, le=30, description="Máx lugares a scrapear en la zona"),
 ):
     """Scrape todos los espacios de un municipio/zona (acceso público, síncrono).
     Busca eventos en las redes y sitios web de los espacios de esa zona.
@@ -231,7 +235,9 @@ async def trigger_repair_fechas_scraper(
 
 
 @router.post("/discover-events/publico")
+@rate_limit("10/hour")
 async def trigger_discover_events_publico(
+    request: Request,
     municipio: str | None = Query(default=None),
     categoria: str | None = Query(default=None),
     es_gratuito: bool | None = Query(default=None),
@@ -376,7 +382,8 @@ async def trigger_discover_events_publico(
 
 
 @router.post("/discover-events/publico/commit")
-async def commit_discover_events_publico(body: dict):
+@rate_limit("10/hour")
+async def commit_discover_events_publico(request: Request, body: dict):
     """Confirma y agrega al sistema los eventos descubiertos por usuarios."""
     candidatos = body.get("candidatos") or []
     if not isinstance(candidatos, list) or not candidatos:
@@ -403,7 +410,7 @@ async def get_scraping_log(
     resp = (
         supabase.table("scraping_log")
         .select("*")
-        .order("created_at", desc=True)
+        .order("ejecutado_en", desc=True)
         .limit(limit)
         .execute()
     )
@@ -605,7 +612,7 @@ async def trigger_precision_scraper(
     }
 
 
-@router.post("/precision/zona/{municipio}")
+@router.post("/precision/zona/{municipio}", dependencies=[Depends(_verify_scraper_key)])
 async def trigger_precision_zona_publico(
     municipio: str,
     background_tasks: BackgroundTasks,
@@ -627,20 +634,31 @@ async def trigger_precision_zona_publico(
 # STATUS — Estado del sistema de scraping
 # ═══════════════════════════════════════════════════════════════
 
-@router.get("/status")
-async def get_scraper_status():
-    """Estado general del sistema de scraping, discovery y listener."""
+@router.get("/health")
+async def get_scraper_health():
+    """Salud de la ingesta: última corrida por fuente + último evento insertado.
+
+    Antes estaba duplicado como /status (la primera definición lo tapaba) y
+    ordenaba por una columna inexistente (created_at) → 500.
+    """
     from app.database import supabase
 
     # Últimos logs por fuente
     resp = (
         supabase.table("scraping_log")
         .select("*")
-        .order("created_at", desc=True)
-        .limit(20)
+        .order("ejecutado_en", desc=True)
+        .limit(200)
         .execute()
     )
     logs = resp.data or []
+    try:
+        ultimo = (
+            supabase.table("eventos").select("created_at,fuente")
+            .order("created_at", desc=True).limit(1).execute()
+        ).data or []
+    except Exception:
+        ultimo = []
 
     # Contadores
     total_lugares = supabase.table("lugares").select("id", count="exact").execute()
@@ -653,7 +671,7 @@ async def get_scraper_status():
         fuente = log.get("fuente", "")
         if fuente not in last_by_type:
             last_by_type[fuente] = {
-                "ultima_ejecucion": log.get("created_at"),
+                "ultima_ejecucion": log.get("ejecutado_en"),
                 "registros_nuevos": log.get("registros_nuevos", 0),
                 "errores": log.get("errores", 0),
                 "duracion": log.get("duracion_segundos"),
@@ -663,8 +681,11 @@ async def get_scraper_status():
         "total_lugares": total_lugares.count if total_lugares.count else 0,
         "total_eventos": total_eventos.count if total_eventos.count else 0,
         "eventos_con_imagen": eventos_con_imagen.count if eventos_con_imagen.count else 0,
+        "ultimo_evento_insertado": ultimo[0] if ultimo else None,
         "ultimas_ejecuciones": last_by_type,
-        "logs_recientes": logs[:10],
+        "logs_recientes": [
+            {k: v for k, v in log.items() if k != "detalle"} for log in logs[:10]
+        ],
     }
 
 

@@ -45,8 +45,8 @@ def _unsub_page(title: str, message: str, error: bool = False) -> str:
 def trigger_blast_now(api_key: Annotated[str, Query()] = ""):
     """Sends one email to the next unsent user in the blast campaign."""
     from app.config import settings
-    if api_key != settings.scraper_api_key:
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    from app.security import require_admin_key
+    require_admin_key(api_key)
     from app.services.email_service import send_blast_campaign_tick
     stats = send_blast_campaign_tick()
     return stats
@@ -56,8 +56,8 @@ def trigger_blast_now(api_key: Annotated[str, Query()] = ""):
 def trigger_blast_all(api_key: Annotated[str, Query()] = ""):
     """Sends to ALL pending users in one call. Returns total sent/skipped/failed."""
     from app.config import settings
-    if api_key != settings.scraper_api_key:
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    from app.security import require_admin_key
+    require_admin_key(api_key)
     from app.services.email_service import send_blast_all
     stats = send_blast_all()
     return stats

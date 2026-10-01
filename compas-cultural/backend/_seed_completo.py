@@ -9,13 +9,11 @@ import sys
 from datetime import datetime, timedelta
 import random
 
-SUPABASE_URL = "https://zvxaaofqtbyichsllonc.supabase.co"
-SUPABASE_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2eGFhb2ZxdGJ5aWNoc2xsb25jIiwi"
-    "cm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjMwNDEyNSwiZXhwIjoyMDkx"
-    "ODgwMTI1fQ.goNdx-KF9KBOGeVyWB3NqQYlKE_7pXDwKIFv7LHYNmA"
-)
+import os
+
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+# Nunca escribir claves en el código: este repo es público.
+SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 HEADERS = {
     "apikey": SUPABASE_KEY,

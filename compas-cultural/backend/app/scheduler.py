@@ -10,7 +10,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 CO_TZ = ZoneInfo("America/Bogota")
-scheduler = AsyncIOScheduler(timezone=CO_TZ)
+# misfire_grace_time por defecto es 1s: si el loop está ocupado un instante, el job
+# se pierde en silencio. 10 min de gracia + coalesce evitan corridas perdidas o dobles.
+scheduler = AsyncIOScheduler(
+    timezone=CO_TZ,
+    job_defaults={"misfire_grace_time": 600, "coalesce": True, "max_instances": 1},
+)
 
 
 async def _run_scraper_job():
@@ -543,13 +548,17 @@ def start_scheduler():
 
     # ── Scrape inicial 90 segundos después de arrancar ─────────────────────
     # Corre después del cleanup para traer eventos del día actual.
-    scheduler.add_job(
-        _run_scraper_job,
-        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(seconds=90)),
-        id="auto_scraper_startup",
-        name="Scrape inicial al arrancar",
-        replace_existing=True,
-    )
+    # Recorre TODOS los lugares: solo si SCRAPE_ON_BOOT=1, para que cada
+    # redeploy no dispare un scrape completo (el diario de las 2am sigue activo).
+    import os
+    if os.getenv("SCRAPE_ON_BOOT", "").lower() in ("1", "true", "yes"):
+        scheduler.add_job(
+            _run_scraper_job,
+            trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(seconds=90)),
+            id="auto_scraper_startup",
+            name="Scrape inicial al arrancar",
+            replace_existing=True,
+        )
 
     # ── Agenda alternativa inicial: 3 minutos después de arrancar ──────────
     # Asegura que fuentes alternativas (teatros, bibliotecas, colectivos)

@@ -11,10 +11,20 @@ from app.config import settings
 
 router = APIRouter()
 
+# Referencias fuertes a tareas en background: sin esto el GC puede cancelarlas.
+_BG_TASKS: set = set()
+
+
+def _spawn(coro) -> None:
+    import asyncio
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+
 
 def _check_key(x_api_key: str | None) -> None:
-    if x_api_key != settings.scraper_api_key:
-        raise HTTPException(status_code=403, detail="Invalid API key")
+    from app.security import require_admin_key
+    require_admin_key(x_api_key)
 
 
 @router.get("/dashboard")
@@ -387,10 +397,15 @@ def admin_scraping_logs(
         resp = (
             supabase.table("scraping_log")
             .select("*")
+            .order("ejecutado_en", desc=True)
             .limit(min(limit, 200))
             .execute()
         )
-        return {"data": resp.data or [], "total": len(resp.data or [])}
+        rows = resp.data or []
+        # El panel Admin lee `created_at`; la columna real es `ejecutado_en`.
+        for row in rows:
+            row.setdefault("created_at", row.get("ejecutado_en"))
+        return {"data": rows, "total": len(rows)}
     except Exception as exc:
         print(f"[admin/logs ERROR] {type(exc).__name__}: {exc}")
         raise HTTPException(status_code=500, detail=f"admin/logs error: {type(exc).__name__}: {exc}")
@@ -419,7 +434,7 @@ async def trigger_scraper(x_api_key: str | None = Header(default=None, alias="X-
         except Exception as e:
             print(f"[admin] comfama error: {e}")
 
-    asyncio.create_task(_run())
+    _spawn(_run())
     return {"ok": True, "message": "Scraper (auto + comfama) iniciado en background"}
 
 
@@ -586,7 +601,7 @@ async def trigger_cleanup(x_api_key: str | None = Header(default=None, alias="X-
         except Exception as e:
             print(f"[admin] cleanup error: {e}")
 
-    asyncio.create_task(_run())
+    _spawn(_run())
     return {"ok": True, "message": "Limpieza iniciada en background"}
 
 
@@ -606,7 +621,7 @@ async def trigger_cleanup_news(
         except Exception as e:
             print(f"[admin] cleanup-news error: {e}")
 
-    asyncio.create_task(_run())
+    _spawn(_run())
     return {"ok": True, "message": f"Purga de noticias iniciada en background (batch={batch_size})"}
 
 
@@ -650,7 +665,7 @@ async def full_reset(x_api_key: str | None = Header(default=None, alias="X-API-K
         except Exception as e:
             print(f"[full-reset] agenda_sources error: {e}")
 
-    asyncio.create_task(_run())
+    _spawn(_run())
     return {
         "ok": True,
         "message": "Full reset iniciado: cleanup_news → comfama → bibliotecas → epm → agenda_sources",
@@ -1310,7 +1325,7 @@ async def trigger_datos_gov_espacios(
         return await import_datos_gov_espacios(departamento=departamento, limit=limit)
 
     if background_tasks:
-        background_tasks.add_task(lambda: __import__("asyncio").create_task(_run()))
+        background_tasks.add_task(_run)
         return {"ok": True, "message": f"Import datos.gov.co espacios ({departamento}) iniciado"}
     stats = await _run()
     return {"ok": True, **stats}
@@ -1342,9 +1357,7 @@ async def trigger_ig_colectivos(
     from app.services.ig_colectivos_discovery import discover_colectivos_instagram
     if background_tasks:
         background_tasks.add_task(
-            lambda: __import__("asyncio").create_task(
-                discover_colectivos_instagram(run_web_search=run_web_search, include_seeds=True)
-            )
+            discover_colectivos_instagram, run_web_search=run_web_search, include_seeds=True
         )
         return {"ok": True, "message": "IG Colectivos Discovery iniciado en background"}
     stats = await discover_colectivos_instagram(run_web_search=run_web_search, include_seeds=True)
@@ -1390,7 +1403,7 @@ async def ig_feed_scan(
             job_id=job_id,
         )
 
-    background_tasks.add_task(lambda: asyncio.create_task(_run()))
+    background_tasks.add_task(_run)
     return {"ok": True, "job_id": job_id}
 
 
@@ -1518,7 +1531,7 @@ async def ig_colectivos_scan(
             job_id=job_id,
         )
 
-    background_tasks.add_task(lambda: asyncio.create_task(_run()))
+    background_tasks.add_task(_run)
     return {"ok": True, "job_id": job_id, "profiles_to_scan": len(handles)}
 
 

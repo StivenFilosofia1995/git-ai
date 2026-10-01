@@ -13,35 +13,12 @@ _UUID_RE = re.compile(
 
 
 def _get_user_id(authorization: Optional[str] = Header(None)) -> str:
-    """Extrae el user_id del JWT de Supabase Auth.
-    Supabase envía 'Bearer <jwt>' — el sub del JWT es el user UUID.
-    Para simplificar sin verificar firma: extraemos el payload y validamos el sub.
-    """
-    if not authorization:
-        raise HTTPException(status_code=401, detail="No autorizado")
-    token = authorization.removeprefix("Bearer ").strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Token inválido")
-
-    # Intentar decodificar el payload del JWT (sin verificar firma — Supabase ya lo valida)
-    parts = token.split(".")
-    if len(parts) == 3:
-        import base64, json as _json
-        try:
-            padding = 4 - len(parts[1]) % 4
-            payload_bytes = base64.urlsafe_b64decode(parts[1] + "=" * padding)
-            payload = _json.loads(payload_bytes)
-            sub = payload.get("sub", "")
-            if sub and _UUID_RE.match(sub):
-                return sub
-        except Exception:
-            pass
-
-    # Fallback: el token completo es el user_id (compatibilidad con clientes viejos)
-    if _UUID_RE.match(token):
-        return token
-
-    raise HTTPException(status_code=401, detail="Token inválido o no es un UUID de usuario")
+    """User id del access_token de Supabase Auth, con firma verificada."""
+    from app.security import user_id_from_bearer
+    uid = user_id_from_bearer(authorization)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+    return uid
 
 
 @router.post("/", response_model=PerfilResponse, status_code=201)

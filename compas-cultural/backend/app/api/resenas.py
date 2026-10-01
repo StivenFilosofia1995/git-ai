@@ -8,12 +8,11 @@ router = APIRouter()
 
 
 def _get_user_id(authorization: Optional[str] = Header(None)) -> str:
-    if not authorization:
-        raise HTTPException(status_code=401, detail="No autorizado")
-    token = authorization.replace("Bearer ", "").strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Token inválido")
-    return token
+    from app.security import user_id_from_bearer
+    uid = user_id_from_bearer(authorization)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+    return uid
 
 
 @router.get("/{tipo}/{item_id}")

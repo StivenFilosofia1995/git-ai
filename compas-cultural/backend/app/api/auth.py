@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from app.limiter import rate_limit
 import logging
 from pydantic import BaseModel, EmailStr
 from app.services.email_service import send_welcome_email
@@ -14,7 +15,8 @@ class WelcomeEmailRequest(BaseModel):
 
 
 @router.post("/welcome-email")
-async def enviar_email_bienvenida(req: WelcomeEmailRequest):
+@rate_limit("3/hour")
+async def enviar_email_bienvenida(request: Request, req: WelcomeEmailRequest):
     # Send synchronously so we can report success/failure
     logger.info("Welcome email requested for %s (nombre=%s)", req.email, req.nombre)
     logger.info(
