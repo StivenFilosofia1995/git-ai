@@ -403,6 +403,76 @@ def _eventos_del_dia(dia: date) -> list[dict]:
     return rows
 
 
+# ─── Precisión por fuente ────────────────────────────────────────────────
+UMBRAL_MALAS = 0.60     # > 60 % rechazado/duplicado/cuarentena …
+MIN_DECISIONES = 20     # … con al menos 20 decisiones en la ventana
+VENTANA_DIAS = 14
+_REVISION_CACHE: dict = {"hasta": 0.0, "fuentes": set()}
+
+
+def fuentes_en_revision() -> set[str]:
+    """Fuentes cuya precisión reciente es mala: sus eventos nuevos van a cuarentena."""
+    if _REVISION_CACHE["hasta"] > time.monotonic():
+        return _REVISION_CACHE["fuentes"]
+    fuentes: set[str] = set()
+    try:
+        import json as _json
+        from app.database import supabase
+        row = supabase.table("config_kv").select("value").eq("key", "gate_fuentes_revision").execute().data
+        if row:
+            fuentes = set(_json.loads(row[0]["value"]).get("fuentes", []))
+    except Exception:
+        pass
+    _REVISION_CACHE.update({"hasta": time.monotonic() + 600, "fuentes": fuentes})
+    return fuentes
+
+
+def calcular_precision(historial: list[dict]) -> dict:
+    """Función pura: agrega snapshots diarios {fuente: {decision: n}} y marca fuentes malas."""
+    total: dict[str, Counter] = defaultdict(Counter)
+    for snap in historial:
+        for fuente, c in snap.items():
+            total[fuente].update(c)
+    reporte, en_revision = {}, []
+    for fuente, c in total.items():
+        n = sum(c.values())
+        malas = c["rechazar"] + c["duplicado"] + c["cuarentena"]
+        tasa = round(malas / n, 3) if n else 0.0
+        reporte[fuente] = {**dict(c), "total": n, "tasa_mala": tasa}
+        if n >= MIN_DECISIONES and tasa > UMBRAL_MALAS and confianza_fuente(fuente) != "alta":
+            en_revision.append(fuente)
+    return {"fuentes": sorted(en_revision), "reporte": reporte}
+
+
+def guardar_precision_diaria() -> dict:
+    """Job nocturno: guarda el snapshot del día y recalcula las fuentes en revisión."""
+    import json as _json
+    from app.database import supabase
+    hoy = datetime.now(CO_TZ).date()
+    snap = {k: dict(v) for k, v in GATE_STATS.items()}
+    try:
+        supabase.table("config_kv").upsert(
+            {"key": f"gate_stats:{hoy.isoformat()}", "value": _json.dumps(snap, ensure_ascii=False)},
+            on_conflict="key").execute()
+        claves = [f"gate_stats:{(hoy - timedelta(days=i)).isoformat()}" for i in range(VENTANA_DIAS)]
+        rows = supabase.table("config_kv").select("key,value").in_("key", claves).execute().data or []
+        historial = [_json.loads(r["value"]) for r in rows]
+    except Exception as exc:
+        print(f"[gate] precision error: {exc}")
+        return {}
+    res = calcular_precision(historial)
+    try:
+        supabase.table("config_kv").upsert(
+            {"key": "gate_fuentes_revision", "value": _json.dumps(res, ensure_ascii=False)},
+            on_conflict="key").execute()
+    except Exception:
+        pass
+    GATE_STATS.clear()
+    _REVISION_CACHE["hasta"] = 0.0
+    print(f"📊 Precisión por fuente: en revisión = {res['fuentes']}")
+    return res
+
+
 class _Resp:
     """Imita la respuesta de supabase-py para no romper a los llamadores (`res.data`)."""
     def __init__(self, data: list, decision: str, motivos: list[str]):
@@ -441,6 +511,9 @@ def insertar_evento(payload: dict, *, upsert: bool = False) -> _Resp:
         print(f"    🚫 [gate] rechazado ({', '.join(ev.motivos[:3])}): {(payload.get('titulo') or '')[:60]}")
         return _Resp([], "rechazar", ev.motivos)
 
+    if ev.decision == "publicar" and fuente in fuentes_en_revision():
+        ev.decision = "cuarentena"
+        ev.motivos.append("fuente_en_revision")
     if ev.decision == "cuarentena":
         p["oculto"] = True
         p["verificado"] = False

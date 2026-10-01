@@ -684,6 +684,7 @@ async def get_scraper_health():
         "ultimo_evento_insertado": ultimo[0] if ultimo else None,
         # Decisiones de la puerta de calidad desde el último arranque, por fuente
         "puerta_calidad": {k: dict(v) for k, v in __import__("app.services.event_gate", fromlist=["GATE_STATS"]).GATE_STATS.items()},
+        "fuentes_en_revision": sorted(__import__("app.services.event_gate", fromlist=["fuentes_en_revision"]).fuentes_en_revision()),
         "ultimas_ejecuciones": last_by_type,
         "logs_recientes": [
             {k: v for k, v in log.items() if k != "detalle"} for log in logs[:10]

@@ -78,9 +78,10 @@ async def _run_cleanup():
 
 async def _run_revision_calidad():
     """Puerta de calidad sobre los eventos ya publicados (oculta basura y duplicados)."""
-    from app.services.event_gate import revisar_calidad_eventos
+    from app.services.event_gate import revisar_calidad_eventos, guardar_precision_diaria
     try:
         await asyncio.to_thread(revisar_calidad_eventos, True)
+        await asyncio.to_thread(guardar_precision_diaria)
     except Exception as e:
         print(f"❌ Revisión de calidad error: {e}")
 

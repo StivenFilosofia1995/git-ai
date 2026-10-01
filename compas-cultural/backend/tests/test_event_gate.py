@@ -103,3 +103,15 @@ def test_dos_funciones_mismo_dia_no_son_duplicado():
     a = ev(id="a", fecha_inicio="2026-10-03T16:00:00-05:00")
     b = ev(id="b", fecha_inicio="2026-10-03T20:00:00-05:00")
     assert planear_revision([a, b], ahora=AHORA)["ocultar"] == {}
+
+
+def test_precision_por_fuente():
+    from app.services.event_gate import calcular_precision
+    hist = [
+        {"precision_web": {"rechazar": 15, "duplicado": 5, "publicar": 5}, "bibliotecas_mde": {"rechazar": 30, "publicar": 1}},
+        {"agenda_MAMM": {"publicar": 30, "rechazar": 2}},
+    ]
+    res = calcular_precision(hist)
+    assert res["fuentes"] == ["precision_web"]          # 80 % malas con 25 decisiones
+    assert "bibliotecas_mde" not in res["fuentes"]      # fuente estructurada: nunca se pone en revisión
+    assert res["reporte"]["agenda_MAMM"]["tasa_mala"] < 0.1
