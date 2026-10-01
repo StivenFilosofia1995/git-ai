@@ -253,6 +253,7 @@ async def _try_wp_api(municipio: str = "Medellín") -> list[dict]:
 # el sitemap lista cada evento y cada uno publica su page-data.json con los datos
 # estructurados (serverData.event). Fuente pública, sin claves, determinista.
 _GATSBY_BASE = "https://www.comfama.com/agenda"
+_DIAG: dict = {}
 _MUNICIPIOS_VALLE = {"medellin", "envigado", "itagui", "bello", "sabaneta", "la estrella", "caldas",
                      "copacabana", "girardota", "barbosa"}
 
@@ -312,15 +313,18 @@ def gatsby_evento_a_dict(e: dict, slug: str) -> Optional[dict]:
         "categoria_principal": categoria,
         "categorias": [categoria],
         "fuente_url": f"{_GATSBY_BASE}/evento/{slug.strip('/')}/",
+        "_origen": "gatsby",
     }
 
 
 async def _try_gatsby_sitemap(max_eventos: int = 400) -> list[dict]:
     """Sitemap de /agenda → page-data.json de cada evento."""
     eventos: list[dict] = []
+    _DIAG.update({"sitemap_status": None, "slugs": 0, "page_data_ok": 0, "page_data_error": 0, "extraidos": 0})
     async with httpx.AsyncClient(headers=_HEADERS, timeout=25, follow_redirects=True) as client:
         try:
             idx = await client.get(f"{_GATSBY_BASE}/sitemap-index.xml")
+            _DIAG["sitemap_status"] = idx.status_code
             mapas = re.findall(r"<loc>([^<]+)</loc>", idx.text) or [f"{_GATSBY_BASE}/sitemap-0.xml"]
             slugs: list[str] = []
             for m in mapas:
@@ -333,6 +337,7 @@ async def _try_gatsby_sitemap(max_eventos: int = 400) -> list[dict]:
             print(f"  [comfama] sitemap error: {exc}")
             return []
         print(f"  [comfama] {len(slugs)} eventos en el sitemap")
+        _DIAG["slugs"] = len(slugs)
         sem = asyncio.Semaphore(4)
 
         async def _uno(slug: str):
@@ -340,7 +345,10 @@ async def _try_gatsby_sitemap(max_eventos: int = 400) -> list[dict]:
                 try:
                     r = await client.get(f"{_GATSBY_BASE}/page-data/evento/{slug}/page-data.json")
                     if r.status_code != 200:
+                        _DIAG["page_data_error"] += 1
+                        _DIAG["ultimo_status_error"] = r.status_code
                         return None
+                    _DIAG["page_data_ok"] += 1
                     ev = ((r.json().get("result") or {}).get("serverData") or {}).get("event")
                     return gatsby_evento_a_dict(ev, slug) if ev else None
                 except Exception:
@@ -351,6 +359,7 @@ async def _try_gatsby_sitemap(max_eventos: int = 400) -> list[dict]:
         for res in await asyncio.gather(*[_uno(s) for s in slugs[:max_eventos]]):
             if res:
                 eventos.append(res)
+    _DIAG["extraidos"] = len(eventos)
     return eventos
 
 
@@ -532,7 +541,11 @@ async def _try_html_scrape() -> list[dict]:
 async def _save_comfama_events(events: list[dict]) -> dict:
     """Save normalized Comfama events, deduplicating against existing DB rows."""
     now_co = datetime.now(CO_TZ)
-    stats = {"nuevos": 0, "duplicados": 0, "descartados": 0}
+    stats = {"nuevos": 0, "duplicados": 0, "descartados": 0, "motivos": {}}
+
+    def _desc(motivo: str):
+        stats["descartados"] += 1
+        stats["motivos"][motivo] = stats["motivos"].get(motivo, 0) + 1
 
     try:
         # Load upcoming events for dup detection
@@ -549,17 +562,19 @@ async def _save_comfama_events(events: list[dict]) -> dict:
     for ev in events:
         try:
             if not ev.get("titulo") or not ev.get("fecha_inicio"):
-                stats["descartados"] += 1
+                _desc("sin_titulo_o_fecha")
                 continue
 
             # Filter out non-events (blog posts, news, etc.)
-            if not is_likely_cultural_event(
+            # Comfama es una fuente estructurada y confiable: no se filtra por palabras
+            # (el filtro descartaba talleres, clubes de lectura y exposiciones reales).
+            if ev.get("_origen") != "gatsby" and not is_likely_cultural_event(
                 ev.get("titulo"),
                 ev.get("descripcion"),
                 fuente_url=ev.get("fuente_url"),
                 categoria=ev.get("categoria_principal"),
             ):
-                stats["descartados"] += 1
+                _desc("no_parece_evento")
                 continue
 
             fecha_str = ev["fecha_inicio"]
@@ -573,17 +588,17 @@ async def _save_comfama_events(events: list[dict]) -> dict:
                     fin_dt = fin_dt.replace(tzinfo=CO_TZ)
                 # Lo que ya terminó se descarta; una exposición en curso NO
                 if (fin_dt or dt) < now_co - timedelta(hours=2):
-                    stats["descartados"] += 1
+                    _desc("ya_paso")
                     continue
                 if dt > now_co + timedelta(days=120):
-                    stats["descartados"] += 1
+                    _desc("muy_lejano")
                     continue
             except Exception:
-                stats["descartados"] += 1
+                _desc("fecha_invalida")
                 continue
 
             # Deduplication using BM25 similarity
-            if is_likely_duplicate(
+            if ev.get("_origen") != "gatsby" and is_likely_duplicate(
                 ev["titulo"],
                 fecha_str[:10],
                 [
@@ -637,13 +652,16 @@ async def _save_comfama_events(events: list[dict]) -> dict:
                 "verificado": True,
             }
 
-            insertar_evento(row)
-            existing.append({"titulo": row["titulo"], "fecha_inicio": row["fecha_inicio"]})
-            stats["nuevos"] += 1
+            decision = insertar_evento(row).decision
+            if decision in ("publicar", "cuarentena"):
+                existing.append({"titulo": row["titulo"], "fecha_inicio": row["fecha_inicio"]})
+                stats["nuevos"] += 1
+            else:
+                _desc(f"puerta_{decision}")
 
         except Exception as exc:
             print(f"[comfama_scraper] Error saving event '{ev.get('titulo', '?')}': {exc}")
-            stats["descartados"] += 1
+            _desc(f"error:{type(exc).__name__}")
 
     return stats
 
@@ -686,6 +704,15 @@ async def run_comfama_scraper() -> dict:
 
     print(f"  → Total a procesar: {len(events)} eventos")
     stats = await _save_comfama_events(events)
+    # Diagnóstico visible en /api/v1/scraper/log (fuente "comfama_scraper")
+    try:
+        supabase.table("scraping_log").insert({
+            "fuente": "comfama_scraper", "registros_nuevos": stats["nuevos"],
+            "registros_actualizados": 0, "errores": stats["descartados"],
+            "detalle": {**_DIAG, "duplicados": stats["duplicados"], "motivos": stats["motivos"]},
+        }).execute()
+    except Exception as exc:
+        print(f"  [comfama] log error: {exc}")
     print(
         f"  ✅ Comfama: {stats['nuevos']} nuevos | "
         f"{stats['duplicados']} duplicados | "
