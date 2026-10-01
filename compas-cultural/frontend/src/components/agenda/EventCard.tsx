@@ -55,7 +55,8 @@ export function categoriaLabel(cat?: string | null): string {
 
 function capitalizar(texto?: string | null): string {
   if (!texto) return ''
-  return texto.replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase())
+  // Por palabra: \b\w falla con tildes ("Belén" → "BeléN")
+  return texto.replaceAll('_', ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
 /**
@@ -189,12 +190,12 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
           {!evento.es_gratuito && evento.precio ? ` · ${evento.precio}` : ''}
         </p>
 
-        <div className="mt-auto pt-3 flex items-center gap-2">
+        <div className="mt-auto pt-3 flex items-center gap-1.5">
           <a
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1 text-center text-sm font-bold border-2 border-black px-3 py-2.5 hover:bg-black hover:text-white transition-colors"
+            className="flex-1 min-w-0 text-center text-sm font-bold whitespace-nowrap border-2 border-black px-2 py-2.5 hover:bg-black hover:text-white transition-colors"
           >
             Cómo llegar
           </a>
@@ -203,7 +204,7 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
               href={evento.fuente_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex-1 text-center text-sm font-bold bg-black text-white border-2 border-black px-3 py-2.5 hover:bg-white hover:text-black transition-colors"
+              className="flex-1 min-w-0 text-center text-sm font-bold whitespace-nowrap bg-black text-white border-2 border-black px-2 py-2.5 hover:bg-white hover:text-black transition-colors"
             >
               {evento.precio && !evento.es_gratuito ? 'Entradas' : 'Más info'}
             </a>
