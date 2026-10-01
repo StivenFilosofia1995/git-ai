@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from typing import Annotated
 
@@ -63,9 +63,50 @@ def trigger_blast_all(api_key: Annotated[str, Query()] = ""):
     return stats
 
 
+@router.get("/estado")
+def estado_boletin(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Estado del boletín semanal: remitente, destinatarios y enviados esta semana (admin)."""
+    from app.security import require_admin_key
+    require_admin_key(x_api_key)
+    from app.services.email_service import (
+        cargar_destinatarios, remitente_listo, _digest_already_sent, _week_start_iso, is_email_unsubscribed,
+    )
+    listo, motivo = remitente_listo()
+    semana = _week_start_iso()
+    dest = cargar_destinatarios()
+    enviados = sum(1 for r in dest if _digest_already_sent(semana, r["email"]))
+    bajas = sum(1 for r in dest if is_email_unsubscribed(r["email"]))
+    return {"remitente_listo": listo, "remitente": motivo, "semana": semana,
+            "destinatarios": len(dest), "enviados_esta_semana": enviados, "dados_de_baja": bajas}
+
+
+@router.post("/prueba")
+def enviar_prueba(
+    para: str = Query(..., description="Correo que recibirá la vista previa"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Envía el boletín de esta semana a un solo correo (sin marcarlo como enviado)."""
+    from app.security import require_admin_key
+    require_admin_key(x_api_key)
+    from app.services import email_service as es
+    listo, motivo = es.remitente_listo()
+    r = {"email": para.strip().lower(), "nombre": para.split("@")[0], "municipio": None,
+         "barrio": None, "categoria": None, "context_label": es.VALLE_LABEL}
+    original = es._mark_digest_sent
+    es._mark_digest_sent = lambda *_a, **_k: None  # la prueba no consume el envío real
+    try:
+        semana = "prueba-" + es._week_start_iso()
+        resultado = es.enviar_digest_a(r, semana)
+    finally:
+        es._mark_digest_sent = original
+    return {"resultado": resultado, "remitente_listo": listo, "remitente": motivo}
+
+
 @router.get("/blast-status")
-def get_blast_status():
-    """Returns cursor position and recipient count for the blast campaign."""
+def get_blast_status(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Returns cursor position and recipient count for the blast campaign (admin)."""
+    from app.security import require_admin_key
+    require_admin_key(x_api_key)
     from app.services.email_service import (
         _load_auth_users, _load_profile_recipients, _load_place_recipients,
         _append_recipient, _kv_get,

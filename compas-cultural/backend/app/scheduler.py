@@ -188,13 +188,15 @@ async def _run_ig_colectivos_discovery():
 
 
 def _run_weekly_digest():
-    """Digest tick: sends at most one recipient per execution (Mondays only)."""
-    from app.services.email_service import send_weekly_digest_campaign
+    """Boletín semanal por lotes de 10 (lunes desde las 7:00; martes reintenta fallos)."""
+    from app.services.email_service import send_weekly_digest_batch
     try:
-        stats = send_weekly_digest_campaign()
+        stats = send_weekly_digest_batch(lote=10)
+        if not (stats.get("sent") or stats.get("failed")):
+            return
         print(
             "📬 Digest tick: "
-            f"destinatarios={stats.get('recipients', 0)} | "
+            f"pendientes={stats.get('pendientes', 0)} | "
             f"sent={stats.get('sent', 0)} | "
             f"skipped={stats.get('skipped', 0)} | "
             f"failed={stats.get('failed', 0)} | "
@@ -493,22 +495,16 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Boletín semanal: lunes y martes, un lote de 10 cada 4 min (≈150/hora)
     scheduler.add_job(
         _run_weekly_digest,
-        trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
+        trigger=CronTrigger(day_of_week="mon,tue", minute="*/4", timezone=CO_TZ),
         id="weekly_digest",
-        name="Boletín semanal (goteo cada 4 minutos)",
+        name="Boletín semanal (lotes de 10, lunes y martes)",
         replace_existing=True,
     )
-
-    # ── Blast campaign: cada 4 minutos — envío a todos los usuarios ───────────
-    scheduler.add_job(
-        _run_blast_tick,
-        trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
-        id="blast_campaign",
-        name="Blast campaign — goteo a todos los usuarios (cada 4min)",
-        replace_existing=True,
-    )
+    # (La "blast campaign" de prueba corría todos los días en paralelo al boletín: retirada.
+    #  Sigue disponible a mano en /api/v1/email/blast-now con clave admin.)
 
     # ── Digest reset: cada lunes 6:00 AM Colombia → reinicia cursor ──────
     scheduler.add_job(

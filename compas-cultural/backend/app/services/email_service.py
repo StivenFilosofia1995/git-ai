@@ -242,15 +242,36 @@ def _deliver_via_smtp(to_email: str, subject: str, html: str, text: str) -> bool
     return False
 
 
-def _send_email(to_email: str, subject: str, html: str, text: str) -> bool:
+def remitente_listo() -> tuple[bool, str]:
+    """¿Puede el sistema enviar correos a cualquier destinatario?"""
+    remitente = (settings.smtp_from_email or "").strip().lower()
+    if settings.resend_api_key and remitente and not remitente.endswith("@resend.dev"):
+        return True, f"Resend con remitente {remitente}"
+    if settings.smtp_password and settings.smtp_user:
+        return True, "SMTP (Gmail). Ojo: límite ~500/día y Railway puede bloquear el puerto"
     if settings.resend_api_key:
+        return False, ("El remitente es @resend.dev (modo prueba de Resend): solo entrega al dueño de la "
+                       "cuenta. Verifica tu dominio en resend.com/domains y pon SMTP_FROM_EMAIL="
+                       "agenda@tu-dominio en Railway.")
+    return False, "No hay RESEND_API_KEY ni SMTP configurados"
+
+
+def _send_email(to_email: str, subject: str, html: str, text: str) -> bool:
+    remitente = (settings.smtp_from_email or "").strip().lower()
+    if settings.resend_api_key and not remitente.endswith("@resend.dev"):
+        if _send_via_resend(to_email, subject, html):
+            return True
+    if settings.smtp_password and settings.smtp_user:
+        return _deliver_via_smtp(to_email, subject, html, text)
+    if settings.resend_api_key:
+        # Último intento (solo llega si el destinatario es el dueño de la cuenta Resend)
         return _send_via_resend(to_email, subject, html)
-    return _deliver_via_smtp(to_email, subject, html, text)
+    return False
 
 
 def _send_via_resend(to_email: str, subject: str, html: str) -> bool:
     try:
-        from_addr = settings.smtp_from_email or settings.smtp_user or "noreply@culturaeterea.com"
+        from_addr = settings.smtp_from_email or settings.smtp_user or "agenda@culturaetereamed.com"
         resp = httpx.post(
             "https://api.resend.com/emails",
             headers={
@@ -262,6 +283,7 @@ def _send_via_resend(to_email: str, subject: str, html: str) -> bool:
                 "to": [to_email],
                 "subject": subject,
                 "html": html,
+                "headers": {"List-Unsubscribe": f"<{settings.frontend_url.rstrip('/')}/api/v1/email/unsubscribe>"},
             },
             timeout=10,
         )
@@ -275,34 +297,61 @@ def _send_via_resend(to_email: str, subject: str, html: str) -> bool:
         return False
 
 
+# ─── Fechas en hora de Bogotá y en español ─────────────────────────────────
+_DIAS_ES = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+_MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre",
+             "octubre", "noviembre", "diciembre"]
+
+
+def _fecha_hora_co(evento: dict) -> tuple[str, str]:
+    """('vie 3 oct', '8:00 p. m.') — antes se recortaba el texto UTC (hora corrida 5 h)."""
+    raw = str(evento.get("fecha_inicio") or "")
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        dt = dt.replace(tzinfo=CO_TZ) if dt.tzinfo is None else dt.astimezone(CO_TZ)
+    except ValueError:
+        return raw[:10], ""
+    fecha = f"{_DIAS_ES[dt.weekday()]} {dt.day} {_MESES_ES[dt.month - 1][:3]}"
+    hora = ""
+    if evento.get("hora_confirmada"):
+        h12 = dt.hour % 12 or 12
+        hora = f"{h12}:{dt.minute:02d} {'a. m.' if dt.hour < 12 else 'p. m.'}"
+    return fecha, hora
+
+
 # ─── Event data fetching ───────────────────────────────────────────────────────
 
+def _filtrar(eventos: list[dict], municipio: str | None, categoria: str | None, barrio: str | None) -> list[dict]:
+    def norm(x):
+        return (x or "").lower().replace("í", "i").replace("ü", "u").replace(" ", "_")
+    out = eventos
+    if barrio:
+        out = [e for e in out if barrio.lower() in (e.get("barrio") or "").lower()] or out
+    elif municipio:
+        out = [e for e in out if norm(municipio) in norm(e.get("municipio"))] or out
+    if categoria and categoria != "otro":
+        out = [e for e in out if e.get("categoria_principal") == categoria
+               or categoria in (e.get("categorias") or [])] or out
+    return out
+
+
+def _ordenar_para_correo(eventos: list[dict]) -> list[dict]:
+    """Primero los que tienen imagen y hora (se ven mejor en el correo), luego por fecha."""
+    def img_real(e):  # el afiche genérico de Bibliotecas no cuenta como imagen del evento
+        u = e.get("imagen_url") or ""
+        return bool(u) and "Para-enlaces" not in u
+    return sorted(eventos, key=lambda e: (not img_real(e), not e.get("hora_confirmada"),
+                                          str(e.get("fecha_inicio") or "")))
+
+
 def _fetch_today_events(municipio: str | None = None, limit: int = 3) -> list[dict]:
-    hoy = datetime.now(CO_TZ).date().isoformat()
-    manana = (datetime.now(CO_TZ).date() + timedelta(days=1)).isoformat()
-    query = (
-        supabase.table("eventos")
-        .select("titulo,slug,fecha_inicio,hora_confirmada,categoria_principal,nombre_lugar,barrio,municipio,imagen_url,es_gratuito")
-        .gte("fecha_inicio", hoy)
-        .lt("fecha_inicio", manana)
-        .order("fecha_inicio")
-        .limit(limit)
-    )
-    if municipio:
-        query = query.ilike("municipio", f"%{municipio}%")
-    data = query.execute().data or []
-    if not data and municipio:
-        data = (
-            supabase.table("eventos")
-            .select("titulo,slug,fecha_inicio,hora_confirmada,categoria_principal,nombre_lugar,barrio,municipio,imagen_url,es_gratuito")
-            .gte("fecha_inicio", hoy)
-            .lt("fecha_inicio", manana)
-            .order("fecha_inicio")
-            .limit(limit)
-            .execute()
-            .data or []
-        )
-    return data
+    from app.services.evento_service import get_eventos_hoy
+    try:
+        eventos = get_eventos_hoy()
+    except Exception as exc:
+        logger.warning("No se pudieron cargar los eventos de hoy: %s", exc)
+        return []
+    return _ordenar_para_correo(_filtrar(eventos, municipio, None, None))[:limit]
 
 
 def _fetch_weekly_events(
@@ -311,37 +360,26 @@ def _fetch_weekly_events(
     limit: int = 8,
     barrio: str | None = None,
 ) -> list[dict]:
-    hoy = datetime.now(CO_TZ).date().isoformat()
-    en_7d = (datetime.now(CO_TZ).date() + timedelta(days=7)).isoformat()
-    query = (
-        supabase.table("eventos")
-        .select("titulo,slug,fecha_inicio,hora_confirmada,categoria_principal,nombre_lugar,barrio,municipio,imagen_url")
-        .gte("fecha_inicio", hoy)
-        .lte("fecha_inicio", en_7d)
-        .order("fecha_inicio")
-        .limit(limit)
-    )
-    if barrio:
-        query = query.ilike("barrio", f"%{barrio}%")
-    if municipio and not barrio:
-        query = query.ilike("municipio", f"%{municipio}%")
-    if categoria and categoria != "otro":
-        query = query.eq("categoria_principal", categoria)
-
-    data = query.execute().data or []
-    if not data and categoria and municipio:
-        data = (
-            supabase.table("eventos")
-            .select("titulo,slug,fecha_inicio,hora_confirmada,categoria_principal,nombre_lugar,barrio,municipio,imagen_url")
-            .gte("fecha_inicio", hoy)
-            .lte("fecha_inicio", en_7d)
-            .order("fecha_inicio")
-            .limit(limit)
-            .ilike("municipio", f"%{municipio}%")
-            .execute()
-            .data or []
-        )
-    return data
+    """Próximos 7 días en hora Bogotá, sin ocultos/cuarentena (misma fuente que la web)."""
+    from app.services.evento_service import get_eventos_proximas_semanas
+    try:
+        eventos = get_eventos_proximas_semanas(dias=7, desde_dias=1)
+    except Exception as exc:
+        logger.warning("No se pudieron cargar los eventos de la semana: %s", exc)
+        return []
+    elegidos = _ordenar_para_correo(_filtrar(eventos, municipio, categoria, barrio))
+    # Variedad: máx. 2 por categoría para que el correo no sea 8 talleres iguales
+    por_cat: dict[str, int] = {}
+    out = []
+    for e in elegidos:
+        c = e.get("categoria_principal") or "otro"
+        if por_cat.get(c, 0) >= 2:
+            continue
+        por_cat[c] = por_cat.get(c, 0) + 1
+        out.append(e)
+        if len(out) >= limit:
+            break
+    return out
 
 
 # ─── Email HTML builders ───────────────────────────────────────────────────────
@@ -351,11 +389,7 @@ def _build_event_card_large(evento: dict, frontend_url: str) -> str:
     cat_raw = evento.get("categoria_principal") or "otro"
     categoria = cat_raw.replace("_", " ").upper()
     accent = CAT_COLORS_EMAIL.get(cat_raw, "#555555")
-    fecha_raw = str(evento.get("fecha_inicio") or "")
-    fecha = fecha_raw[:10]
-    hora = ""
-    if evento.get("hora_confirmada") and len(fecha_raw) > 10:
-        hora = fecha_raw[11:16]
+    fecha, hora = _fecha_hora_co(evento)
     lugar = escape(
         evento.get("nombre_lugar") or evento.get("barrio") or evento.get("municipio") or VALLE_LABEL
     )
@@ -378,7 +412,7 @@ def _build_event_card_large(evento: dict, frontend_url: str) -> str:
     <div style="font-size:16px;font-weight:700;color:#ffffff;line-height:1.3;margin-bottom:8px;">{titulo}</div>
     <div style="font-family:'Courier New',Courier,monospace;font-size:10px;color:#666666;margin-bottom:4px;">{fecha}{hora_str}</div>
     <div style="font-family:'Courier New',Courier,monospace;font-size:10px;color:#666666;margin-bottom:14px;">{lugar}</div>
-    <a href="{frontend_url}/agenda/{slug}" style="display:inline-block;background-color:{accent};color:#ffffff;text-decoration:none;padding:8px 18px;font-family:'Courier New',Courier,monospace;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">VER →</a>
+    <a href="{frontend_url}/evento/{slug}" style="display:inline-block;background-color:{accent};color:#ffffff;text-decoration:none;padding:8px 18px;font-family:'Courier New',Courier,monospace;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">VER →</a>
   </td></tr>
 </table>"""
 
@@ -391,11 +425,7 @@ def _build_event_row_compact(left: dict | None, right: dict | None, frontend_url
         cat_raw = evento.get("categoria_principal") or "otro"
         accent = CAT_COLORS_EMAIL.get(cat_raw, "#555555")
         categoria = cat_raw.replace("_", " ").upper()
-        fecha_raw = str(evento.get("fecha_inicio") or "")
-        fecha = fecha_raw[:10]
-        hora = ""
-        if evento.get("hora_confirmada") and len(fecha_raw) > 10:
-            hora = fecha_raw[11:16]
+        fecha, hora = _fecha_hora_co(evento)
         lugar = escape(evento.get("nombre_lugar") or evento.get("barrio") or evento.get("municipio") or "")
         slug = evento.get("slug") or ""
         imagen_url = evento.get("imagen_url") or ""
@@ -413,7 +443,7 @@ def _build_event_row_compact(left: dict | None, right: dict | None, frontend_url
       <div style="font-size:12px;font-weight:700;color:#ffffff;line-height:1.3;margin-bottom:6px;">{titulo}</div>
       <div style="font-family:'Courier New',monospace;font-size:9px;color:#666;margin-bottom:2px;">{fecha}{hora_str}</div>
       <div style="font-family:'Courier New',monospace;font-size:9px;color:#555;margin-bottom:10px;">{lugar}</div>
-      <a href="{frontend_url}/agenda/{slug}" style="display:inline-block;background:{accent};color:#fff;text-decoration:none;padding:5px 12px;font-family:'Courier New',monospace;font-size:8px;font-weight:700;letter-spacing:1px;">VER →</a>
+      <a href="{frontend_url}/evento/{slug}" style="display:inline-block;background:{accent};color:#fff;text-decoration:none;padding:5px 12px;font-family:'Courier New',monospace;font-size:8px;font-weight:700;letter-spacing:1px;">VER →</a>
     </td></tr>
   </table>
 </td>"""
@@ -438,7 +468,7 @@ def _build_weekly_digest_html(
 ) -> str:
     frontend_url = settings.frontend_url.rstrip("/")
     now_co = datetime.now(CO_TZ)
-    fecha_label = now_co.strftime("%d de %B").lstrip("0").upper()
+    fecha_label = f"{now_co.day} DE {_MESES_ES[now_co.month - 1].upper()}"
     context_upper = escape(context_label.upper())
 
     # HOY section — up to 3 large cards
@@ -648,7 +678,7 @@ def _build_weekly_digest_text(nombre: str, context_label: str, eventos: list[dic
     ]
     for evento in eventos:
         lines.append(
-            f"- {evento.get('titulo', 'Evento')} | {str(evento.get('fecha_inicio') or '')[:10]} | "
+            f"- {evento.get('titulo', 'Evento')} | {' '.join(x for x in _fecha_hora_co(evento) if x)} | "
             f"{evento.get('nombre_lugar') or evento.get('barrio') or evento.get('municipio') or VALLE_LABEL}"
         )
     lines.extend([
@@ -865,16 +895,81 @@ def _get_profile_for_email(email: str) -> dict:
 
 # ─── Weekly digest campaign (Monday drip) ─────────────────────────────────────
 
-def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False, force: bool = False) -> dict:
+def cargar_destinatarios(limit: int = 2000) -> list[dict]:
+    """Solo personas que se REGISTRARON (Ley 1581: consentimiento).
+
+    Los correos de lugares/colectivos recogidos por los scrapers NO reciben el
+    boletín salvo que EMAIL_INCLUIR_LUGARES=1 (y deberían haberlo autorizado).
+    """
+    import os
     recipients: list[dict] = []
     seen: set[str] = set()
-
-    for r in _load_auth_users(500):
+    for r in _load_auth_users(limit):
         _append_recipient(recipients, seen, r)
     for r in _load_profile_recipients(limit):
         _append_recipient(recipients, seen, r)
-    for r in _load_place_recipients(limit):
-        _append_recipient(recipients, seen, r)
+    if os.getenv("EMAIL_INCLUIR_LUGARES", "").lower() in ("1", "true", "yes"):
+        for r in _load_place_recipients(limit):
+            _append_recipient(recipients, seen, r)
+    return sorted(recipients, key=lambda r: r.get("email", ""))
+
+
+def enviar_digest_a(r: dict, week_start: str) -> str:
+    """Envía el boletín a un destinatario. Devuelve 'sent' | 'skipped' | 'failed' | 'sin_eventos'."""
+    email = r.get("email") or ""
+    if not email or _digest_already_sent(week_start, email) or is_email_unsubscribed(email):
+        return "skipped"
+    eventos_hoy = _fetch_today_events(r.get("municipio"), limit=3)
+    eventos_semana = _fetch_weekly_events(r.get("municipio"), r.get("categoria"), barrio=r.get("barrio"))
+    if len(eventos_semana) < 3:
+        eventos_semana = _fetch_weekly_events(None, None, limit=8)
+    if not eventos_semana:
+        return "sin_eventos"
+    context_label = r.get("context_label") or VALLE_LABEL
+    unsub_url = f"{settings.frontend_url.rstrip('/')}/api/v1/email/unsubscribe?email={_url_quote(email)}&token={_unsub_token(email)}"
+    profile = _get_profile_for_email(email)
+    html = _build_weekly_digest_html(
+        r["nombre"], context_label, eventos_semana, eventos_hoy, unsubscribe_url=unsub_url,
+        municipio=profile.get("municipio") or r.get("municipio"), preferencias=profile.get("preferencias") or None,
+    )
+    text = _build_weekly_digest_text(r["nombre"], context_label, eventos_semana)
+    if _send_email(email, "Tu agenda cultural de la semana — Cultura ETÉREA", html, text):
+        _mark_digest_sent(week_start, email)
+        return "sent"
+    return "failed"
+
+
+def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
+    """Envía el boletín semanal por lotes (lunes y martes, para recuperar fallos).
+
+    Cada destinatario queda marcado por semana: nunca recibe dos veces el mismo boletín.
+    """
+    listo, motivo = remitente_listo()
+    stats = {"week_start": _week_start_iso(), "sent": 0, "skipped": 0, "failed": 0,
+             "pendientes": 0, "remitente_listo": listo, "remitente": motivo}
+    now_co = datetime.now(CO_TZ)
+    if not force and (now_co.weekday() not in (0, 1) or now_co.hour < 7):
+        stats["reason"] = "El boletín sale lunes desde las 7:00 (martes para reintentos)"
+        return stats
+    if not listo:
+        stats["reason"] = motivo
+        return stats
+    week_start = stats["week_start"]
+    destinatarios = cargar_destinatarios()
+    pendientes = [r for r in destinatarios if not _digest_already_sent(week_start, r["email"])
+                  and not is_email_unsubscribed(r["email"])]
+    stats["destinatarios"] = len(destinatarios)
+    stats["pendientes"] = len(pendientes)
+    for r in pendientes[:lote]:
+        res = enviar_digest_a(r, week_start)
+        stats[res if res in stats else "skipped"] = stats.get(res, 0) + 1
+        time.sleep(0.6)  # Resend: ≤ 2 req/s
+    stats["pendientes"] = max(0, len(pendientes) - stats["sent"])
+    return stats
+
+
+def send_weekly_digest_campaign(limit: int = 200, dry_run: bool = False, force: bool = False) -> dict:
+    recipients = cargar_destinatarios(limit)
 
     recipients = sorted(recipients, key=lambda r: r.get("email", ""))
     stats = {
