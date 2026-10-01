@@ -93,6 +93,8 @@ _TERMINO_CULTURAL_RE = re.compile(
     r"lectura|club de|feria del libro|lanzamiento|circo|stand ?up|impro|tablao|orquesta|filarmonica|coro)\b"
 )
 
+_CANCELADO_RE = re.compile(r"(^|[\s(\[])(cancelad[oa]|aplazad[oa]|suspendid[oa])([\s)\]:.,-]|$)")
+
 # Ciudades fuera del Valle de Aburrá que delatan eventos ajenos
 _FUERA_RE = re.compile(
     r"\b(charlotte|miami|new york|nueva york|los angeles|madrid|barcelona|buenos aires|ciudad de mexico|"
@@ -264,6 +266,8 @@ def evaluar_evento(ev: dict, *, ahora: Optional[datetime] = None) -> Evaluacion:
         rechazos.append("titulo_vacio")
     if _NAV_TITLE_RE.match(tn):
         rechazos.append("titulo_es_menu_web")
+    if _CANCELADO_RE.search(tn):
+        rechazos.append("cancelado")
     if conf != "alta" and _GENERIC_TITLE_RE.match(tn):
         rechazos.append("titulo_plantilla_generica")
 

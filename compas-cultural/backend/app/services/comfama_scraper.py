@@ -248,6 +248,112 @@ async def _try_wp_api(municipio: str = "Medellín") -> list[dict]:
     return events
 
 
+# ─── Sitio nuevo (Gatsby + Eventtia, 2026) ─────────────────────────────────
+# La WP REST API ya no existe (404). La agenda es un sitio Gatsby bajo /agenda:
+# el sitemap lista cada evento y cada uno publica su page-data.json con los datos
+# estructurados (serverData.event). Fuente pública, sin claves, determinista.
+_GATSBY_BASE = "https://www.comfama.com/agenda"
+_MUNICIPIOS_VALLE = {"medellin", "envigado", "itagui", "bello", "sabaneta", "la estrella", "caldas",
+                     "copacabana", "girardota", "barbosa"}
+
+
+def _hora_local(raw: Optional[str]) -> Optional[datetime]:
+    """Comfama marca las horas con 'Z' pero son hora de Bogotá (una exposición
+    que abre '08:00Z' abre a las 8 a. m., no a las 3 a. m.)."""
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "").split("+")[0])
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=CO_TZ)
+
+
+def gatsby_evento_a_dict(e: dict, slug: str) -> Optional[dict]:
+    """Función pura: serverData.event de Comfama → evento normalizado (o None)."""
+    titulo = (e.get("title") or "").strip()
+    if not titulo or re.search(r"\b(cancelad[oa]|aplazad[oa]|suspendid[oa])\b", _normalize(titulo)):
+        return None
+    ini, fin = _hora_local(e.get("startDate")), _hora_local(e.get("endDate"))
+    if not ini:
+        return None
+    municipio = _normalize(e.get("municipality") or "")
+    if municipio and municipio not in _MUNICIPIOS_VALLE:
+        return None  # Comfama tiene sedes en todo Antioquia
+    tipos = [_normalize(t) for t in (e.get("type") or [])]
+    pago = (e.get("paymentText") or "").strip()
+    gratis = "gratis" in tipos or _normalize(pago).startswith("entrada libre")
+    tarifa = e.get("rateD") or e.get("rateC") or e.get("rateB") or e.get("rateA")
+    if gratis:
+        precio = "Gratis"
+    elif isinstance(tarifa, (int, float)) and tarifa > 0:
+        precio = f"${int(tarifa):,}".replace(",", ".") + " (no afiliado)"
+    else:
+        precio = pago or "Consultar"
+    direccion = (e.get("formattedAddress") or "").strip()
+    partes = [x.strip() for x in direccion.split(",") if x.strip()]
+    lugar = ((e.get("location") or [None])[0] or e.get("headquarters") or e.get("channel") or "Comfama").strip()
+    categoria = _map_categoria((e.get("category") or {}).get("categoryName") or "")
+    imagen = ((e.get("cardImage") or {}).get("url") or (e.get("banner") or {}).get("url") or "").strip() or None
+    hora_ok = ini.hour != 0 or ini.minute != 0
+    return {
+        "titulo": titulo,
+        "fecha_inicio": ini.isoformat(),
+        "fecha_fin": fin.isoformat() if fin and fin > ini else None,
+        "hora_confirmada": hora_ok,
+        "descripcion": (e.get("description") or "").strip()[:1000] or None,
+        "municipio": municipio.replace(" ", "_") if municipio else "medellin",
+        "barrio": partes[1] if len(partes) > 1 else None,
+        "direccion": partes[0] if partes else None,
+        "nombre_lugar": lugar,
+        "imagen_url": imagen,
+        "precio": precio,
+        "es_gratuito": gratis,
+        "categoria_principal": categoria,
+        "categorias": [categoria],
+        "fuente_url": f"{_GATSBY_BASE}/evento/{slug.strip('/')}/",
+    }
+
+
+async def _try_gatsby_sitemap(max_eventos: int = 400) -> list[dict]:
+    """Sitemap de /agenda → page-data.json de cada evento."""
+    eventos: list[dict] = []
+    async with httpx.AsyncClient(headers=_HEADERS, timeout=25, follow_redirects=True) as client:
+        try:
+            idx = await client.get(f"{_GATSBY_BASE}/sitemap-index.xml")
+            mapas = re.findall(r"<loc>([^<]+)</loc>", idx.text) or [f"{_GATSBY_BASE}/sitemap-0.xml"]
+            slugs: list[str] = []
+            for m in mapas:
+                sm = await client.get(m)
+                for loc in re.findall(r"<loc>([^<]+)</loc>", sm.text):
+                    mt = re.search(r"/agenda/evento/([^/?#]+)/?$", loc)
+                    if mt and mt.group(1) not in slugs:
+                        slugs.append(mt.group(1))
+        except Exception as exc:
+            print(f"  [comfama] sitemap error: {exc}")
+            return []
+        print(f"  [comfama] {len(slugs)} eventos en el sitemap")
+        sem = asyncio.Semaphore(4)
+
+        async def _uno(slug: str):
+            async with sem:
+                try:
+                    r = await client.get(f"{_GATSBY_BASE}/page-data/evento/{slug}/page-data.json")
+                    if r.status_code != 200:
+                        return None
+                    ev = ((r.json().get("result") or {}).get("serverData") or {}).get("event")
+                    return gatsby_evento_a_dict(ev, slug) if ev else None
+                except Exception:
+                    return None
+                finally:
+                    await asyncio.sleep(0.25)
+
+        for res in await asyncio.gather(*[_uno(s) for s in slugs[:max_eventos]]):
+            if res:
+                eventos.append(res)
+    return eventos
+
+
 async def _try_html_scrape() -> list[dict]:
     """
     Scrape Comfama's SSR agenda page directly with httpx + BeautifulSoup.
@@ -461,7 +567,12 @@ async def _save_comfama_events(events: list[dict]) -> dict:
                 dt = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=CO_TZ)
-                if dt < now_co - timedelta(hours=2):
+                fin_raw = ev.get("fecha_fin")
+                fin_dt = datetime.fromisoformat(fin_raw.replace("Z", "+00:00")) if fin_raw else None
+                if fin_dt and fin_dt.tzinfo is None:
+                    fin_dt = fin_dt.replace(tzinfo=CO_TZ)
+                # Lo que ya terminó se descarta; una exposición en curso NO
+                if (fin_dt or dt) < now_co - timedelta(hours=2):
                     stats["descartados"] += 1
                     continue
                 if dt > now_co + timedelta(days=120):
@@ -515,6 +626,7 @@ async def _save_comfama_events(events: list[dict]) -> dict:
                 "categoria_principal": ev.get("categoria_principal", "centro_cultural"),
                 "municipio": ev.get("municipio", "medellin"),
                 "barrio": ev.get("barrio"),
+                "direccion": ev.get("direccion"),
                 "nombre_lugar": ev.get("nombre_lugar") or "Comfama",
                 "descripcion": ev.get("descripcion", "")[:1000],
                 "imagen_url": ev.get("imagen_url"),
@@ -547,12 +659,18 @@ async def run_comfama_scraper() -> dict:
 
     events: list[dict] = []
 
-    # Try WordPress REST API
-    print("  → Intentando API WordPress de Comfama...")
-    wp_events = await _try_wp_api()
-    if wp_events:
-        print(f"  → API: {len(wp_events)} eventos encontrados")
-        events.extend(wp_events)
+    # 1) Sitio actual: sitemap + page-data.json (Gatsby/Eventtia)
+    print("  → Agenda Comfama (sitemap + page-data)...")
+    events.extend(await _try_gatsby_sitemap())
+    print(f"  → {len(events)} eventos vigentes del Valle")
+
+    # 2) Respaldo: API WordPress (sitio anterior)
+    if len(events) < 3:
+        print("  → Intentando API WordPress de Comfama...")
+        wp_events = await _try_wp_api()
+        if wp_events:
+            print(f"  → API: {len(wp_events)} eventos encontrados")
+            events.extend(wp_events)
 
     # Fallback: HTML scraping of the agenda page
     if len(events) < 3:
