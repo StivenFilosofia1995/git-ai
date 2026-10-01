@@ -19,6 +19,7 @@ import httpx
 from app.config import settings
 from app.database import supabase
 from app.services.auto_scraper import _slugify, _sanitize_payload, CO_TZ, _now_co
+from app.services.event_gate import insertar_evento
 
 BASE_URL = "https://app.ticketmaster.com/discovery/v2/events.json"
 
@@ -206,7 +207,7 @@ async def run_ticketmaster_scraper(days_ahead: int = 60) -> dict:
                     stats["duplicados"] += 1
                     continue
 
-                supabase.table("eventos").insert(evento).execute()
+                insertar_evento(evento)
                 stats["nuevos"] += 1
                 print(f"    ✅ [TM] {evento['titulo']}")
             except Exception as e:

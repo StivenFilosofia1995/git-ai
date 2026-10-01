@@ -168,7 +168,7 @@ def is_likely_cultural_event(
 ) -> bool:
     """Hybrid classifier for scraper candidates.
 
-    Uses deterministic rules first. If ambiguous, optionally asks local Ollama.
+    100 % determinista: reglas + regresión logística local. Sin LLM.
     Conservative default: reject weak signals to avoid publishing non-events.
     """
     title_n = _normalize_for_match(titulo or "")
@@ -223,8 +223,9 @@ def is_likely_cultural_event(
     except Exception:
         pass
 
-    ai_result = _validate_event_with_local_ai(title_n, desc_n, url_n)
-    final = bool(ai_result) if ai_result is not None else (score >= 2)
+    # Sin LLM: el caso ambiguo se decide con la regla determinista.
+    # (Ollama no existe en producción y bloqueaba el event loop con reintentos.)
+    final = score >= 2
     _EVENT_VALIDATION_CACHE[cache_key] = final
     return final
 

@@ -192,11 +192,12 @@ async def _scrape_event_page(title: str, url: str, client: httpx.AsyncClient) ->
                     venue_str = t.strip()
                     break
 
-        # Description: longest non-nav text
+        # Description: primer bloque de PROSA (el primer texto largo es el menú del sitio)
+        from app.services.event_gate import es_prosa
         footer_kws = {"©", "conócenos", "derechos reservados", "facebook", "instagram", "youtube"}
         desc_str = None
         for t in texts:
-            if len(t) > 80 and not any(f in t.lower() for f in footer_kws):
+            if len(t) > 60 and es_prosa(t) and not any(f in t.lower() for f in footer_kws):
                 desc_str = t[:800]
                 break
 
@@ -280,15 +281,35 @@ async def run_bibliotecas_mde_scraper(pages: int = 6, concurrency: int = 8) -> d
     try:
         ex_resp = (
             supabase.table("eventos")
-            .select("slug,fuente_url")
+            .select("id,slug,fuente_url,descripcion")
             .eq("fuente", "bibliotecas_mde")
             .gte("fecha_inicio", today)
             .execute()
         )
         existing_slugs = {e["slug"] for e in (ex_resp.data or [])}
         existing_urls  = {e["fuente_url"] for e in (ex_resp.data or []) if e.get("fuente_url")}
+        # Para reponer descripciones que quedaron con el menú del sitio
+        existing_by_key = {}
+        for e in (ex_resp.data or []):
+            existing_by_key[e["slug"]] = e
+            if e.get("fuente_url"):
+                existing_by_key[e["fuente_url"]] = e
     except Exception:
-        existing_slugs, existing_urls = set(), set()
+        existing_slugs, existing_urls, existing_by_key = set(), set(), {}
+
+    from app.services.event_gate import es_texto_menu, insertar_evento
+    stats["descripciones_repuestas"] = 0
+
+    def _reponer_descripcion(key: str) -> None:
+        ex = existing_by_key.get(key)
+        nueva = (r.get("description") or "").strip()
+        if ex and nueva and (not ex.get("descripcion") or es_texto_menu(ex.get("descripcion"))):
+            try:
+                supabase.table("eventos").update({"descripcion": nueva[:1000]}).eq("id", ex["id"]).execute()
+                ex["descripcion"] = nueva
+                stats["descripciones_repuestas"] += 1
+            except Exception as exc:
+                print(f"  ⚠ Error reponiendo descripción: {exc}")
 
     # 5. Procesar e insertar
     print("  → Insertando en BD...")
@@ -316,10 +337,12 @@ async def run_bibliotecas_mde_scraper(pages: int = 6, concurrency: int = 8) -> d
 
         # Dedup por URL exacta
         if r.get("url") in existing_urls:
+            _reponer_descripcion(r.get("url"))
             stats["duplicados"] += 1
             continue
         # Dedup por slug
         if slug in existing_slugs:
+            _reponer_descripcion(slug)
             stats["duplicados"] += 1
             continue
 
@@ -341,7 +364,9 @@ async def run_bibliotecas_mde_scraper(pages: int = 6, concurrency: int = 8) -> d
             "descripcion": (r.get("description") or "")[:1000],
         }
         try:
-            supabase.table("eventos").upsert(row, on_conflict="slug").execute()
+            if insertar_evento(row, upsert=True).decision in ("rechazar", "duplicado"):
+                stats["duplicados"] += 1
+                continue
             existing_slugs.add(slug)
             existing_urls.add(r.get("url", ""))
             stats["nuevos"] += 1

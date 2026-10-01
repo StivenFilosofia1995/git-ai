@@ -27,6 +27,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from app.database import supabase
+from app.services.event_gate import insertar_evento
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -309,8 +310,7 @@ def _insert_precise_event(evento: dict, lugar: dict, imagen_url: Optional[str]) 
     }
 
     try:
-        supabase.table("eventos").insert(payload).execute()
-        return True
+        return insertar_evento(payload).decision in ("publicar", "cuarentena")
     except Exception as e:
         print(f"    ❌ Error insertando '{titulo}': {e}")
         return False

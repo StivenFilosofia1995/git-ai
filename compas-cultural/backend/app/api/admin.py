@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Query, UploadFile, File
 from pydantic import BaseModel
 from app.config import settings
+from app.services.event_gate import insertar_evento
 
 router = APIRouter()
 
@@ -1331,6 +1332,47 @@ async def trigger_datos_gov_espacios(
     return {"ok": True, **stats}
 
 
+@router.post("/revisar-calidad")
+async def revisar_calidad(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    aplicar: bool = False,
+):
+    """Aplica la puerta de calidad (event_gate) a los eventos vigentes.
+
+    Por defecto es un ensayo (`aplicar=false`): devuelve qué ocultaría y por qué.
+    Con `aplicar=true` oculta (no borra) y deja `oculto_motivo = 'gate:...'`.
+    """
+    _check_key(x_api_key)
+    import asyncio as _asyncio
+    from app.services.event_gate import revisar_calidad_eventos
+    res = await _asyncio.to_thread(revisar_calidad_eventos, aplicar)
+    if not aplicar and "plan" in res:
+        plan = res.pop("plan")
+        res["muestra_ocultar"] = dict(list(plan["ocultar"].items())[:50])
+    res["motivos"] = dict(res.get("motivos") or {})
+    return res
+
+
+@router.get("/cuarentena")
+def listar_cuarentena(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    limit: int = 200,
+):
+    """Eventos ocultados por la puerta de calidad, con su motivo, para aprobar o descartar."""
+    _check_key(x_api_key)
+    from app.database import supabase
+    try:
+        rows = (
+            supabase.table("eventos")
+            .select("id,titulo,slug,fecha_inicio,fuente,fuente_url,nombre_lugar,oculto_motivo")
+            .eq("oculto", True).like("oculto_motivo", "gate:%")
+            .order("fecha_inicio").limit(min(limit, 500)).execute()
+        ).data or []
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Falta la migración de oculto_motivo: {exc}")
+    return {"total": len(rows), "data": rows}
+
+
 @router.post("/verificar-coordenadas")
 async def verificar_coordenadas(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
@@ -1494,7 +1536,7 @@ def ig_feed_import(
                         v = ""
                 clean[k] = v
 
-            res = supabase.table("eventos").insert(clean).execute()
+            res = insertar_evento(clean)
             nuevos += 1 if res.data else 0
         except Exception as e:
             s = str(e).lower()
@@ -1626,7 +1668,7 @@ def ig_colectivos_import(
                 else:
                     clean[k] = v
 
-            supabase.table("eventos").insert(clean).execute()
+            insertar_evento(clean)
             nuevos += 1
         except Exception as e:
             s = str(e).lower()

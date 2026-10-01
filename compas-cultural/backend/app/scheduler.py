@@ -76,6 +76,15 @@ async def _run_cleanup():
         print(f"❌ Cleanup error: {e}")
 
 
+async def _run_revision_calidad():
+    """Puerta de calidad sobre los eventos ya publicados (oculta basura y duplicados)."""
+    from app.services.event_gate import revisar_calidad_eventos
+    try:
+        await asyncio.to_thread(revisar_calidad_eventos, True)
+    except Exception as e:
+        print(f"❌ Revisión de calidad error: {e}")
+
+
 async def _run_geo_verificacion():
     """Verifica un lote de coordenadas de lugares contra OpenStreetMap (≤1 req/s)."""
     from app.services.geo_verificacion import run_verificacion_coordenadas
@@ -515,6 +524,22 @@ def start_scheduler():
         trigger=CronTrigger(hour=3, minute=30, timezone=CO_TZ),
         id="privacy_cleanup",
         name="Limpieza automática de datos (privacidad)",
+        replace_existing=True,
+    )
+
+    # ── Revisión de calidad: 1:20am (después de la limpieza) y 4 min tras arrancar ──
+    scheduler.add_job(
+        _run_revision_calidad,
+        trigger=CronTrigger(hour=1, minute=20, timezone=CO_TZ),
+        id="revision_calidad",
+        name="Puerta de calidad sobre eventos publicados",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _run_revision_calidad,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(minutes=4)),
+        id="revision_calidad_startup",
+        name="Puerta de calidad inicial",
         replace_existing=True,
     )
 

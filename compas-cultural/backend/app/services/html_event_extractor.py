@@ -662,25 +662,36 @@ def _extract_generic(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now
     year = now.year
     seen_titles: set[str] = set()
 
+    from app.services.event_gate import es_texto_menu, evaluar_evento  # reglas deterministas compartidas
+
     for el in soup.find_all(["article", "li", "div", "section"], limit=300):
+        # Nada que viva en la navegación, cabecera, pie o barras laterales del sitio:
+        # de ahí salían "eventos" como "Normatividad" o "Municipio de Sabaneta".
+        if el.find_parent(["nav", "header", "footer", "aside"]) or el.name in ("nav", "header", "footer", "aside"):
+            continue
+        clases = " ".join(el.get("class") or []).lower() + " " + (el.get("id") or "").lower()
+        if any(k in clases for k in ("menu", "nav", "footer", "header", "breadcrumb", "sidebar", "widget_nav", "submenu")):
+            continue
         children = list(el.children)
         if len(children) > 40:  # skip layout wrappers
             continue
         text = el.get_text(" ", strip=True)
-        if len(text) < 15 or len(text) > 1200:
+        if len(text) < 15 or len(text) > 1200 or es_texto_menu(text):
             continue
         if not _DATE_RE.search(text.lower()):
             continue
         fecha = parse_date(text, year)
         if not fecha or fecha.date() < now.date():
             continue
+        # Solo encabezados reales: un <a> suelto suele ser un link de menú
         heading = el.find(["h2", "h3", "h4"])
-        if not heading:
-            heading = el.find("a")
         if not heading:
             continue
         title = heading.get_text(strip=True)
         if not title or len(title) < 5 or len(title) > 200:
+            continue
+        if evaluar_evento({"titulo": title, "fecha_inicio": fecha.isoformat(), "fuente": "auto_scraper_sitio_web",
+                           "nombre_lugar": nombre_lugar}, ahora=now if now.tzinfo else None).decision == "rechazar":
             continue
         tkey = title.lower()[:60]
         if tkey in seen_titles:

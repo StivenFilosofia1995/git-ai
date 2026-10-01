@@ -21,6 +21,7 @@ import httpx
 from app.database import supabase
 from app.services.ml_utils import is_likely_duplicate
 from app.services.data_quality import is_likely_cultural_event
+from app.services.event_gate import insertar_evento
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -524,7 +525,7 @@ async def _save_comfama_events(events: list[dict]) -> dict:
                 "verificado": True,
             }
 
-            supabase.table("eventos").insert(row).execute()
+            insertar_evento(row)
             existing.append({"titulo": row["titulo"], "fecha_inicio": row["fecha_inicio"]})
             stats["nuevos"] += 1
 

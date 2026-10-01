@@ -17,6 +17,7 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 from bs4 import BeautifulSoup
+from app.services.event_gate import insertar_evento
 
 # ─── RSS/Atom feed probing ─────────────────────────────────────────────────────
 
@@ -501,7 +502,7 @@ async def scrape_medios_independientes_rss() -> dict:
                 payload[k] = v
 
             try:
-                res = _sb.table("eventos").upsert(payload, on_conflict="slug").execute()
+                res = insertar_evento(payload, upsert=True)
                 if res.data:
                     nuevos += 1
                 else:

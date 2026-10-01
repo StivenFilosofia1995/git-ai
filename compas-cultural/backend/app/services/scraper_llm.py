@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 
 from app.database import supabase
 from app.services.html_event_extractor import extract_events_code
+from app.services.event_gate import insertar_evento
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -197,7 +198,7 @@ def _insert_fallback_events(eventos: list[dict], *, espacio_id: str, fuente_url:
             "verificado": False,
             "hora_confirmada": False,
         }
-        supabase.table("eventos").insert(evento_data).execute()
+        insertar_evento(evento_data)
         inserted += 1
 
     return inserted

@@ -33,3 +33,28 @@ def test_clasificar_estados():
 def test_placeholder_centro_medellin():
     assert es_placeholder(6.2442, -75.5812)
     assert not es_placeholder(6.2088, -75.5672)
+
+
+def test_ejes_direccion_cuadricula_medellin():
+    from app.services.geo_verificacion import ejes_direccion
+    assert ejes_direccion("Calle 44 #39-100, Medellín") == {"calle": 44, "carrera": 39}
+    assert ejes_direccion("Carrera 64 No. 50-32") == {"carrera": 64, "calle": 50}
+    assert ejes_direccion("sin dirección") == {}
+
+
+def test_direccion_incompatible_descarta_resultado():
+    from app.services.geo_verificacion import elegir_resultado
+    res = _res("Biblioteca Pública Piloto", 6.3005, -75.5742, typ="library")
+    res["address"] = {"road": "Calle 102B", "city": "Medellín"}
+    assert elegir_resultado("Biblioteca Pública Piloto", [res], "medellin", "Calle 44 #39-100") is None
+    assert elegir_resultado("Biblioteca Pública Piloto", [res], "medellin", None) is not None
+
+
+def test_homonimos_lejanos_son_ambiguos():
+    from app.services.geo_verificacion import es_ambiguo, token_distintivo
+    assert token_distintivo("Biblioteca Pública Piloto") == "piloto"
+    match = {"lat": 6.3005, "lng": -75.5742}
+    homs = [{"name": "Biblioteca Pública Piloto", "lat": 6.3005, "lng": -75.5742},
+            {"name": "Biblioteca Pública Piloto de Medellín para América Latina", "lat": 6.2554, "lng": -75.5775}]
+    assert es_ambiguo("Biblioteca Pública Piloto", match, homs)
+    assert not es_ambiguo("Biblioteca Pública Piloto", match, homs[:1])

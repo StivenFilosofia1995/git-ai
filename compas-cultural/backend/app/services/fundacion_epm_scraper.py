@@ -25,6 +25,7 @@ from bs4 import BeautifulSoup
 
 from app.database import supabase
 from app.services.ml_utils import is_likely_duplicate
+from app.services.event_gate import insertar_evento
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -639,7 +640,7 @@ async def _save_events(events: list[dict]) -> dict:
                 "hora_confirmada": bool(ev.get("fecha_inicio") and "T" in str(ev.get("fecha_inicio") or "")),
             }
 
-            supabase.table("eventos").insert(record).execute()
+            insertar_evento(record)
             existing.append({"titulo": ev["titulo"], "fecha_inicio": ev.get("fecha_inicio"), "fuente_url": ev.get("fuente_url")})
             stats["nuevos"] += 1
 

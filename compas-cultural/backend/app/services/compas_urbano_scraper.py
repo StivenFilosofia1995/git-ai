@@ -15,6 +15,7 @@ from typing import Optional
 import httpx
 
 from app.database import supabase
+from app.services.event_gate import insertar_evento
 
 # ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -392,7 +393,7 @@ async def scrape_compas_urbano() -> dict:
                 "verificado": True,
             }
 
-            supabase.table("eventos").insert(evento_data).execute()
+            insertar_evento(evento_data)
             stats["nuevos"] += 1
             hora_str = fecha.strftime('%H:%M') if hora_confirmada else '?'
             print(f"  [NEW] {titulo[:55]} ({municipio}, {fecha.strftime('%d/%m')} {hora_str})")

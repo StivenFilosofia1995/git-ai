@@ -14,6 +14,7 @@ from typing import Optional
 import httpx
 
 from app.database import supabase
+from app.services.event_gate import insertar_evento
 
 MEDATA_BASE = "https://medata.gov.co/api/3/action"
 
@@ -284,7 +285,7 @@ async def run_medata_scraper() -> dict:
         seen_slugs.add(slug)
 
         try:
-            res = supabase.table("eventos").upsert(_sanitize(ev), on_conflict="slug").execute()
+            res = insertar_evento(_sanitize(ev), upsert=True)
             if res.data:
                 nuevos += 1
         except Exception as e:

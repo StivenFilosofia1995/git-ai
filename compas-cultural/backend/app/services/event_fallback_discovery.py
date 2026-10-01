@@ -25,6 +25,7 @@ from app.services.auto_scraper import (
 )
 from app.services.data_quality import is_likely_cultural_event
 from app.services.html_event_extractor import extract_events_code
+from app.services.event_gate import insertar_evento
 
 # ── Known Medellín / Valle de Aburrá cultural sites with their agenda URLs ──
 # These are scraped DIRECTLY (no Google needed) using the site-specific parsers
@@ -1015,8 +1016,8 @@ def _insert_discovered_event(evento_data: dict) -> tuple[bool, bool]:
         return False, True
 
     evento_data = _sanitize_payload(evento_data)
-    supabase.table("eventos").insert(evento_data).execute()
-    return True, False
+    decision = insertar_evento(evento_data).decision
+    return decision in ("publicar", "cuarentena"), decision == "duplicado"
 
 
 # ─── Scheduling Poisson: ¿cuándo scrapar cada fuente? ────────────────────────

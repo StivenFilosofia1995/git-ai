@@ -29,6 +29,7 @@ from app.services.discovery.utils import (
 )
 
 from app.services.ig_event_extractor import _caption_to_event, _now_co
+from app.services.event_gate import insertar_evento
 
 CO_TZ = ZoneInfo("America/Bogota")
 logger = logging.getLogger("social_listener")
@@ -312,7 +313,8 @@ async def _insert_event(event: dict) -> bool:
     }
 
     try:
-        supabase.table("eventos").insert(evento_data).execute()
+        if insertar_evento(evento_data).decision not in ("publicar", "cuarentena"):
+            return False
         logger.info(f"  🎭 Nuevo evento: {titulo}")
         return True
     except Exception as e:

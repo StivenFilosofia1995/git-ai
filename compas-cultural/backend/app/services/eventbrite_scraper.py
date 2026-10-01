@@ -21,6 +21,7 @@ import httpx
 from app.config import settings
 from app.database import supabase
 from app.services.auto_scraper import _slugify, _sanitize_payload, CO_TZ, _now_co
+from app.services.event_gate import insertar_evento
 
 BASE_URL = "https://www.eventbriteapi.com/v3"
 
@@ -227,7 +228,7 @@ async def run_eventbrite_scraper(days_ahead: int = 60) -> dict:
                     stats["duplicados"] += 1
                     continue
 
-                supabase.table("eventos").insert(evento).execute()
+                insertar_evento(evento)
                 stats["nuevos"] += 1
                 print(f"    ✅ [EB] {evento['titulo']}")
             except Exception as e:

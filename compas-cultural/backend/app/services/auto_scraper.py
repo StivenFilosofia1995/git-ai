@@ -23,6 +23,7 @@ from app.services.playwright_fetcher import fetch_with_playwright, needs_playwri
 from app.services.event_ocr import extract_hour_from_image_url, extract_text_from_image_url
 from app.services.rss_scraper import get_or_discover_feed, parse_rss_events
 from app.services.ml_utils import is_likely_duplicate
+from app.services.event_gate import insertar_evento
 
 CO_TZ = ZoneInfo("America/Bogota")
 
@@ -820,7 +821,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
                 "verificado": False,
             }
             evento_data = _sanitize_payload(evento_data)
-            supabase.table("eventos").insert(evento_data).execute()
+            insertar_evento(evento_data)
             stats["nuevos"] += 1
             print(f"    ✅ Nuevo evento: {titulo}")
 
@@ -3004,7 +3005,7 @@ async def scrape_agenda_sources() -> dict:
                         "verificado": False,
                     }
                     evento_data = _sanitize_payload(evento_data)
-                    supabase.table("eventos").insert(evento_data).execute()
+                    insertar_evento(evento_data)
                     total["eventos_nuevos"] += 1
                     print(f"    ✅ {titulo[:60]}")
 

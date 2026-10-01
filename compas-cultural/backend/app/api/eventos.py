@@ -14,6 +14,7 @@ from typing import Annotated, List, Optional
 from datetime import datetime
 from app.services import evento_service
 from app.limiter import rate_limit
+from app.services.event_gate import insertar_evento
 
 router = APIRouter()
 
@@ -112,7 +113,7 @@ async def publicar_evento(body: dict, request: Request):
     }
 
     try:
-        resp = supabase.table("eventos").insert(evento_data).execute()
+        resp = insertar_evento(evento_data)
         new_evento = resp.data[0] if resp.data else None
         
         # If alternative image provided, add it to evento_imagenes table
