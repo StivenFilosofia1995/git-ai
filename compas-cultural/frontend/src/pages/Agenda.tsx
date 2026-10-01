@@ -1,71 +1,37 @@
 import { Helmet } from 'react-helmet-async'
-import { useEffect, useState, useMemo, lazy, Suspense, Component, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState, useMemo } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import EventCard from '../components/agenda/EventCard'
-import HomeChatSection from '../components/chat/HomeChatSection'
-import { getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, getStats, type Evento, type Zona } from '../lib/api'
-import { formatEventDate } from '../lib/datetime'
+import { getEventosHoy, getEventosProximasSemanas, getEventosTodos, getZonas, type Evento, type Zona } from '../lib/api'
+import { bogotaDayKey, formatEventDate, hasReliableEventTime, parseEventDate } from '../lib/datetime'
 
-const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
+/**
+ * Página principal (/ y /agenda), pensada para el usuario perezoso:
+ * lo primero que se ve son los eventos de HOY con hora, lugar y precio.
+ * Atajos: Hoy · Esta noche · Este finde · 7 días · Gratis · Cerca de mí.
+ * Todo lo demás (categoría, municipio, zona) vive en el panel "Filtros".
+ */
 
-class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  state = { hasError: false }
-  static getDerivedStateFromError() { return { hasError: true } }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="w-full h-[500px] border-2 border-black bg-gray-50 flex items-center justify-center">
-          <p className="font-mono text-sm text-gray-400">No se pudo cargar el mapa</p>
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
+type TimeFilter = 'hoy' | 'noche' | 'finde' | 'semana' | 'todos'
 
-const ITEMS_PER_PAGE = 24
-
-/** Current date/time string in Colombia timezone */
-function useColombiaClock() {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000)
-    return () => clearInterval(id)
-  }, [])
-  return now.toLocaleDateString('es-CO', {
-    timeZone: 'America/Bogota',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-}
-
-
-type TimeFilter = 'hoy' | 'semana' | 'proximas' | 'todos'
-type PrecioFilter = '' | 'gratuito' | 'pago'
-type FuenteFilter = '' | 'comfama' | 'fundacion_epm' | 'bibliotecas_mde' | 'independiente'
-
-const FUENTE_OPTIONS: { value: FuenteFilter; label: string }[] = [
-  { value: '', label: 'Todas las fuentes' },
-  { value: 'comfama', label: 'Comfama' },
-  { value: 'fundacion_epm', label: 'Fdción. EPM / UVAs' },
-  { value: 'bibliotecas_mde', label: 'Bibliotecas MDE' },
-  { value: 'independiente', label: 'Independiente' },
+const TIME_OPTIONS: { value: TimeFilter; label: string }[] = [
+  { value: 'hoy', label: 'Hoy' },
+  { value: 'noche', label: 'Esta noche' },
+  { value: 'finde', label: 'Este finde' },
+  { value: 'semana', label: '7 días' },
+  { value: 'todos', label: 'Todo' },
 ]
 
-function matchesFuente(fuente: string | undefined | null, filter: FuenteFilter): boolean {
-  if (!filter) return true
-  const f = fuente ?? ''
-  if (filter === 'comfama') return f.startsWith('comfama')
-  if (filter === 'fundacion_epm') return ['fundacion_epm', 'uva_epm', 'parque_deseos', 'biblioteca_epm', 'planetario_medellin'].some(p => f.startsWith(p))
-  if (filter === 'bibliotecas_mde') return f.startsWith('bibliotecas_mde')
-  if (filter === 'independiente') return f.startsWith('auto_scraper') || f.startsWith('compas_urbano') || f.startsWith('instagram')
-  return true
+const TIME_TITLES: Record<TimeFilter, string> = {
+  hoy: 'Hoy en el Valle',
+  noche: 'Esta noche',
+  finde: 'Este fin de semana',
+  semana: 'Próximos 7 días',
+  todos: 'Toda la agenda',
 }
 
 const MUNICIPIOS = [
-  { value: '', label: 'Todos los municipios' },
+  { value: '', label: 'Todo el Valle' },
   { value: 'medellin', label: 'Medellín' },
   { value: 'envigado', label: 'Envigado' },
   { value: 'itagui', label: 'Itagüí' },
@@ -75,45 +41,38 @@ const MUNICIPIOS = [
   { value: 'copacabana', label: 'Copacabana' },
 ]
 
-const TIME_LABELS: Record<TimeFilter, string> = {
-  hoy: 'HOY',
-  semana: 'SEMANA + PRÓXIMA',
-  proximas: 'PRÓX 3 SEMANAS',
-  todos: 'TODOS',
-}
-
 const CAT_OPTIONS = [
-  { value: '', label: 'Todas' },
   { value: 'teatro', label: 'Teatro' },
+  { value: 'musica_en_vivo', label: 'Música en vivo' },
   { value: 'rock', label: 'Rock / Metal' },
-  { value: 'hip_hop', label: 'Hip Hop' },
+  { value: 'hip_hop', label: 'Hip hop' },
   { value: 'jazz', label: 'Jazz' },
-  { value: 'galeria', label: 'Galerías' },
-  { value: 'arte_contemporaneo', label: 'Arte Contemporáneo' },
-  { value: 'libreria', label: 'Librerías' },
   { value: 'electronica', label: 'Electrónica' },
   { value: 'danza', label: 'Danza' },
-  { value: 'musica_en_vivo', label: 'Música en vivo' },
-  { value: 'poesia', label: 'Poesía' },
+  { value: 'galeria', label: 'Galerías' },
+  { value: 'arte_contemporaneo', label: 'Arte contemporáneo' },
   { value: 'cine', label: 'Cine' },
+  { value: 'poesia', label: 'Poesía' },
+  { value: 'libreria', label: 'Librerías' },
   { value: 'festival', label: 'Festivales' },
   { value: 'fotografia', label: 'Fotografía' },
   { value: 'taller', label: 'Talleres' },
-  { value: 'conferencia', label: 'Conferencias' },
+  { value: 'conferencia', label: 'Charlas' },
 ]
+
+const ITEMS_PER_PAGE = 24
 
 function normalizeText(value: string | null | undefined): string {
   if (!value) return ''
   return value
     .normalize('NFD')
-    .replaceAll(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replaceAll(/[_\-–—]+/g, ' ')
     .replaceAll(/\s+/g, ' ')
     .trim()
 }
 
-// ── Sinónimos culturales ──────────────────────────────────────────────────
 const SEARCH_SYNONYMS: Record<string, string[]> = {
   musica: ['concierto', 'show', 'en vivo', 'live', 'banda', 'artista'],
   concierto: ['musica', 'show', 'en vivo', 'live'],
@@ -127,8 +86,6 @@ const SEARCH_SYNONYMS: Record<string, string[]> = {
   arte: ['galeria', 'exposicion', 'pintura', 'escultura', 'muestra'],
   cine: ['pelicula', 'film', 'corto', 'documental', 'proyeccion'],
   poesia: ['poema', 'spoken word', 'verso'],
-  gratuito: ['gratis', 'libre', 'entrada libre', 'sin costo'],
-  gratis: ['gratuito', 'libre', 'entrada libre'],
   taller: ['curso', 'clase', 'workshop', 'formacion'],
   festival: ['fiesta', 'celebracion', 'feria'],
   electronica: ['techno', 'house', 'dj', 'electro'],
@@ -136,669 +93,434 @@ const SEARCH_SYNONYMS: Record<string, string[]> = {
   muralismo: ['graffiti', 'arte urbano', 'street art'],
 }
 
+const PRICE_WORDS = /\b(gratis|gratuito|gratuita|libre|sin costo)\b/
+
 function expandSearchTerms(raw: string): string[] {
-  const base = normalizeText(raw)
-  const terms = [base]
+  const base = normalizeText(raw).replace(PRICE_WORDS, '').replace(/\b(hoy|manana|esta noche)\b/g, '').trim()
+  if (!base) return []
+  const terms = [base, ...base.split(' ').filter(t => t.length > 2)]
   for (const [key, syns] of Object.entries(SEARCH_SYNONYMS)) {
     if (base.includes(key)) terms.push(...syns)
   }
   return Array.from(new Set(terms))
 }
 
-const QUICK_SEARCHES = [
-  { label: '🎸 Rock', q: 'rock' },
-  { label: '🎷 Jazz', q: 'jazz' },
-  { label: '💃 Danza', q: 'danza' },
-  { label: '🎭 Teatro', q: 'teatro' },
-  { label: '🖼 Arte', q: 'arte' },
-  { label: '🎤 Hip-Hop', q: 'hip hop' },
-  { label: '📖 Poesía', q: 'poesia' },
-  { label: '🆓 Gratis', q: 'gratis' },
-  { label: '🎬 Cine', q: 'cine' },
-  { label: '🎪 Festival', q: 'festival' },
-]
-
-function buildZonaTokens(zonaNombre: string): string[] {
-  const normalized = (zonaNombre || '')
-    .normalize('NFD')
-    .replaceAll(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replaceAll(/[_\-–—]+/g, ' - ')
-    .replaceAll(/\s+/g, ' ')
-    .trim()
-
-  if (!normalized) return []
-
-  const noParen = normalized.replaceAll(/\(.*?\)/g, '').trim()
-  const noDash = noParen.replaceAll(/\s+-\s+/g, ' ').trim()
-  const parts = noParen.split(/\s+-\s+/).map(t => t.trim()).filter(Boolean)
-  const simplified = [normalized, noParen, noDash, ...parts]
-    .map(token => normalizeText(token.replace(/^(barrio|comuna|sector|zona)\s+/i, '')))
-    .filter(Boolean)
-
-  return Array.from(new Set(simplified))
+function zonaBaseName(nombre: string): string {
+  return normalizeText(nombre.replaceAll(/\(.*?\)/g, '').split(' - ')[0])
 }
 
 function eventoMatchesZona(evento: Evento, zona: Zona): boolean {
-  const zonaTokens = buildZonaTokens(zona.nombre)
-  if (!zonaTokens.length) return true
-
+  const token = zonaBaseName(zona.nombre)
+  if (!token) return true
   const municipioZona = normalizeText(zona.municipio)
   const municipioEvento = normalizeText(evento.municipio)
-  if (municipioZona && municipioEvento && !municipioEvento.includes(municipioZona)) {
-    return false
+  if (municipioZona && municipioEvento && !municipioEvento.includes(municipioZona)) return false
+  return [evento.barrio, evento.nombre_lugar, evento.titulo]
+    .map(normalizeText)
+    .some(field => field.includes(token))
+}
+
+/** Hora (0-23) en Bogotá del inicio del evento, solo si la hora es confiable. */
+function horaBogota(ev: Evento): number | null {
+  if (!hasReliableEventTime(ev)) return null
+  const d = parseEventDate(ev.fecha_inicio)
+  if (!d) return null
+  return Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Bogota', hour: 'numeric', hour12: false }).format(d)) % 24
+}
+
+/** Días hasta el viernes (0 si ya es vie/sáb/dom) y hasta el lunes siguiente, en Bogotá. */
+function ventanaFinde(): { desde: number; hasta: number } {
+  const dow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' })).getDay() // 0=dom
+  const desde = dow === 0 || dow >= 5 ? 0 : 5 - dow
+  const hasta = dow === 0 ? 1 : 8 - dow
+  return { desde, hasta }
+}
+
+/** Ordena HOY: lo que viene primero; lo que ya empezó hace >3 h, al final. */
+function ordenarHoy(eventos: Evento[]): Evento[] {
+  const ahora = Date.now()
+  const peso = (ev: Evento) => {
+    const d = parseEventDate(ev.fecha_inicio)?.getTime() ?? ahora
+    const confiable = hasReliableEventTime(ev)
+    if (confiable && d < ahora - 3 * 3600_000) return 3e13 + d // ya pasó
+    if (!confiable) return 2e13 + d // hora por confirmar: después de los que sí tienen hora
+    return d
   }
-
-  const searchableFields = [
-    normalizeText(evento.barrio),
-    normalizeText(evento.nombre_lugar),
-    normalizeText(evento.titulo),
-    normalizeText(evento.descripcion),
-  ].filter(Boolean)
-
-  return zonaTokens.some(token => searchableFields.some(field => field.includes(token)))
+  return [...eventos].sort((a, b) => peso(a) - peso(b))
 }
 
-function priceFilterToBool(precio: PrecioFilter): boolean | undefined {
-  if (precio === 'gratuito') return true
-  if (precio === 'pago') return false
-  return undefined
+function useFechaHoy() {
+  return new Date().toLocaleDateString('es-CO', {
+    timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long',
+  })
 }
+
+const pill = (active: boolean) =>
+  `shrink-0 min-h-[40px] px-3.5 text-sm font-bold border-2 border-black whitespace-nowrap transition-colors ${
+    active ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'
+  }`
 
 export default function Agenda() {
+  const [params, setParams] = useSearchParams()
   const [eventos, setEventos] = useState<Evento[]>([])
   const [zonas, setZonas] = useState<Zona[]>([])
-  const [stats, setStats] = useState({ espacios: 0, eventos: 0, zonas: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('hoy')
-  const [catFilter, setCatFilter] = useState('')
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>(() => {
+    const t = params.get('cuando') as TimeFilter | null
+    return t && TIME_OPTIONS.some(o => o.value === t) ? t : 'hoy'
+  })
+  const [gratis, setGratis] = useState(() => params.get('gratis') === '1')
+  const [catFilter, setCatFilter] = useState(() => params.get('cat') ?? '')
+  const [municipioFilter, setMunicipioFilter] = useState(() => params.get('municipio') ?? '')
   const [zonaFilter, setZonaFilter] = useState('')
-  const [textFilter, setTextFilter] = useState('')
-  const [municipioFilter, setMunicipioFilter] = useState('')
-  const [precioFilter, setPrecioFilter] = useState<PrecioFilter>('')
-  const [fuenteFilter, setFuenteFilter] = useState<FuenteFilter>('')
+  const [textFilter, setTextFilter] = useState(() => params.get('q') ?? '')
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false)
   const [page, setPage] = useState(1)
-  const fechaActual = useColombiaClock()
+  const [reintento, setReintento] = useState(0)
+  const fechaHoy = useFechaHoy()
+
+  // Guardar los filtros principales en la URL (compartible, sobrevive al "atrás")
+  useEffect(() => {
+    const next = new URLSearchParams()
+    if (timeFilter !== 'hoy') next.set('cuando', timeFilter)
+    if (gratis) next.set('gratis', '1')
+    if (catFilter) next.set('cat', catFilter)
+    if (municipioFilter) next.set('municipio', municipioFilter)
+    if (textFilter.trim()) next.set('q', textFilter.trim())
+    setParams(next, { replace: true })
+  }, [timeFilter, gratis, catFilter, municipioFilter, textFilter, setParams])
 
   useEffect(() => {
-    getZonas().then(setZonas).catch(console.error)
-    getStats().then(setStats).catch(() => {})
+    getZonas().then(setZonas).catch(() => setZonas([]))
   }, [])
 
   useEffect(() => {
+    let cancel = false
     const cargar = async () => {
       setLoading(true)
       setError(null)
       try {
-        const municipioParam = municipioFilter || undefined
-        const categoriaParam = catFilter || undefined
-        const esGratuitoParam = priceFilterToBool(precioFilter)
-        const zonaObj = zonas.find(z => z.slug === zonaFilter)
-        const temporalFilters = {
-          municipio: municipioParam || zonaObj?.municipio || undefined,
-          categoria: categoriaParam,
-          es_gratuito: esGratuitoParam,
+        const filtros = {
+          municipio: municipioFilter || undefined,
+          categoria: catFilter || undefined,
+          es_gratuito: gratis ? true : undefined,
         }
-        if (timeFilter === 'hoy') {
-          setEventos(await getEventosHoy(temporalFilters))
+        let data: Evento[]
+        if (timeFilter === 'hoy' || timeFilter === 'noche') {
+          data = await getEventosHoy(filtros)
+        } else if (timeFilter === 'finde') {
+          const { desde, hasta } = ventanaFinde()
+          data = await getEventosProximasSemanas(hasta, filtros, desde)
         } else if (timeFilter === 'semana') {
-          // Próxima semana real: día 1 al 7 desde hoy
-          setEventos(await getEventosProximasSemanas(7, temporalFilters, 1))
-        } else if (timeFilter === 'proximas') {
-          // Próximas 3 semanas: día 1 al 21 desde hoy
-          setEventos(await getEventosProximasSemanas(21, temporalFilters, 1))
+          data = await getEventosProximasSemanas(7, filtros, 0)
         } else {
-          setEventos(await getEventosTodos({
-            municipio: municipioParam || zonaObj?.municipio || undefined,
-            categoria: categoriaParam,
-            es_gratuito: esGratuitoParam,
-          }))
+          data = await getEventosTodos({ ...filtros, maxRows: 1500 })
         }
+        if (!cancel) setEventos(data)
       } catch {
-        setError('No fue posible cargar la agenda cultural.')
+        if (!cancel) setError('No pudimos cargar la agenda. Revisa tu conexión e intenta de nuevo.')
       } finally {
-        setLoading(false)
+        if (!cancel) setLoading(false)
       }
     }
     void cargar()
-  }, [timeFilter, municipioFilter, catFilter, precioFilter, zonaFilter, zonas])
+    return () => { cancel = true }
+  }, [timeFilter, municipioFilter, catFilter, gratis, reintento])
+
+  // Zonas sin duplicados ("Belén" / "Belen (Comuna 16)") y solo con eventos
+  const zonasDisponibles = useMemo(() => {
+    const vistas = new Set<string>()
+    return zonas.filter(z => {
+      const key = zonaBaseName(z.nombre)
+      if (!key || vistas.has(key)) return false
+      vistas.add(key)
+      return eventos.some(ev => eventoMatchesZona(ev, z))
+    })
+  }, [zonas, eventos])
 
   const filtered = useMemo(() => {
     let result = eventos
-    if (catFilter) {
-      result = result.filter(e => e.categoria_principal === catFilter || (e.categorias ?? []).includes(catFilter))
-    }
+    if (catFilter) result = result.filter(e => e.categoria_principal === catFilter || (e.categorias ?? []).includes(catFilter))
+    if (gratis) result = result.filter(e => e.es_gratuito)
     if (municipioFilter) {
       const m = normalizeText(municipioFilter)
       result = result.filter(e => normalizeText(e.municipio).includes(m))
     }
-    if (precioFilter === 'gratuito') {
-      result = result.filter(e => e.es_gratuito)
-    } else if (precioFilter === 'pago') {
-      result = result.filter(e => !e.es_gratuito)
-    }
     if (zonaFilter) {
       const zona = zonas.find(z => z.slug === zonaFilter)
-      if (zona) {
-        result = result.filter(e => eventoMatchesZona(e, zona))
+      if (zona) result = result.filter(e => eventoMatchesZona(e, zona))
+    }
+    if (timeFilter === 'noche') {
+      result = result.filter(e => (horaBogota(e) ?? -1) >= 17)
+    }
+    const q = textFilter.trim()
+    if (q) {
+      if (PRICE_WORDS.test(normalizeText(q))) result = result.filter(e => e.es_gratuito)
+      const terms = expandSearchTerms(q)
+      if (terms.length) {
+        result = result.filter(e => {
+          const searchable = [e.titulo, e.nombre_lugar, e.barrio, e.municipio, e.descripcion, e.categoria_principal]
+            .map(normalizeText).join(' ')
+          return terms.some(term => searchable.includes(term))
+        })
       }
     }
-    if (fuenteFilter) {
-      result = result.filter(e => matchesFuente(e.fuente, fuenteFilter))
-    }
-    if (textFilter.trim()) {
-      const terms = expandSearchTerms(textFilter.trim())
-      result = result.filter(e => {
-        const searchable = [
-          normalizeText(e.titulo),
-          normalizeText(e.nombre_lugar),
-          normalizeText(e.barrio),
-          normalizeText(e.municipio),
-          normalizeText(e.descripcion),
-          normalizeText(e.categoria_principal),
-        ].join(' ')
-        return terms.some(term => searchable.includes(term))
-      })
-    }
-    return result
-  }, [eventos, catFilter, zonaFilter, zonas, textFilter, municipioFilter, precioFilter, fuenteFilter])
+    if (timeFilter === 'hoy' || timeFilter === 'noche') return ordenarHoy(result)
+    return [...result].sort((a, b) => (a.fecha_inicio ?? '').localeCompare(b.fecha_inicio ?? ''))
+  }, [eventos, catFilter, gratis, municipioFilter, zonaFilter, zonas, textFilter, timeFilter])
 
-  const zonasDisponibles = useMemo(() => {
-    return zonas.filter(zona => eventos.some(evento => eventoMatchesZona(evento, zona)))
-  }, [zonas, eventos])
-
-  useEffect(() => {
-    if (zonaFilter && !zonasDisponibles.some(z => z.slug === zonaFilter)) {
-      setZonaFilter('')
-    }
-  }, [zonaFilter, zonasDisponibles])
-
-  // Reset to page 1 whenever filters change
-  useEffect(() => { setPage(1) }, [catFilter, zonaFilter, textFilter, municipioFilter, precioFilter, fuenteFilter, timeFilter])
-
-  function getTimeLabel(t: TimeFilter): string {
-    if (t === 'hoy') return ' hoy'
-    if (t === 'semana') return ' esta semana y la próxima'
-    if (t === 'proximas') return ' en las próximas 3 semanas'
-    return ' próximos'
-  }
+  useEffect(() => { setPage(1) }, [catFilter, zonaFilter, textFilter, municipioFilter, gratis, timeFilter])
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE)
+  const filtrosActivos = [catFilter, municipioFilter, zonaFilter].filter(Boolean).length
+  const agrupar = timeFilter !== 'hoy' && timeFilter !== 'noche'
 
-  // Group events by date — force Colombia timezone
-  // Events that started in the past but are still ongoing → group under today's date (only in HOY tab)
-  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }) // YYYY-MM-DD in Bogotá
-  // Only allow "en curso" if the event started at most 2 days ago (not week-old events)
-  const twoDaysAgo = new Date()
-  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2)
-  const twoDaysAgoStr = twoDaysAgo.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
-  const grouped = paged.reduce<Record<string, Evento[]>>((acc, ev) => {
-    const fechaInicioStr = ev.fecha_inicio?.slice(0, 10) ?? ''
-    const fechaFinStr = ev.fecha_fin?.slice(0, 10) ?? ''
-    // Only treat as "en curso hoy" when we are on the HOY tab AND started within last 2 days
-    const isOngoing = timeFilter === 'hoy' && fechaInicioStr < todayStr && fechaInicioStr >= twoDaysAgoStr && fechaFinStr >= todayStr
-    // For non-hoy tabs, or for HOY tab events that started too long ago: skip
-    if (timeFilter !== 'hoy' && fechaInicioStr < todayStr && !isOngoing) return acc
-    // For HOY tab: skip events that started before 2 days ago (not genuinely en-curso)
-    if (timeFilter === 'hoy' && fechaInicioStr < twoDaysAgoStr) return acc
-    const effectiveDate = isOngoing ? todayStr + 'T00:00:00' : ev.fecha_inicio
-    const dateKey = formatEventDate(effectiveDate, {
-      weekday: 'long', day: 'numeric', month: 'long'
-    })
-    if (!acc[dateKey]) acc[dateKey] = []
-    acc[dateKey].push(ev)
-    return acc
-  }, {})
+  // Agrupar por día de Bogotá (los eventos en curso que empezaron antes quedan en "hoy")
+  const hoyKey = bogotaDayKey(new Date()) ?? ''
+  const grupos = useMemo(() => {
+    if (!agrupar) return []
+    const map = new Map<string, Evento[]>()
+    for (const ev of paged) {
+      let key = bogotaDayKey(ev.fecha_inicio) ?? hoyKey
+      if (key < hoyKey) key = hoyKey
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(ev)
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+  }, [agrupar, paged, hoyKey])
 
-  // Sort date keys: today first, then ascending
-  const sortedGroupEntries = Object.entries(grouped).sort(([, aEvs], [, bEvs]) => {
-    const aDate = aEvs[0].fecha_inicio?.slice(0, 10) ?? ''
-    const bDate = bEvs[0].fecha_inicio?.slice(0, 10) ?? ''
-    const aEff = aDate < todayStr ? todayStr : aDate
-    const bEff = bDate < todayStr ? todayStr : bDate
-    return aEff.localeCompare(bEff)
-  })
+  const limpiar = () => {
+    setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setGratis(false)
+  }
+
+  const cambiarPagina = (p: number) => {
+    setPage(p)
+    document.getElementById('resultados')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   return (
     <>
       <Helmet>
-        <title>Cultura ET&Eacute;REA &mdash; Agenda Cultural Medell&iacute;n</title>
-        <meta name="description" content="Encuentra todo el mapa cultural de Medellín, oficial y no oficial. Teatro, Jazz, Hip-hop, Galerías, Spoken Word, Arte Underground — actualizado en tiempo real." />
+        <title>Cultura ETÉREA — Qué hacer hoy en Medellín y el Valle de Aburrá</title>
+        <meta name="description" content="Planes culturales de hoy en Medellín y el Valle de Aburrá: teatro, conciertos, jazz, hip hop, galerías, cine y más, con hora, lugar y precio." />
       </Helmet>
 
-      {/* ─── HERO ─────────────────────────────────────────────────────────────── */}
-      <section className="relative bg-white border-b-2 border-black overflow-hidden min-h-[260px]">
-        {/* Ilustración Medellín — img real para garantizar carga */}
-        <img src="/medellin-ilustracion.png" alt="" aria-hidden="true" className="absolute right-0 bottom-0 w-[90%] sm:w-[62%] lg:w-[50%] max-h-[100%] h-auto object-contain object-bottom pointer-events-none select-none opacity-[0.52] mix-blend-multiply" />
-        {/* Gradiente izquierdo suave — solo para legibilidad del texto */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.97) 38%, rgba(255,255,255,0.5) 58%, rgba(255,255,255,0) 78%)' }}
-          aria-hidden="true"
-        />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-20 pb-10 lg:pt-28 lg:pb-14">
-          {/* Live + IA badge */}
-          <div className="flex items-center gap-3 mb-8 flex-wrap">
-            <span className="block w-3 h-3 bg-black animate-pulse" />
-            <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
-              Medellín · Valle de Aburrá · Live
-            </span>
-            <span className="bg-black text-white text-[9px] font-mono font-bold uppercase tracking-[0.25em] px-2 py-0.5">
-              Agenda generada por IA
-            </span>
-          </div>
-          {/* Title */}
-          <h1 className="font-black tracking-tighter leading-[0.88] mb-6">
-            <span
-              className="block text-black"
-              style={{ fontSize: 'clamp(2.4rem, 7vw, 6rem)', fontFamily: "'Sora', 'Arial Black', sans-serif", fontWeight: 900 }}
-            >
-              Cultura
-            </span>
-            <span
-              className="block"
-              style={{
-                fontSize: 'clamp(2.8rem, 9vw, 7.5rem)',
-                fontFamily: "'Sora', 'Arial Black', sans-serif",
-                fontWeight: 900,
-                WebkitTextStroke: '2px black',
-                WebkitTextFillColor: 'transparent',
-                color: 'transparent',
-              }}
-            >
-              ETÉREA
-            </span>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <h1 className="font-heading font-black tracking-tight leading-none text-[1.75rem] sm:text-4xl">
+            {TIME_TITLES[timeFilter]}
           </h1>
-          <p className="text-black/75 max-w-lg text-sm leading-relaxed mb-2 font-mono">
-            Soy la IA que escucha el Valle de Aburrá en tiempo real.
-          </p>
-          <p className="text-black/50 max-w-md text-xs leading-relaxed mb-8 font-mono">
-            Teatro · Jazz · Hip-hop · Galerías · Freestyle · Arte Underground · y todo lo que no aparece en ningún otro lado.
-          </p>
-          {/* Counters */}
-          <div className="flex gap-8 mb-4">
-            {[
-              { n: stats.espacios, label: 'ESPACIOS' },
-              { n: stats.eventos, label: 'EVENTOS' },
-              { n: stats.zonas || zonas.length, label: 'ZONAS' },
-            ].map(d => (
-              <div key={d.label}>
-                <div className="text-3xl font-black" style={{ fontFamily: "'Sora', 'Arial Black', sans-serif" }}>{d.n || '—'}</div>
-                <div className="text-[9px] font-mono font-bold tracking-[0.2em] mt-0.5">{d.label}</div>
-              </div>
-            ))}
-          </div>
-          <p className="text-[10px] font-mono uppercase tracking-wider opacity-40">{fechaActual}</p>
-        </div>
-      </section>
-
-      {/* ─── MARQUEE ──────────────────────────────────────────────────────────── */}
-      <div className="bg-black text-white py-2.5 overflow-hidden border-b-2 border-black">
-        <div className="animate-marquee whitespace-nowrap flex gap-8">
-          {Array.from({ length: 2 }, (_, j) => (
-            <span key={j} className="flex gap-8">
-              {['TEATRO', 'ROCK', 'METAL', 'JAZZ', 'HIP-HOP', 'GALERÍAS', 'DANZA', 'ELECTRÓNICA', 'POESÍA', 'CINE', 'MURALISMO', 'FREESTYLE', 'EDITORIAL', 'CIRCO', 'FOTOGRAFÍA', 'PUNK'].map(cat => (
-                <span key={`${j}-${cat}`} className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase flex items-center gap-3">
-                  <span className="w-1.5 h-1.5 bg-white" />
-                  {cat}
-                </span>
-              ))}
-            </span>
-          ))}
+          <p className="text-sm text-black/60 first-letter:uppercase">{fechaHoy}</p>
         </div>
       </div>
 
-      {/* ─── AGENDA: ¿QUÉ HAY HOY? + BUSCADOR + GRID ─────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-8">
-        {/* Encabezado de sección */}
-        <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-3 h-3 bg-black" />
-              <span className="text-[10px] font-mono font-bold tracking-[0.3em] uppercase">Agenda cultural</span>
-            </div>
-            <h2
-              className="font-black tracking-tight uppercase leading-none"
-              style={{ fontSize: 'clamp(1.8rem, 5vw, 3.2rem)', fontFamily: "'Sora', 'Arial Black', sans-serif" }}
-            >
-              Hoy en el Valle
-            </h2>
-          </div>
-        </div>
-
-        {/* ─── BARRA DE FILTROS STICKY ──────────────────────────────────────── */}
-        <div className="sticky top-0 z-30 bg-white border-b-2 border-black -mx-4 sm:-mx-6 px-4 sm:px-6 pt-3 pb-3 mb-6">
-
-          {/* Buscador */}
-          <div className="relative mb-2">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none select-none">🔍</span>
+      {/* ─── Barra de atajos (sticky bajo el header) ─────────────────────── */}
+      <div className="sticky top-14 z-30 bg-white/95 backdrop-blur border-b-2 border-black mt-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 space-y-2">
+          <div className="relative">
+            <label htmlFor="buscar-eventos" className="sr-only">Buscar eventos</label>
             <input
-              type="text"
+              id="buscar-eventos"
+              type="search"
               value={textFilter}
               onChange={e => setTextFilter(e.target.value)}
-              placeholder="Busca: rock gratis hoy, danza teatro, artista lugar..."
-              className="w-full pl-9 pr-10 py-2 text-xs font-mono border-2 border-black focus:outline-none focus:ring-0 placeholder:text-neutral-400 bg-white"
+              placeholder="¿Qué te provoca? jazz, teatro gratis, Casa Teatro…"
+              className="w-full h-11 pl-3 pr-10 text-[15px] border-2 border-black focus:outline-none focus:ring-2 focus:ring-black/20 placeholder:text-black/40 bg-white"
             />
             {textFilter && (
               <button
                 onClick={() => setTextFilter('')}
                 aria-label="Limpiar búsqueda"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold hover:opacity-70"
+                className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 text-base font-bold hover:bg-black/5"
               >
                 ✕
               </button>
             )}
           </div>
 
-          {/* Quick-search chips — solo cuando el buscador está vacío */}
-          {!textFilter && (
-            <div className="flex gap-1.5 overflow-x-auto pb-1.5 -mx-4 px-4 sm:mx-0 sm:px-0 mb-2" style={{ scrollbarWidth: 'none' }}>
-              {QUICK_SEARCHES.map(({ label, q }) => (
-                <button
-                  key={q}
-                  onClick={() => setTextFilter(q)}
-                  className="flex-shrink-0 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wide border border-black/30 bg-gray-50 hover:bg-black hover:text-white hover:border-black whitespace-nowrap transition-all"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Fila 1 — Tiempo + Precio (scrollable en mobile) */}
-          <div className="flex gap-0 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible sm:pb-0 mb-2" style={{ scrollbarWidth: 'none' }}>
-            {/* Time */}
-            <div className="flex flex-shrink-0">
-              {(Object.keys(TIME_LABELS) as TimeFilter[]).map((key) => (
-                <button
-                  key={key}
-                  onClick={() => setTimeFilter(key)}
-                  className={`px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all -ml-[2px] first:ml-0 whitespace-nowrap ${
-                    timeFilter === key ? 'bg-black text-white z-10' : 'bg-white text-black hover:bg-gray-100'
-                  }`}
-                >
-                  {TIME_LABELS[key]}
-                </button>
-              ))}
-            </div>
-            {/* Precio */}
-            <div className="flex flex-shrink-0 ml-2">
-              {([ ['', 'PRECIO'], ['gratuito', 'GRATIS'], ['pago', 'PAGO'] ] as [PrecioFilter, string][]).map(([val, label]) => (
-                <button
-                  key={val}
-                  onClick={() => setPrecioFilter(val)}
-                  className={`px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black transition-all -ml-[2px] first:ml-0 whitespace-nowrap ${
-                    precioFilter === val ? 'bg-black text-white z-10' : 'bg-white text-black hover:bg-gray-100'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {/* Municipio */}
-            <select
-              value={municipioFilter}
-              onChange={e => setMunicipioFilter(e.target.value)}
-              className="flex-shrink-0 ml-2 px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
-            >
-              {MUNICIPIOS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            {/* Zona */}
-            {(municipioFilter === '' || municipioFilter === 'medellin') && (
-              <select
-                value={zonaFilter}
-                onChange={e => setZonaFilter(e.target.value)}
-                className="flex-shrink-0 ml-2 px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
-              >
-                <option value="">Todas las zonas</option>
-                {zonasDisponibles.map(z => (
-                  <option key={z.id} value={z.slug}>{z.nombre}</option>
-                ))}
-              </select>
-            )}
-            {/* Fuente */}
-            <select
-              value={fuenteFilter}
-              onChange={e => setFuenteFilter(e.target.value as FuenteFilter)}
-              className="flex-shrink-0 ml-2 px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black bg-white cursor-pointer focus:outline-none"
-            >
-              {FUENTE_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Fila 2 — Categorías scrollables */}
           <div className="relative">
-            <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-white to-transparent z-10" aria-hidden="true" />
-            <div
-              className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0"
-              style={{ scrollbarWidth: 'none' }}
-            >
-              {CAT_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => setCatFilter(opt.value)}
-                  className={`flex-shrink-0 px-3 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black whitespace-nowrap transition-all ${
-                    catFilter === opt.value ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'
-                  }`}
-                >
-                  {opt.value === '' ? '★ TODAS' : opt.label}
+            <div className="flex gap-1.5 overflow-x-auto pr-8 no-scrollbar" role="toolbar" aria-label="Atajos de agenda">
+              {TIME_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={() => setTimeFilter(opt.value)} aria-pressed={timeFilter === opt.value} className={pill(timeFilter === opt.value)}>
+                  {opt.label}
                 </button>
               ))}
-            </div>
-          </div>
-
-          {/* Chips de filtros activos */}
-          {(catFilter || zonaFilter || textFilter || municipioFilter || precioFilter || fuenteFilter) && (
-            <div className="flex items-center gap-2 flex-wrap mt-2 pt-2 border-t border-black/10">
-              <span className="text-[9px] font-mono font-bold uppercase tracking-widest opacity-50">Activos:</span>
-              {textFilter && (
-                <button
-                  onClick={() => setTextFilter('')}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
-                >
-                  "{textFilter.slice(0, 20)}{textFilter.length > 20 ? '…' : ''}" ✕
-                </button>
-              )}
-              {catFilter && (
-                <button
-                  onClick={() => setCatFilter('')}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
-                >
-                  {CAT_OPTIONS.find(o => o.value === catFilter)?.label ?? catFilter} ✕
-                </button>
-              )}
-              {municipioFilter && (
-                <button
-                  onClick={() => setMunicipioFilter('')}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
-                >
-                  {MUNICIPIOS.find(o => o.value === municipioFilter)?.label ?? municipioFilter} ✕
-                </button>
-              )}
-              {zonaFilter && (
-                <button
-                  onClick={() => setZonaFilter('')}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
-                >
-                  {zonasDisponibles.find(z => z.slug === zonaFilter)?.nombre ?? zonaFilter} ✕
-                </button>
-              )}
-              {precioFilter && (
-                <button
-                  onClick={() => setPrecioFilter('')}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
-                >
-                  {precioFilter === 'gratuito' ? 'Gratis' : 'Pago'} ✕
-                </button>
-              )}
-              {fuenteFilter && (
-                <button
-                  onClick={() => setFuenteFilter('')}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-black text-white text-[9px] font-mono font-bold uppercase tracking-wide"
-                >
-                  {FUENTE_OPTIONS.find(o => o.value === fuenteFilter)?.label ?? fuenteFilter} ✕
-                </button>
-              )}
+              <button onClick={() => setGratis(v => !v)} aria-pressed={gratis} className={pill(gratis)}>
+                Gratis
+              </button>
+              <Link to="/cerca-de-ti" className={`${pill(false)} inline-flex items-center`}>
+                📍 Cerca de mí
+              </Link>
               <button
-                onClick={() => { setCatFilter(''); setZonaFilter(''); setTextFilter(''); setMunicipioFilter(''); setPrecioFilter(''); setFuenteFilter('') }}
-                className="text-[9px] font-mono font-bold uppercase tracking-wider underline hover:no-underline ml-auto"
+                onClick={() => setFiltrosAbiertos(v => !v)}
+                aria-expanded={filtrosAbiertos}
+                aria-controls="panel-filtros"
+                className={pill(filtrosAbiertos || filtrosActivos > 0)}
               >
-                Limpiar todo
+                Filtros{filtrosActivos > 0 ? ` (${filtrosActivos})` : ''} {filtrosAbiertos ? '▴' : '▾'}
               </button>
             </div>
+            <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent" aria-hidden="true" />
+          </div>
+
+          {filtrosAbiertos && (
+            <div id="panel-filtros" className="border-2 border-black p-3 space-y-3 bg-white">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider mb-1.5">Tipo de plan</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {CAT_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setCatFilter(catFilter === opt.value ? '' : opt.value)}
+                      aria-pressed={catFilter === opt.value}
+                      className={`min-h-[36px] px-3 text-sm border-2 border-black transition-colors ${catFilter === opt.value ? 'bg-black text-white' : 'bg-white hover:bg-black/5'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider">
+                  Municipio
+                  <select
+                    value={municipioFilter}
+                    onChange={e => { setMunicipioFilter(e.target.value); setZonaFilter('') }}
+                    className="mt-1 block w-full h-11 px-2 text-sm normal-case tracking-normal font-normal border-2 border-black bg-white"
+                  >
+                    {MUNICIPIOS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </label>
+                {(municipioFilter === '' || municipioFilter === 'medellin') && zonasDisponibles.length > 0 && (
+                  <label className="text-xs font-bold uppercase tracking-wider">
+                    Barrio o zona
+                    <select
+                      value={zonaFilter}
+                      onChange={e => setZonaFilter(e.target.value)}
+                      className="mt-1 block w-full h-11 px-2 text-sm normal-case tracking-normal font-normal border-2 border-black bg-white"
+                    >
+                      <option value="">Todas</option>
+                      {zonasDisponibles.map(z => <option key={z.id} value={z.slug}>{z.nombre.replaceAll(/\s*\(.*?\)/g, '')}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+              <div className="flex justify-between items-center">
+                <button onClick={limpiar} className="text-sm underline hover:no-underline">Limpiar filtros</button>
+                <button onClick={() => setFiltrosAbiertos(false)} className="min-h-[40px] px-4 text-sm font-bold bg-black text-white">
+                  Ver {filtered.length} plan{filtered.length === 1 ? '' : 'es'}
+                </button>
+              </div>
+            </div>
           )}
         </div>
+      </div>
 
-        {/* Web search banner — movido debajo de filtros */}
-        <div className="mb-6 border-2 border-black p-4 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2.5 h-2.5 bg-black" />
-              <span className="text-[10px] font-mono font-bold uppercase tracking-[0.25em]">Web Search</span>
-            </div>
-            <p className="text-xs font-mono opacity-70">
-              Aporta al sistema y ayudanos a buscar eventos o colectivos que aun no mapeamos.
-            </p>
-          </div>
-          <Link
-            to="/web-search"
-            className="inline-flex items-center justify-center px-3 py-2 border-2 border-black bg-black text-white text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-neutral-800 transition-all"
-          >
-            Abrir web search
-          </Link>
-        </div>
-
-        {/* Loading skeleton */}
+      {/* ─── Resultados ─────────────────────────────────────────────────── */}
+      <section id="resultados" className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 pb-10 scroll-mt-40">
         {loading && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {['sk1','sk2','sk3','sk4','sk5','sk6','sk7','sk8'].map(k => (
-              <div key={k} className="animate-pulse border-2 border-black h-32 bg-gray-50" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" aria-busy="true" aria-label="Cargando eventos">
+            {Array.from({ length: 8 }, (_, i) => (
+              <div key={i} className="border-2 border-black">
+                <div className="aspect-[16/9] bg-black/5 motion-safe:animate-pulse" />
+                <div className="p-4 space-y-2">
+                  <div className="h-4 w-24 bg-black/10" />
+                  <div className="h-5 w-full bg-black/10" />
+                  <div className="h-4 w-2/3 bg-black/10" />
+                </div>
+              </div>
             ))}
           </div>
         )}
 
         {error && (
-          <p className="text-black text-sm font-mono border-2 border-black p-4">{error}</p>
-        )}
-
-        {!loading && !error && filtered.length === 0 && (
-          <div className="border-2 border-dashed border-black p-8 text-center">
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.25em] opacity-50 mb-2">
-              No hay eventos para este filtro
-            </p>
-            <p className="text-sm font-mono opacity-70">
-              Probá otro rango de fechas o cambia municipio/categoría para ver eventos reales cargados en agenda.
-            </p>
+          <div className="border-2 border-black p-4 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm">{error}</p>
+            <button onClick={() => setReintento(n => n + 1)} className="text-sm font-bold underline">Reintentar</button>
           </div>
         )}
 
-        {/* Grid compacto de eventos */}
+        {!loading && !error && filtered.length === 0 && (
+          <div className="border-2 border-dashed border-black p-8 text-center space-y-3">
+            <p className="font-bold text-lg">
+              {timeFilter === 'noche' ? 'Aún no hay planes con hora para esta noche.' : 'No encontramos planes con estos filtros.'}
+            </p>
+            <div className="flex justify-center gap-2 flex-wrap">
+              {timeFilter !== 'semana' && (
+                <button onClick={() => setTimeFilter('semana')} className={pill(false)}>Ver próximos 7 días</button>
+              )}
+              {(filtrosActivos > 0 || gratis || textFilter) && (
+                <button onClick={limpiar} className={pill(false)}>Quitar filtros</button>
+              )}
+            </div>
+          </div>
+        )}
+
         {!loading && !error && filtered.length > 0 && (
           <>
-            <p className="text-[11px] font-mono font-bold uppercase tracking-wider mb-4">
-              {filtered.length} evento{filtered.length === 1 ? '' : 's'}
-              {getTimeLabel(timeFilter)}
-              {totalPages > 1 && ` — pág. ${page} / ${totalPages}`}
+            <p className="text-sm text-black/60 mb-3">
+              {filtered.length} plan{filtered.length === 1 ? '' : 'es'}
+              {totalPages > 1 && ` · página ${page} de ${totalPages}`}
             </p>
 
-            {/* HOY: grid plano sin agrupar por fecha */}
-            {timeFilter === 'hoy' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {paged.map(ev => (
-                  <EventCard key={ev.id} evento={ev} />
-                ))}
+            {!agrupar ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {paged.map(ev => <EventCard key={ev.id} evento={ev} />)}
               </div>
             ) : (
-              /* Semana/Todos: agrupado por fecha */
-              <div className="space-y-6">
-                {sortedGroupEntries.map(([dateLabel, dayEvents]) => {
-                  const hasOngoing = dayEvents.some(ev => (ev.fecha_inicio?.slice(0, 10) ?? '') < todayStr)
-                  return (
-                  <div key={dateLabel}>
-                    <div className="flex items-center gap-3 mb-3">
-                      <span className="w-2.5 h-2.5 bg-black" />
-                      <h3 className="text-xs font-mono font-bold uppercase tracking-wider">{dateLabel}</h3>
-                      {hasOngoing && (
-                        <span className="text-[9px] font-mono font-bold uppercase tracking-wider bg-black text-white px-1.5 py-0.5">EN CURSO</span>
-                      )}
-                      <span className="text-[11px] font-mono opacity-60">{dayEvents.length} evento{dayEvents.length > 1 ? 's' : ''}</span>
+              <div className="space-y-8">
+                {grupos.map(([dayKey, dayEvents]) => (
+                  <div key={dayKey}>
+                    <h2 className="font-heading font-black text-lg mb-3 first-letter:uppercase border-b-2 border-black pb-1">
+                      {dayKey === hoyKey ? 'Hoy' : formatEventDate(`${dayKey}T12:00:00`, { weekday: 'long', day: 'numeric', month: 'long' })}
+                      <span className="text-sm font-normal text-black/50 ml-2">{dayEvents.length}</span>
+                    </h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      {dayEvents.map(ev => <EventCard key={ev.id} evento={ev} />)}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                      {dayEvents.map(ev => (
-                        <EventCard key={ev.id} evento={ev} />
-                      ))}
-                    </div>
-                    <div className="border-t border-black/20 mt-5" />
                   </div>
-                  )
-                })}
+                ))}
               </div>
             )}
 
-            {/* Paginación */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between border-2 border-black p-3 mt-8">
+              <nav className="flex items-center justify-between border-2 border-black p-2 mt-8" aria-label="Paginación">
                 <button
-                  onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 480, behavior: 'smooth' }) }}
+                  onClick={() => cambiarPagina(Math.max(1, page - 1))}
                   disabled={page === 1}
-                  className="text-xs font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 disabled:opacity-30 hover:bg-black hover:text-white transition-all disabled:cursor-not-allowed"
+                  className="min-h-[44px] px-4 text-sm font-bold border-2 border-black disabled:opacity-30 hover:bg-black hover:text-white transition-colors disabled:cursor-not-allowed"
                 >
-                  ← ANTERIOR
+                  ← Anterior
                 </button>
-                <span className="text-xs font-mono font-bold uppercase tracking-wider">{page} / {totalPages}</span>
+                <span className="text-sm font-bold">{page} / {totalPages}</span>
                 <button
-                  onClick={() => { setPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 480, behavior: 'smooth' }) }}
+                  onClick={() => cambiarPagina(Math.min(totalPages, page + 1))}
                   disabled={page === totalPages}
-                  className="text-xs font-mono font-bold uppercase tracking-wider border-2 border-black px-4 py-2 disabled:opacity-30 hover:bg-black hover:text-white transition-all disabled:cursor-not-allowed"
+                  className="min-h-[44px] px-4 text-sm font-bold border-2 border-black disabled:opacity-30 hover:bg-black hover:text-white transition-colors disabled:cursor-not-allowed"
                 >
-                  SIGUIENTE →
+                  Siguiente →
                 </button>
-              </div>
+              </nav>
             )}
           </>
         )}
+      </section>
 
-      </div>
-
-      {/* ─── MAPA CULTURAL ───────────────────────────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 border-t-2 border-black">
-        <div className="flex items-center gap-3 mb-6">
-          <span className="w-4 h-4 bg-black" />
-          <h2 className="text-xl font-black uppercase tracking-wider" style={{ fontFamily: "'Sora', 'Arial Black', sans-serif" }}>
-            Mapa Cultural
-          </h2>
-          <span className="text-[11px] font-mono font-bold uppercase tracking-wider opacity-40">Valle de Aburrá</span>
+      {/* ─── Secundario: mapa y aportes (debajo de los eventos) ─────────── */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 grid gap-4 md:grid-cols-3">
+        <Link to="/mapa" className="md:col-span-2 border-2 border-black p-5 bg-black text-white hover:bg-white hover:text-black transition-colors group">
+          <p className="text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Mapa cultural</p>
+          <p className="font-heading font-black text-2xl">Mira en el mapa qué pasa cerca →</p>
+          <p className="text-sm opacity-70 mt-1">Espacios, colectivos y los eventos de hoy en todo el Valle de Aburrá.</p>
+        </Link>
+        <div className="border-2 border-black p-5 space-y-2">
+          <p className="text-xs font-bold uppercase tracking-widest text-black/60">¿Falta un plan?</p>
+          <Link to="/publicar" className="block font-bold underline hover:no-underline">Publica tu evento gratis</Link>
+          <Link to="/web-search" className="block text-sm underline hover:no-underline">Ayúdanos a encontrar eventos y colectivos</Link>
         </div>
-        <div className="border-2 border-black overflow-hidden">
-          <MapErrorBoundary>
-            <Suspense fallback={
-              <div className="w-full h-[420px] bg-gray-50 flex items-center justify-center">
-                <p className="font-mono text-sm text-gray-400 animate-pulse">Cargando mapa…</p>
-              </div>
-            }>
-              <CulturalMap zonaFilter={zonaFilter || undefined} zonas={zonas} />
-            </Suspense>
-          </MapErrorBoundary>
-        </div>
-      </div>
-
-      {/* ─── PREGÚNTALE A ETÉREA ─────────────────────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 border-t-2 border-black">
-        <div className="flex items-center gap-3 mb-6">
-          <span className="w-4 h-4 bg-black" />
-          <h2 className="text-xl font-black uppercase tracking-wider" style={{ fontFamily: "'Sora', 'Arial Black', sans-serif" }}>
-            Pregúntale a ETÉREA
-          </h2>
-          <span className="text-[11px] font-mono font-bold uppercase tracking-wider opacity-40">IA Cultural</span>
-        </div>
-        <HomeChatSection />
-      </div>
+      </section>
     </>
   )
 }

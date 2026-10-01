@@ -1,33 +1,17 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useRef } from 'react'
-import { type Evento, trackInteraccion, getUrgencyLabel } from '../../lib/api'
-import { getEventDateParts } from '../../lib/datetime'
+import { type Evento, trackInteraccion } from '../../lib/api'
+import { formatEventTime, hasReliableEventTime, relativeDayLabel } from '../../lib/datetime'
 import SmartEventImage from '../ui/SmartEventImage'
 import { useAuth } from '../../lib/AuthContext'
+import { useFavoritos } from '../../lib/useFavoritos'
 
 interface EventCardProps {
   evento: Evento
   compact?: boolean
 }
 
-const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
-  comfama:          { label: 'Comfama',       color: '#E53E3E' },
-  fundacion_epm:    { label: 'Fdción. EPM',   color: '#2B6CB0' },
-  uva_epm:          { label: 'UVA EPM',       color: '#2B6CB0' },
-  parque_deseos:    { label: 'Parque Deseos', color: '#2B6CB0' },
-  biblioteca_epm:   { label: 'Bib. EPM',      color: '#2B6CB0' },
-  planetario_medellin: { label: 'Planetario', color: '#553C9A' },
-  compas_urbano:    { label: 'Compás',        color: '#2D3748' },
-  instagram:        { label: 'Instagram',     color: '#C05621' },
-}
-
-function getSourceBadge(fuente?: string | null): { label: string; color: string } | null {
-  if (!fuente) return null
-  const key = fuente.toLowerCase()
-  return SOURCE_LABELS[key] ?? null
-}
-
-const CAT_COLORS: Record<string, string> = {
+export const CAT_COLORS: Record<string, string> = {
   teatro: '#DC2626',
   rock: '#1a1a1a',
   hip_hop: '#F59E0B',
@@ -50,38 +34,54 @@ const CAT_COLORS: Record<string, string> = {
   conferencia: '#4338CA',
 }
 
+const CAT_LABELS: Record<string, string> = {
+  hip_hop: 'Hip hop',
+  arte_contemporaneo: 'Arte contemporáneo',
+  galeria: 'Galería',
+  libreria: 'Librería',
+  casa_cultura: 'Casa de cultura',
+  electronica: 'Electrónica',
+  musica_en_vivo: 'Música en vivo',
+  batalla_freestyle: 'Freestyle',
+  poesia: 'Poesía',
+  fotografia: 'Fotografía',
+  filosofia: 'Filosofía',
+}
+
+export function categoriaLabel(cat?: string | null): string {
+  if (!cat) return 'Cultura'
+  return CAT_LABELS[cat] ?? cat.replaceAll('_', ' ').replace(/^\w/, c => c.toUpperCase())
+}
+
+function capitalizar(texto?: string | null): string {
+  if (!texto) return ''
+  return texto.replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+/**
+ * Tarjeta mínima pensada para el usuario perezoso:
+ * cuándo (día + hora) → qué → dónde → precio → 1 acción.
+ */
 export default function EventCard({ evento, compact }: Readonly<EventCardProps>) {
   const { user } = useAuth()
-  const cardRef = useRef<HTMLDivElement>(null)
+  const { isSaved, toggle } = useFavoritos()
+  const cardRef = useRef<HTMLElement>(null)
   const viewTracked = useRef(false)
 
-  const { diaCorto: dia, hora } = getEventDateParts(evento)
   const cat = evento.categoria_principal
   const placeholderColor = CAT_COLORS[cat] ?? '#0a0a0a'
-  // Show hora whenever it exists, unless explicitly flagged as unconfirmed (false).
-  // null / undefined means "not yet set" — still show the time if the hora field is populated.
-  const horaConfirmada = evento.hora_confirmada !== false && hora
-  const fechaLabel = horaConfirmada ? `${dia} · ${hora}` : dia
-  const horaPrompt = horaConfirmada ? hora : 'Horario en el enlace'
+  const dia = relativeDayLabel(evento.fecha_inicio)
+  const hora = hasReliableEventTime(evento) ? formatEventTime(evento) : null
+  const esHoy = dia === 'Hoy'
 
-  // ML: urgency score para badge visual
-  const urgency = getUrgencyLabel(evento.fecha_inicio)
-
-  const sourceUrl = evento.fuente_url || null
-  const isIg = evento.fuente?.includes('instagram')
-  const sourceBadge = getSourceBadge(evento.fuente)
-  const ubicacionLabel = [evento.nombre_lugar, evento.barrio, evento.municipio].filter(Boolean).join(', ')
-  const mapsSearchTarget = ubicacionLabel || `${evento.titulo}, Medellin`
+  const lugar = evento.nombre_lugar || capitalizar(evento.barrio) || capitalizar(evento.municipio) || 'Valle de Aburrá'
+  const zona = [evento.barrio, evento.municipio].map(capitalizar).filter(Boolean).find(z => z !== lugar)
+  const mapsTarget = [evento.nombre_lugar, evento.direccion, evento.barrio, evento.municipio].filter(Boolean).join(', ')
   const mapsUrl = evento.lat && evento.lng
-    ? `https://www.google.com/maps?q=${evento.lat},${evento.lng}`
-    : `https://www.google.com/maps/search/${encodeURIComponent(mapsSearchTarget)}`
-  const preguntaEterea = encodeURIComponent(
-    `Quiero que me cuentes mas detalles solo de este evento: "${evento.titulo}". No me listes otros eventos. Fecha: ${dia} ${horaPrompt}. Lugar: ${ubicacionLabel || 'Medellin'}.`
-  )
+    ? `https://www.google.com/maps/dir/?api=1&destination=${evento.lat},${evento.lng}`
+    : `https://www.google.com/maps/search/${encodeURIComponent(mapsTarget || `${evento.titulo}, Medellín`)}`
+  const guardado = isSaved(evento.id)
 
-  // ─── ML: Intersection Observer para trackear view cuando el card es visible ──
-  // Registra view_evento solo 1 vez por montaje y solo si hay usuario logueado.
-  // Usa threshold=0.5 para asegurar que el usuario realmente vio la card.
   useEffect(() => {
     if (!user || viewTracked.current) return
     const el = cardRef.current
@@ -97,13 +97,12 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
           observer.disconnect()
         }
       },
-      { threshold: 0.5 }
+      { threshold: 0.5 },
     )
     observer.observe(el)
     return () => observer.disconnect()
   }, [user, evento.id, cat, evento.barrio, evento.municipio])
 
-  // ─── ML: Handler de click para trackear interacción más fuerte ───────────
   const handleClick = () => {
     if (user) {
       void trackInteraccion('click', evento.id, cat, user.id, {
@@ -113,170 +112,132 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
     }
   }
 
+  const compartir = async () => {
+    const url = `${window.location.origin}/evento/${evento.slug}`
+    const texto = `${evento.titulo} · ${dia}${hora ? ` ${hora}` : ''} · ${lugar}`
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: evento.titulo, text: texto, url })
+        return
+      }
+      await navigator.clipboard.writeText(`${texto}\n${url}`)
+    } catch { /* el usuario canceló */ }
+  }
+
+  const placeholder = (
+    <div
+      className="w-full h-full flex items-center justify-center"
+      style={{ backgroundColor: placeholderColor }}
+    >
+      <span className="text-white/90 text-xs font-mono font-bold uppercase tracking-widest">
+        ◈ {categoriaLabel(cat)}
+      </span>
+    </div>
+  )
+
   return (
-    <div ref={cardRef} className="group bg-white border-2 border-black hover:bg-black hover:text-white transition-all duration-300 overflow-hidden hover-lift flex flex-col">
-      {/* Image */}
-      <Link to={`/evento/${evento.slug}`} onClick={handleClick}>
+    <article
+      ref={cardRef}
+      className="group bg-white border-2 border-black flex flex-col overflow-hidden transition-shadow hover:shadow-[6px_6px_0_0_#000]"
+    >
+      <Link
+        to={`/evento/${evento.slug}`}
+        onClick={handleClick}
+        className={`relative block ${compact ? 'aspect-[2/1]' : 'aspect-[16/9]'} overflow-hidden border-b-2 border-black`}
+      >
         {evento.imagen_url ? (
-          <div className={`${compact ? 'aspect-[2/1]' : 'aspect-[16/9]'} overflow-hidden border-b-2 border-black`}>
-            <SmartEventImage
-              primaryUrl={evento.imagen_url}
-              sourceUrl={evento.fuente_url}
-              alt={evento.titulo}
-              kind="card"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 group-hover:opacity-80"
-              fallback={(
-                <div
-                  className="w-full h-full flex items-center justify-center relative overflow-hidden"
-                  style={{ backgroundColor: placeholderColor }}
-                >
-                  <div className="absolute inset-0 opacity-10">
-                    <div className="absolute inset-0" style={{
-                      backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px)'
-                    }} />
-                  </div>
-                  <div className="text-center text-white relative z-10">
-                    <span className="text-3xl block mb-1">◈</span>
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-widest">
-                      {cat.replaceAll('_', ' ')}
-                    </span>
-                  </div>
-                </div>
-              )}
-            />
-          </div>
-        ) : (
-          <div
-            className={`${compact ? 'aspect-[2/1]' : 'aspect-[16/9]'} border-b-2 border-black flex items-center justify-center relative overflow-hidden`}
-            style={{ backgroundColor: placeholderColor }}
-          >
-            <div className="absolute inset-0 opacity-10">
-              <div className="absolute inset-0" style={{
-                backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px)'
-              }} />
-            </div>
-            <div className="text-center text-white relative z-10">
-              <span className="text-3xl block mb-1">◈</span>
-              <span className="text-[10px] font-mono font-bold uppercase tracking-widest">
-                {cat.replaceAll('_', ' ')}
-              </span>
-            </div>
-          </div>
+          <SmartEventImage
+            primaryUrl={evento.imagen_url}
+            sourceUrl={evento.fuente_url}
+            alt={evento.titulo}
+            kind="card"
+            className="w-full h-full object-cover motion-safe:group-hover:scale-105 transition-transform duration-500"
+            fallback={placeholder}
+          />
+        ) : placeholder}
+        {evento.es_gratuito && (
+          <span className="absolute top-2 left-2 bg-[#FACC15] text-black text-xs font-black uppercase tracking-wide px-2 py-1 border-2 border-black">
+            Gratis
+          </span>
+        )}
+        {typeof evento.distancia_km === 'number' && (
+          <span className="absolute top-2 right-2 bg-black text-white text-xs font-bold px-2 py-1">
+            {evento.distancia_km < 1 ? `${Math.round(evento.distancia_km * 1000)} m` : `${evento.distancia_km.toFixed(1)} km`}
+          </span>
         )}
       </Link>
 
-      <div className="p-4 flex flex-col flex-1">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-current px-2 py-0.5">
-            {cat.replaceAll('_', ' ')}
-          </span>
-          <div className="flex items-center gap-1.5">
-            {urgency === 'alta' && (
-              <span className="text-[9px] font-mono font-black uppercase tracking-widest bg-black text-white px-1.5 py-0.5 animate-pulse">
-                HOY
-              </span>
-            )}
-            {urgency === 'media' && (
-              <span className="text-[9px] font-mono font-bold uppercase tracking-widest border border-black px-1.5 py-0.5 opacity-80">
-                PRONTO
-              </span>
-            )}
-            <span className="text-[10px] font-mono font-bold">{fechaLabel}</span>
-          </div>
-        </div>
-        {sourceBadge && (
-          <span
-            className="inline-block text-[8px] font-mono font-bold uppercase tracking-widest px-1.5 py-0.5 mb-1.5"
-            style={{ backgroundColor: sourceBadge.color, color: '#fff' }}
-          >
-            {sourceBadge.label}
-          </span>
-        )}
-        {!horaConfirmada && sourceUrl && (
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            className="inline-flex items-center gap-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-70 hover:opacity-100 underline mb-2"
-          >
-            🕐 Horario en el enlace
-          </a>
-        )}
-        {!horaConfirmada && !sourceUrl && (
-          <span className="text-[9px] font-mono opacity-50 mb-2 block">🕐 Horario en el enlace</span>
-        )}
+      <div className="p-4 flex flex-col flex-1 gap-1.5">
+        <p className="text-sm font-bold">
+          <span className={esHoy ? 'bg-black text-white px-1.5 py-0.5 mr-1' : 'mr-1'}>{dia}</span>
+          {hora && <span>{hora}</span>}
+          {!hora && <span className="text-black/50 font-normal text-xs">hora por confirmar</span>}
+        </p>
 
         <Link to={`/evento/${evento.slug}`} onClick={handleClick}>
-          <h3 className="font-heading font-black text-sm leading-snug mb-2 uppercase tracking-wide">
+          <h3 className="font-heading font-black text-base leading-snug line-clamp-2 group-hover:underline">
             {evento.titulo}
           </h3>
         </Link>
 
-        {evento.descripcion && !compact && (
-          <p className="text-[11px] font-mono leading-relaxed opacity-60 group-hover:opacity-80 line-clamp-2 mb-2">
-            {evento.descripcion}
-          </p>
-        )}
+        <p className="text-sm text-black/70 truncate">
+          {lugar}{zona ? <span className="text-black/50"> · {zona}</span> : null}
+        </p>
 
-        {/* Location */}
-        <div className="flex items-center gap-1.5 text-[11px] font-mono mb-2">
-          <span className="w-1.5 h-1.5 bg-current shrink-0" />
-          <span className="truncate">{evento.nombre_lugar ?? evento.barrio ?? 'Medellín'}</span>
-          {evento.barrio && evento.nombre_lugar && (
-            <span className="opacity-50 shrink-0">&middot; {evento.barrio}</span>
-          )}
-        </div>
+        <p className="text-xs text-black/60">
+          {categoriaLabel(cat)}
+          {!evento.es_gratuito && evento.precio ? ` · ${evento.precio}` : ''}
+        </p>
 
-        {/* Price + tags */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {evento.es_gratuito && (
-            <span className="text-[9px] font-mono font-bold uppercase tracking-wider border border-current px-1.5 py-0.5">
-              Gratis
-            </span>
-          )}
-          {evento.precio && !evento.es_gratuito && (
-            <span className="text-[9px] font-mono font-bold opacity-60">{evento.precio}</span>
-          )}
-        </div>
-
-        {/* Actions — always at bottom */}
-        <div className="mt-auto pt-3 flex items-center gap-3 flex-wrap border-t border-current/10">
-          <Link
-            to={`/chat?q=${preguntaEterea}`}
-            className="text-[9px] font-mono font-bold uppercase tracking-wider opacity-70 hover:opacity-100 transition-opacity flex items-center gap-1"
-          >
-            🤖 <span className="underline">ETÉREA</span>
-          </Link>
+        <div className="mt-auto pt-3 flex items-center gap-2">
           <a
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            className="text-[9px] font-mono font-bold uppercase tracking-wider opacity-50 hover:opacity-100 transition-opacity flex items-center gap-1"
+            className="flex-1 text-center text-sm font-bold border-2 border-black px-3 py-2.5 hover:bg-black hover:text-white transition-colors"
           >
-            📍 <span className="underline">Ubicación</span>
+            Cómo llegar
           </a>
-          {sourceUrl && (
+          {evento.fuente_url && (
             <a
-              href={sourceUrl}
+              href={evento.fuente_url}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="text-[9px] font-mono font-bold uppercase tracking-wider opacity-50 hover:opacity-100 transition-opacity flex items-center gap-1"
+              className="flex-1 text-center text-sm font-bold bg-black text-white border-2 border-black px-3 py-2.5 hover:bg-white hover:text-black transition-colors"
             >
-              {isIg ? '📸 IG' : '🌐 WEB'}
-              <span className="underline">Más info</span>
+              {evento.precio && !evento.es_gratuito ? 'Entradas' : 'Más info'}
             </a>
           )}
-          <Link
-            to={`/evento/${evento.slug}`}
-            className="text-[9px] font-mono font-bold uppercase tracking-wider opacity-50 hover:opacity-100 transition-opacity ml-auto"
+          <button
+            type="button"
+            onClick={() => toggle({
+              id: evento.id,
+              titulo: evento.titulo,
+              slug: evento.slug,
+              fecha_inicio: evento.fecha_inicio,
+              categoria_principal: evento.categoria_principal,
+              nombre_lugar: evento.nombre_lugar ?? undefined,
+              barrio: evento.barrio ?? undefined,
+              municipio: evento.municipio ?? undefined,
+              imagen_url: evento.imagen_url ?? undefined,
+              es_gratuito: evento.es_gratuito,
+            })}
+            aria-label={guardado ? 'Quitar de guardados' : 'Guardar evento'}
+            aria-pressed={guardado}
+            className="w-11 h-11 shrink-0 border-2 border-black text-lg flex items-center justify-center hover:bg-black hover:text-white transition-colors"
           >
-            Ver más →
-          </Link>
+            {guardado ? '♥' : '♡'}
+          </button>
+          <button
+            type="button"
+            onClick={compartir}
+            aria-label="Compartir evento"
+            className="w-11 h-11 shrink-0 border-2 border-black text-lg flex items-center justify-center hover:bg-black hover:text-white transition-colors"
+          >
+            ↗
+          </button>
         </div>
       </div>
-    </div>
+    </article>
   )
 }

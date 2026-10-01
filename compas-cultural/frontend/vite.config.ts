@@ -11,7 +11,8 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
-      '/api': { target: 'http://localhost:8002', changeOrigin: true },
+      // VITE_PROXY_TARGET=https://www.culturaetereamed.com para probar contra producción
+      '/api': { target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:8002', changeOrigin: true, secure: true },
     },
   },
   build: {

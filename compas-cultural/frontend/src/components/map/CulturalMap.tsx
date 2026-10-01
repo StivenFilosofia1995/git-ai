@@ -3,7 +3,9 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap, GeoJSON } from 'r
 import MarkerClusterGroup from '@changey/react-leaflet-markercluster'
 import 'leaflet/dist/leaflet.css'
 import '@changey/react-leaflet-markercluster/dist/styles.min.css'
-import { getEspacios, getEventosTodos, type Espacio, type Evento, type Zona } from '../../lib/api'
+import { Link } from 'react-router-dom'
+import { getEspacios, getEventosProximasSemanas, type Espacio, type Evento, type Zona } from '../../lib/api'
+import { bogotaDayKey, formatEventTime, hasReliableEventTime, relativeDayLabel } from '../../lib/datetime'
 
 // ── Geo helpers ───────────────────────────────────────────────────────────────
 function normalizeZonaText(value: string | null | undefined): string {
@@ -155,13 +157,10 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
 
   useEffect(() => {
     getEspacios({ limit: 1000 }).then(setEspacios).catch(console.error)
-    getEventosTodos({ maxRows: 500 })
-      .then(evs => {
-        const hoy = new Date().toISOString().slice(0, 10)
-        const cutoff = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-        setEventos(evs.filter(e => e.lat != null && e.lng != null && e.fecha_inicio >= hoy && e.fecha_inicio <= cutoff))
-      })
-      .catch(() => {})
+    // Hoy → 7 días, ventana en hora Bogotá; el backend hereda coordenadas del espacio.
+    getEventosProximasSemanas(7, undefined, 0)
+      .then(evs => setEventos(evs.filter(e => e.lat != null && e.lng != null)))
+      .catch(() => setEventos([]))
 
     // Fetch Valle de Aburrá municipality boundaries from IGAC ArcGIS Online (CORS OK, official data)
     const codes = Object.keys(DIVIPOLA_TO_KEY).map(c => `'${c}'`).join(',')
@@ -431,8 +430,9 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
         style={{ background: '#f8f8f8' }}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://carto.com/">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          className="map-tiles-gris"
         />
 
         {/* Municipality boundary overlay — only renders if DANE fetch succeeded */}
@@ -466,8 +466,8 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
                 }}
               >
                 <Popup>
-                  <a href={`/espacio/${espacio.slug}`}
-                    style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'Space Mono', monospace" }}>
+                  <Link to={`/espacio/${espacio.slug}`}
+                    style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'JetBrains Mono', monospace" }}>
                     <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2 }}>
                       {isPublico && <span title="Equipamiento público">★ </span>}{espacio.nombre}
                     </div>
@@ -478,7 +478,7 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
                       <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>◉ {espacio.barrio}, {espacio.municipio}</div>
                     )}
                     <div style={{ fontSize: 9, color: '#000', marginTop: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>Ver detalle →</div>
-                  </a>
+                  </Link>
                 </Popup>
               </CircleMarker>
             )
@@ -490,8 +490,8 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
             {filteredEventos.map(ev => {
               const lat = ev.lat ?? 0
               const lng = ev.lng ?? 0
-              const fecha = ev.fecha_inicio?.slice(0, 10) ?? ''
-              const esHoy = fecha === new Date().toISOString().slice(0, 10)
+              const esHoy = bogotaDayKey(ev.fecha_inicio) === bogotaDayKey(new Date())
+              const fecha = `${relativeDayLabel(ev.fecha_inicio)}${hasReliableEventTime(ev) ? ` · ${formatEventTime(ev)}` : ''}`
               return (
                 <CircleMarker
                   key={ev.id}
@@ -500,15 +500,15 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
                   pathOptions={{ fillColor: esHoy ? '#EF4444' : '#F97316', fillOpacity: 0.9, color: '#fff', weight: esHoy ? 2 : 1.5 }}
                 >
                   <Popup>
-                    <a href={`/evento/${ev.slug}`}
-                      style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'Space Mono', monospace", maxWidth: 200 }}>
+                    <Link to={`/evento/${ev.slug}`}
+                      style={{ textDecoration: 'none', color: 'inherit', display: 'block', fontFamily: "'JetBrains Mono', monospace", maxWidth: 200 }}>
                       {esHoy && <div style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', marginBottom: 2 }}>● HOY</div>}
                       <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2, lineHeight: 1.3 }}>{ev.titulo}</div>
                       <div style={{ fontSize: 10, color: '#666' }}>{fecha}</div>
                       {ev.nombre_lugar && <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>◉ {ev.nombre_lugar}</div>}
                       {ev.es_gratuito && <div style={{ fontSize: 9, fontWeight: 700, color: '#10B981', marginTop: 2 }}>GRATIS</div>}
                       <div style={{ fontSize: 9, color: '#000', marginTop: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>Ver evento →</div>
-                    </a>
+                    </Link>
                   </Popup>
                 </CircleMarker>
               )
@@ -518,7 +518,7 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
       </MapContainer>
 
       {/* Desktop: fixed left panel */}
-      <div className="hidden sm:block absolute top-4 left-4 w-56 max-h-[75vh] bg-white/97 backdrop-blur-sm border-2 border-black z-[1000] shadow-sm">
+      <div className="hidden xl:block absolute top-4 left-4 w-56 max-h-[75vh] bg-white/97 backdrop-blur-sm border-2 border-black z-[1000] shadow-sm">
         {filterPanel}
       </div>
 
@@ -526,7 +526,7 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
       <button
         type="button"
         onClick={() => setFiltersOpen(v => !v)}
-        className="sm:hidden absolute bottom-4 left-4 z-[1001] flex items-center gap-2 bg-black text-white font-mono text-[11px] font-bold uppercase tracking-widest px-3 py-2.5 shadow-lg active:scale-95 transition-transform"
+        className="xl:hidden absolute bottom-4 left-4 z-[1001] flex items-center gap-2 bg-black text-white font-mono text-[11px] font-bold uppercase tracking-widest px-3 py-2.5 shadow-lg active:scale-95 transition-transform"
       >
         <span>{filtersOpen ? '✕' : '⊞'}</span>
         <span>{filtersOpen ? 'Cerrar' : 'Filtros'}</span>
@@ -539,7 +539,7 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
 
       {/* Mobile: bottom sheet */}
       {filtersOpen && (
-        <div className="sm:hidden absolute bottom-0 left-0 right-0 z-[1000] bg-white border-t-2 border-black max-h-[60vh] overflow-y-auto shadow-2xl">
+        <div className="xl:hidden absolute bottom-0 left-0 right-0 z-[1000] bg-white border-t-2 border-black max-h-[60vh] overflow-y-auto shadow-2xl">
           {filterPanel}
         </div>
       )}

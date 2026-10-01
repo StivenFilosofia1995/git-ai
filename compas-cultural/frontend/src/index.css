@@ -108,3 +108,20 @@
     box-shadow: 8px 8px 0px 0px rgba(0,0,0,1);
   }
 }
+
+/* Scroll horizontal sin barra (pastillas de atajos) */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Accesibilidad: respetar a quien pide menos movimiento */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Mapa: teselas OSM en escala de grises (estética blanco/negro de la marca) */
+.map-tiles-gris { filter: grayscale(1) contrast(1.05) brightness(1.03); }

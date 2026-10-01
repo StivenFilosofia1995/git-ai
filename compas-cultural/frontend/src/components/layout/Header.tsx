@@ -10,55 +10,27 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 z-40 bg-white border-b-2 border-black">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
           <Link to="/" className="flex items-center gap-3 group">
             <div className="w-9 h-9 bg-black flex items-center justify-center group-hover:bg-white group-hover:outline group-hover:outline-2 group-hover:outline-black transition-all duration-300">
               <span className="text-white font-heading font-black text-base group-hover:text-black transition-colors duration-300">E</span>
             </div>
             <div>
-              <h1 className="text-sm font-heading font-black tracking-tight leading-none uppercase">CULTURA ETÉREA</h1>
-              <p className="text-[9px] text-black tracking-[0.3em] uppercase leading-none mt-0.5 font-mono">Medellín Labs</p>
+              <span className="block text-sm font-heading font-black tracking-tight leading-none uppercase">CULTURA ETÉREA</span>
+              <p className="text-[10px] text-black/60 tracking-[0.2em] uppercase leading-none mt-0.5 font-mono">Agenda del Valle</p>
             </div>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 lg:gap-4">
             <Navigation />
 
-            {/* Preguntale a ETÉREA — compact header CTA */}
-            {/* Registrar CTA */}
             <RegisterDropdown />
 
             <Link
-              to="/chat"
-              className="hidden md:flex items-center gap-2 px-3 py-1.5 border border-black text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all duration-200"
-            >
-              <span className="w-1.5 h-1.5 bg-black rounded-full animate-pulse group-hover:bg-white" />
-              Preguntale a ETÉREA
-            </Link>
-
-            <Link
-              to="/proteccion-datos"
-              className="hidden md:flex items-center px-2 py-1 border border-black text-[9px] font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all duration-200"
-              title="Ley de protección de datos"
-            >
-              Ley de protección de datos
-            </Link>
-
-            {/* Guardados */}
-            <Link
               to="/guardados"
-              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-[11px] font-mono font-bold hover:bg-black hover:text-white transition-all duration-200 border border-transparent hover:border-black"
+              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-sm font-bold hover:bg-black hover:text-white transition-colors border border-transparent hover:border-black"
               title="Eventos guardados"
             >
-              ♡ Guardados
-            </Link>
-
-            {/* Botón donación Bre-B */}
-            <Link
-              to="/aportes"
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 border-2 border-black bg-yellow-300 text-black text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-yellow-400 transition-all duration-200"
-              title="Apoyá el proyecto"
-            >
-              ♥ Aportes
+              ♡ <span className="hidden lg:inline">Guardados</span>
             </Link>
 
             {!loading && (
@@ -109,7 +81,7 @@ function RegisterDropdown() {
         onClick={() => setOpen(v => !v)}
         className="flex items-center gap-1.5 px-3 py-1.5 border-2 border-black text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-all duration-200"
       >
-        + Registrar
+        + Publicar
         <span className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
       </button>
       {open && (

@@ -5,26 +5,17 @@ export default function CercaDeTiPage() {
   return (
     <>
       <Helmet>
-        <title>Cerca de Ti — Cultura ETÉREA</title>
-        <meta name="description" content="Eventos y espacios culturales cerca de tu ubicación en el Valle de Aburrá" />
+        <title>Cerca de mí — Cultura ETÉREA</title>
+        <meta name="description" content="Planes culturales cerca de ti en el Valle de Aburrá, ordenados por distancia real." />
       </Helmet>
 
-      <div className="max-w-7xl mx-auto px-6 py-12">
-        <div className="flex items-center gap-3 mb-6">
-          <span className="w-3 h-3 bg-black animate-pulse rounded-full" />
-          <span className="text-[11px] tracking-[0.3em] uppercase font-mono font-bold">
-            Tu zona · Valle de Aburrá
-          </span>
-        </div>
-
-        <h1 className="text-5xl md:text-7xl font-heading font-black tracking-tighter uppercase leading-[0.9] mb-4">
-          Cerca<br />de Ti
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-8">
+        <h1 className="font-heading font-black tracking-tight leading-none text-[1.75rem] sm:text-4xl mb-1">
+          Cerca de mí
         </h1>
-
-        <p className="text-sm font-mono leading-relaxed max-w-lg mb-10 text-neutral-600">
-          Poné tu ubicación y te mostramos la agenda cultural de esta semana en tu zona — teatro, música, arte y más, ordenados por cercanía.
+        <p className="text-sm text-black/60 mb-4">
+          Planes culturales ordenados por distancia: teatro, música, arte y más.
         </p>
-
         <CercaDeTi />
       </div>
     </>

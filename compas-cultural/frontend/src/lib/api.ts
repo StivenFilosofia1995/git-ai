@@ -1,6 +1,19 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 import { supabase } from './supabase'
 
+/**
+ * Header Authorization con el access_token (JWT) de la sesión de Supabase.
+ * El backend verifica la firma con Supabase Auth; un UUID crudo ya no sirve.
+ */
+async function bearer(userId?: string): Promise<string> {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (token && (!userId || data.session?.user?.id === userId)) return `Bearer ${token}`
+  } catch { /* sin sesión */ }
+  return ''
+}
+
 export interface Coordenadas {
   lat: number
   lng: number
@@ -54,6 +67,12 @@ export interface Evento {
   hora_confirmada?: boolean | null
   oculto?: boolean | null
   duracion_minutos?: number | null
+  /** Solo en /eventos/cerca: distancia real al usuario */
+  distancia_km?: number | null
+  /** 'lugar' cuando las coordenadas se heredaron del espacio */
+  coords_origen?: string | null
+  lugar_slug?: string | null
+  direccion?: string | null
 }
 
 export interface Zona {
@@ -230,6 +249,32 @@ function buildTemporalFiltersQS(filters?: EventosTemporalFilters): string {
 }
 
 export async function getEventosHoy(filters?: EventosTemporalFilters): Promise<Evento[]> {
+  // 1) Backend: ventana real en hora Bogotá, filtra ocultos y hereda coordenadas del lugar.
+  try {
+    const data = await apiGet<Evento[]>(`/eventos/hoy${buildTemporalFiltersQS(filters)}`)
+    if (Array.isArray(data)) return data
+  } catch { /* fallback a Supabase */ }
+  return getEventosHoySupabase(filters)
+}
+
+/** Eventos cercanos con distancia real (servidor). */
+export async function getEventosCerca(
+  lat: number,
+  lng: number,
+  radioKm = 5,
+  dias = 7,
+): Promise<Evento[]> {
+  const search = new URLSearchParams({
+    lat: lat.toFixed(5),
+    lng: lng.toFixed(5),
+    radio_km: String(radioKm),
+    dias: String(dias),
+    limit: '60',
+  })
+  return apiGet<Evento[]>(`/eventos/cerca?${search.toString()}`)
+}
+
+async function getEventosHoySupabase(filters?: EventosTemporalFilters): Promise<Evento[]> {
   const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
   const manana = (() => {
     const d = new Date()
@@ -246,8 +291,9 @@ export async function getEventosHoy(filters?: EventosTemporalFilters): Promise<E
   let q = supabase
     .from('eventos')
     .select('*')
-    .gte('fecha_inicio', hoy)
-    .lt('fecha_inicio', manana)
+    .gte('fecha_inicio', `${hoy}T00:00:00-05:00`)
+    .lt('fecha_inicio', `${manana}T00:00:00-05:00`)
+    .not('oculto', 'is', true)
     .order('fecha_inicio')
     .limit(200)
   if (filters?.municipio) q = q.ilike('municipio', `%${filters.municipio}%`)
@@ -731,7 +777,7 @@ export async function crearPerfil(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userId}`,
+      'Authorization': await bearer(userId),
     },
     body: JSON.stringify(data),
   })
@@ -747,7 +793,7 @@ export async function crearPerfil(
 
 export async function obtenerPerfil(userId: string): Promise<PerfilUsuario> {
   const response = await fetch(`${API_BASE_URL}/perfil/me`, {
-    headers: { 'Authorization': `Bearer ${userId}` },
+    headers: { 'Authorization': await bearer(userId) },
   })
   if (!response.ok) throw new Error('Perfil no encontrado')
   return response.json() as Promise<PerfilUsuario>
@@ -761,7 +807,7 @@ export async function actualizarPerfil(
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userId}`,
+      'Authorization': await bearer(userId),
     },
     body: JSON.stringify(data),
   })
@@ -790,7 +836,7 @@ export async function trackInteraccion(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${userId}`,
+        'Authorization': await bearer(userId),
       },
       body: JSON.stringify({ tipo, item_id: eventoId, categoria, metadata }),
     })
@@ -806,7 +852,7 @@ export async function trackInteraccion(
  */
 export async function getRecomendaciones(userId: string, limit = 12): Promise<Evento[]> {
   const response = await fetch(`${API_BASE_URL}/perfil/recomendaciones?limit=${limit}`, {
-    headers: { 'Authorization': `Bearer ${userId}` },
+    headers: { 'Authorization': await bearer(userId) },
   })
   if (!response.ok) return []
   const data = await response.json() as { recomendaciones?: Evento[] } | Evento[]
@@ -867,7 +913,7 @@ export async function registrarInteraccion(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userId}`,
+      'Authorization': await bearer(userId),
     },
     body: JSON.stringify(data),
   }).catch(() => {})
@@ -882,7 +928,7 @@ export async function registrarBusqueda(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userId}`,
+      'Authorization': await bearer(userId),
     },
     body: JSON.stringify({ query, categorias }),
   }).catch(() => {})
@@ -890,7 +936,7 @@ export async function registrarBusqueda(
 
 export async function obtenerRecomendaciones(userId: string, limit = 10): Promise<Evento[]> {
   const response = await fetch(`${API_BASE_URL}/perfil/recomendaciones?limit=${limit}`, {
-    headers: { 'Authorization': `Bearer ${userId}` },
+    headers: { 'Authorization': await bearer(userId) },
   })
   if (!response.ok) return []
   return response.json() as Promise<Evento[]>
@@ -1038,7 +1084,7 @@ export async function crearResena(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userId}`,
+      'Authorization': await bearer(userId),
       ...(userNombre ? { 'X-User-Nombre': userNombre } : {}),
     },
     body: JSON.stringify(data),
@@ -1059,7 +1105,7 @@ export async function actualizarResena(
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userId}`,
+      'Authorization': await bearer(userId),
     },
     body: JSON.stringify(data),
   })
@@ -1070,7 +1116,7 @@ export async function actualizarResena(
 export async function eliminarResena(resenaId: string, userId: string): Promise<void> {
   await fetch(`${API_BASE_URL}/resenas/${resenaId}`, {
     method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${userId}` },
+    headers: { 'Authorization': await bearer(userId) },
   })
 }
 

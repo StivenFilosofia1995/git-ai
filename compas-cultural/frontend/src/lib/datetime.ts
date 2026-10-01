@@ -108,9 +108,29 @@ export function formatEventTime(value: EventDateInput, fallback = 'Hora por conf
   if (!hasReliableEventTime(value)) return fallback
   return formatEventDate(
     context.fecha_inicio,
-    { hour: '2-digit', minute: '2-digit' },
+    { hour: 'numeric', minute: '2-digit', hour12: true },
     fallback,
   )
+}
+
+/** Clave YYYY-MM-DD del día en Bogotá (para comparar "hoy" sin errores de UTC). */
+export function bogotaDayKey(value: Date | string | null | undefined): string | null {
+  const parsed = value instanceof Date ? value : parseEventDate(value ?? null)
+  if (!parsed) return null
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: CO_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(parsed)
+}
+
+/** "Hoy", "Mañana" o "vie 3 oct", siempre en hora de Bogotá. */
+export function relativeDayLabel(value: string | null | undefined): string {
+  const key = bogotaDayKey(value)
+  if (!key) return 'Por confirmar'
+  const today = bogotaDayKey(new Date())
+  const tomorrow = bogotaDayKey(new Date(Date.now() + 86_400_000))
+  if (key === today) return 'Hoy'
+  if (key === tomorrow) return 'Mañana'
+  return formatEventDate(value, { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
 export function getEventDateParts(value: EventDateInput) {
@@ -128,7 +148,9 @@ export function getEventDateParts(value: EventDateInput) {
       month: 'long',
       year: 'numeric',
     }),
-    hora: null,
-    horaConfiable: false,
+    // Antes era `null` fijo: por eso TODAS las tarjetas decían "Horario en el enlace"
+    // aunque ~60 % de los eventos tiene hora confirmada en la base de datos.
+    hora: hasReliableEventTime(value) ? formatEventTime(value) : null,
+    horaConfiable: hasReliableEventTime(value),
   }
 }

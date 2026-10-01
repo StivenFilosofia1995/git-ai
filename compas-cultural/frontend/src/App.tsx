@@ -5,7 +5,6 @@ import { trackPageView } from './lib/analytics'
 import Header from './components/layout/Header'
 import Footer from './components/layout/Footer'
 import ChatWidget from './components/chat/ChatWidget'
-import EventoDestacado from './components/agenda/EventoDestacado'
 import Home from './pages/Home'
 import Explorar from './pages/Explorar'
 import EspacioDetalle from './pages/EspacioDetalle'
@@ -61,14 +60,14 @@ function Layout() {
   return (
     <div className="min-h-screen bg-white">
       <Header />
-      <main className="pt-11 md:pt-0">
+      {/* pb: deja libre la barra de navegación inferior en móvil */}
+      <main className="pb-16 md:pb-0">
         <ProfileGuard>
           <Outlet />
         </ProfileGuard>
       </main>
       <Footer />
       <ChatWidget />
-      <EventoDestacado />
     </div>
   )
 }

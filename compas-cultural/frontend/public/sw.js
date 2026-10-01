@@ -1,4 +1,4 @@
-const CACHE = 'eterea-v1'
+const CACHE = 'eterea-v2'
 const OFFLINE_URL = '/'
 
 // Install: cache shell
@@ -17,18 +17,27 @@ self.addEventListener('activate', e => {
   )
 })
 
-// Fetch: network first, fallback cache
+// Fetch: solo la "cáscara" de la app (mismo origen, HTML/JS/CSS/íconos).
+// Nunca datos: ni /api/, ni Supabase, ni teselas del mapa, ni imágenes externas
+// (antes se cacheaba todo sin límite y podían verse eventos viejos).
+const STATIC_RE = /\.(?:js|css|svg|png|woff2?|webmanifest|json)$/
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return
-  if (e.request.url.includes('/api/')) return // Never cache API
+  const url = new URL(e.request.url)
+  if (url.origin !== self.location.origin) return
+  if (url.pathname.startsWith('/api/')) return
+  const isNavigation = e.request.mode === 'navigate'
+  if (!isNavigation && !STATIC_RE.test(url.pathname)) return
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        const clone = res.clone()
-        caches.open(CACHE).then(c => c.put(e.request, clone))
+        if (res.ok) {
+          const clone = res.clone()
+          caches.open(CACHE).then(c => c.put(isNavigation ? OFFLINE_URL : e.request, clone))
+        }
         return res
       })
-      .catch(() => caches.match(e.request).then(r => r || caches.match(OFFLINE_URL)))
+      .catch(() => caches.match(isNavigation ? OFFLINE_URL : e.request).then(r => r || caches.match(OFFLINE_URL)))
   )
 })
 

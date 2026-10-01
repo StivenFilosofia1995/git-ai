@@ -139,7 +139,7 @@ export default function EventoDestacado(_props: Props = {}) {
                   <span className="text-[9px] font-mono font-black uppercase tracking-wider px-1.5 py-0.5 bg-black text-white">GRATIS</span>
                 )}
               </div>
-              <Link to={`/agenda/${ev.slug}`} className="block group" onClick={() => setOpen(false)}>
+              <Link to={`/evento/${ev.slug}`} className="block group" onClick={() => setOpen(false)}>
                 <h3 className="text-black text-sm sm:text-base font-black uppercase leading-tight line-clamp-2 group-hover:opacity-70 transition-opacity">
                   {ev.titulo}
                 </h3>
@@ -154,7 +154,7 @@ export default function EventoDestacado(_props: Props = {}) {
               )}
             </div>
             <Link
-              to={`/agenda/${ev.slug}`}
+              to={`/evento/${ev.slug}`}
               className="mt-2 self-start text-[9px] font-mono font-black uppercase tracking-widest text-black border border-black px-3 py-1.5 hover:bg-black hover:text-white transition-colors"
               onClick={() => setOpen(false)}
             >

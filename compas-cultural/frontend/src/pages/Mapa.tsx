@@ -27,11 +27,11 @@ export default function Mapa() {
       <Helmet>
         <title>Mapa Cultural — Cultura ETÉREA</title>
       </Helmet>
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="mb-6">
-          <h1 className="text-2xl font-heading font-black tracking-tight uppercase">Mapa Cultural</h1>
-          <p className="text-sm font-mono mt-1 uppercase tracking-wider">
-            Espacios culturales activos en el Valle de Aburrá
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
+        <div className="mb-4">
+          <h1 className="font-heading font-black tracking-tight leading-none text-[1.75rem] sm:text-4xl">Mapa cultural</h1>
+          <p className="text-sm text-black/60 mt-1">
+            Puntos naranjas: eventos de los próximos 7 días (rojos: hoy). Puntos de color: espacios y colectivos.
           </p>
         </div>
         <div className="overflow-hidden border-2 border-black">

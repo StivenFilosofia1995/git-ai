@@ -93,21 +93,21 @@ export default function ChatWidget() {
 
   if (!isOpen) {
     return (
-      <div className="fixed bottom-24 md:bottom-16 right-6 z-[60]">
+      <div className="fixed bottom-20 right-3 md:bottom-8 md:right-6 z-[60]">
         <button
           onClick={toggleChat}
           aria-label="Abrir asistente cultural ETÉREA"
-          className="flex items-center gap-2 pl-3 pr-4 h-11 bg-black text-white border-2 border-black hover:bg-white hover:text-black transition-all duration-300 hover-lift"
+          className="flex items-center gap-2 px-3 md:pl-3 md:pr-4 h-11 bg-black text-white border-2 border-black hover:bg-white hover:text-black transition-colors shadow-[3px_3px_0_0_rgba(0,0,0,0.25)]"
         >
           <span className="text-sm font-black">◆</span>
-          <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em]">ETÉREA</span>
+          <span className="hidden md:inline text-xs font-bold">Pregúntale a Etérea</span>
         </button>
       </div>
     )
   }
 
   return (
-    <div className="fixed bottom-24 md:bottom-16 right-6 w-80 h-[28rem] bg-white border-2 border-black z-[60] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+    <div className="fixed bottom-20 md:bottom-8 right-3 md:right-6 w-[calc(100vw-1.5rem)] max-w-80 h-[28rem] bg-white border-2 border-black z-[60] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
       <div className="px-4 py-3 border-b-2 border-black flex justify-between items-center bg-black text-white">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 bg-white" />

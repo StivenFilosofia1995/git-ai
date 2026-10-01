@@ -20,10 +20,17 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
   static getDerivedStateFromError(error: Error) { return { error } }
   render() {
     if (this.state.error) {
-      return <div style={{ padding: 40, fontFamily: 'monospace' }}>
-        <h1 style={{ color: 'red' }}>Runtime Error</h1>
-        <pre>{this.state.error.message}</pre>
-        <pre style={{ fontSize: 11, opacity: 0.6 }}>{this.state.error.stack}</pre>
+      // Nunca mostrar el stack al usuario: solo en consola para depurar.
+      console.error(this.state.error)
+      return <div style={{ padding: 32, fontFamily: 'system-ui, sans-serif', maxWidth: 480, margin: '10vh auto', textAlign: 'center' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 900, marginBottom: 8 }}>Algo se rompió</h1>
+        <p style={{ marginBottom: 20, opacity: 0.7 }}>Recarga la página para seguir viendo la agenda.</p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{ padding: '12px 20px', background: '#000', color: '#fff', border: '2px solid #000', fontWeight: 700, cursor: 'pointer' }}
+        >
+          Recargar
+        </button>
       </div>
     }
     return this.props.children
