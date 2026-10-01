@@ -77,6 +77,10 @@ def es_placeholder(lat: Optional[float], lng: Optional[float]) -> bool:
     return any(distancia_m(lat, lng, a, b) < 60 for a, b in PLACEHOLDERS)
 
 
+_GENERICOS_NOMBRE = {"museo", "teatro", "biblioteca", "parque", "galeria", "libreria", "auditorio", "sala",
+                     "publica", "uva", "escuela", "instituto", "universidad", "corporacion", "fundacion", "bar", "cafe"}
+
+
 def _municipio_osm(res: dict) -> str:
     addr = res.get("address") or {}
     texto = " ".join(str(addr.get(k, "")) for k in ("city", "town", "village", "municipality", "county"))
@@ -133,7 +137,8 @@ def elegir_resultado(nombre: str, resultados: list[dict], municipio: Optional[st
     - Municipio: si OSM informa municipio y no coincide con el del lugar, se descarta.
     """
     toks = _tokens(nombre)
-    if not toks:
+    # Un nombre hecho solo de palabras genéricas ("El Museo") no identifica un lugar
+    if not toks or toks <= _GENERICOS_NOMBRE:
         return None
     mun = _norm(municipio).replace(" ", "_") if municipio else ""
     candidatos = []

@@ -58,3 +58,8 @@ def test_homonimos_lejanos_son_ambiguos():
             {"name": "Biblioteca Pública Piloto de Medellín para América Latina", "lat": 6.2554, "lng": -75.5775}]
     assert es_ambiguo("Biblioteca Pública Piloto", match, homs)
     assert not es_ambiguo("Biblioteca Pública Piloto", match, homs[:1])
+
+
+def test_nombre_generico_no_se_empareja():
+    from app.services.geo_verificacion import elegir_resultado
+    assert elegir_resultado("El Museo", [_res("Museo y Jardines El Castillo", 6.19, -75.57)], "medellin") is None
