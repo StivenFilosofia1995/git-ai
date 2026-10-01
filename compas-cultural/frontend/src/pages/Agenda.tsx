@@ -307,17 +307,37 @@ export default function Agenda() {
         <meta name="description" content="Planes culturales de hoy en Medellín y el Valle de Aburrá: teatro, conciertos, jazz, hip hop, galerías, cine y más, con hora, lugar y precio." />
       </Helmet>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6">
-        <div className="flex items-baseline justify-between gap-3 flex-wrap">
-          <h1 className="font-heading font-black tracking-tight leading-none text-[1.75rem] sm:text-4xl">
+      {/* ─── Cabecera con la ilustración de Medellín (identidad, sin empujar los eventos) ── */}
+      <div className="relative overflow-hidden border-b-2 border-black bg-white">
+        <img
+          src="/medellin-ilustracion-900.webp"
+          srcSet="/medellin-ilustracion-900.webp 900w, /medellin-ilustracion.webp 1600w"
+          sizes="(min-width: 768px) 60vw, 100vw"
+          width={1600}
+          height={839}
+          alt=""
+          aria-hidden="true"
+          decoding="async"
+          className="absolute right-0 bottom-0 h-[160%] sm:h-[150%] w-auto max-w-none translate-y-[18%] opacity-50 sm:opacity-60 mix-blend-multiply pointer-events-none select-none"
+        />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'linear-gradient(to right, rgba(255,255,255,0.97) 30%, rgba(255,255,255,0.55) 60%, rgba(255,255,255,0) 85%)' }}
+          aria-hidden="true"
+        />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-4 sm:pt-10 sm:pb-8 min-h-[112px] sm:min-h-[190px] flex flex-col justify-end">
+          <p className="text-sm text-black/60 first-letter:uppercase mb-1">{fechaHoy}</p>
+          <h1 className="font-heading font-black tracking-tight leading-none text-[2rem] sm:text-5xl">
             {TIME_TITLES[timeFilter]}
           </h1>
-          <p className="text-sm text-black/60 first-letter:uppercase">{fechaHoy}</p>
+          <p className="hidden sm:block text-base text-black/70 mt-2 max-w-md">
+            Teatro, música, arte y todo lo que pasa en el Valle de Aburrá, con hora, lugar y precio.
+          </p>
         </div>
       </div>
 
       {/* ─── Barra de atajos (sticky bajo el header) ─────────────────────── */}
-      <div className="sticky top-14 z-30 bg-white/95 backdrop-blur border-b-2 border-black mt-3">
+      <div className="sticky top-14 z-30 bg-white/95 backdrop-blur border-b-2 border-black">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 space-y-2">
           <div className="relative">
             <label htmlFor="buscar-eventos" className="sr-only">Buscar eventos</label>
@@ -510,10 +530,21 @@ export default function Agenda() {
 
       {/* ─── Secundario: mapa y aportes (debajo de los eventos) ─────────── */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 grid gap-4 md:grid-cols-3">
-        <Link to="/mapa" className="md:col-span-2 border-2 border-black p-5 bg-black text-white hover:bg-white hover:text-black transition-colors group">
-          <p className="text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Mapa cultural</p>
-          <p className="font-heading font-black text-2xl">Mira en el mapa qué pasa cerca →</p>
-          <p className="text-sm opacity-70 mt-1">Espacios, colectivos y los eventos de hoy en todo el Valle de Aburrá.</p>
+        <Link to="/mapa" className="relative overflow-hidden md:col-span-2 border-2 border-black p-5 min-h-[150px] bg-black text-white group">
+          {/* Misma ilustración, invertida: grabado blanco sobre negro */}
+          <img
+            src="/medellin-ilustracion-900.webp"
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            className="absolute right-0 bottom-0 h-[150%] w-auto max-w-none translate-y-[15%] opacity-30 group-hover:opacity-45 transition-opacity invert pointer-events-none select-none"
+          />
+          <div className="relative">
+            <p className="text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Mapa cultural</p>
+            <p className="font-heading font-black text-2xl group-hover:underline">Mira en el mapa qué pasa cerca →</p>
+            <p className="text-sm opacity-70 mt-1 max-w-sm">Espacios, colectivos y los eventos de los próximos 7 días en todo el Valle de Aburrá.</p>
+          </div>
         </Link>
         <div className="border-2 border-black p-5 space-y-2">
           <p className="text-xs font-bold uppercase tracking-widest text-black/60">¿Falta un plan?</p>

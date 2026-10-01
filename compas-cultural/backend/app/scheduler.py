@@ -76,6 +76,16 @@ async def _run_cleanup():
         print(f"❌ Cleanup error: {e}")
 
 
+async def _run_geo_verificacion():
+    """Verifica un lote de coordenadas de lugares contra OpenStreetMap (≤1 req/s)."""
+    from app.services.geo_verificacion import run_verificacion_coordenadas
+    try:
+        res = await run_verificacion_coordenadas(limit=40)
+        print(f"📍 Geo verificación: {res.get('stats')}")
+    except Exception as e:
+        print(f"❌ Geo verificación error: {e}")
+
+
 async def _run_agenda_alternativa():
     """Job wrapper for alternative agenda scraping."""
     from app.services.auto_scraper import scrape_agenda_sources, scrape_compas_urbano
@@ -505,6 +515,16 @@ def start_scheduler():
         trigger=CronTrigger(hour=3, minute=30, timezone=CO_TZ),
         id="privacy_cleanup",
         name="Limpieza automática de datos (privacidad)",
+        replace_existing=True,
+    )
+
+    # ── Verificación de coordenadas: 4:10am, 40 lugares por noche ──────────
+    # ~330 lugares físicos → todo el inventario se revisa en ~9 noches.
+    scheduler.add_job(
+        _run_geo_verificacion,
+        trigger=CronTrigger(hour=4, minute=10, timezone=CO_TZ),
+        id="geo_verificacion",
+        name="Verificación de coordenadas (OSM)",
         replace_existing=True,
     )
 

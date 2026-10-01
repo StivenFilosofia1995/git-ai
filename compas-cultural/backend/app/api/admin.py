@@ -1331,6 +1331,21 @@ async def trigger_datos_gov_espacios(
     return {"ok": True, **stats}
 
 
+@router.post("/verificar-coordenadas")
+async def verificar_coordenadas(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    limit: int = 40,
+    aplicar: bool = True,
+):
+    """Verifica coordenadas de lugares contra OpenStreetMap y corrige las falsas.
+
+    `aplicar=false` solo reporta. Máx. 100 por llamada (Nominatim: 1 req/s).
+    """
+    _check_key(x_api_key)
+    from app.services.geo_verificacion import run_verificacion_coordenadas
+    return await run_verificacion_coordenadas(limit=max(1, min(limit, 100)), aplicar=aplicar)
+
+
 @router.post("/trigger-rss-medios")
 async def trigger_rss_medios(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
