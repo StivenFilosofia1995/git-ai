@@ -46,16 +46,30 @@ class _Tee:
         pass
 
 
-def _cargar_lugares(campo: str, limite: int) -> list[dict]:
+PRIORIDAD_DEFAULT = "teatro,danza,circo,impro,titeres,colectivo,musica_en_vivo,hip_hop,poesia"
+
+
+def _prioridad(lugar: dict, claves: list[str]) -> int:
+    texto = " ".join(str(lugar.get(k) or "") for k in ("tipo", "categoria_principal", "nombre")).lower()
+    return 0 if any(c in texto for c in claves) else 1
+
+
+def _cargar_lugares(campo: str, limite: int, prioridad: str = "") -> list[dict]:
     from app.database import supabase
     if supabase is None:
         sys.exit("❌ Falta SUPABASE_URL / SUPABASE_KEY en compas-cultural/backend/.env")
     cols = "id,nombre,slug,instagram_handle,facebook,municipio,barrio,lat,lng,categoria_principal,tipo"
     try:
+        # Se traen más de los necesarios y se ordenan: primero los prioritarios
+        # (teatros y colectivos independientes), luego los menos visitados.
         q = (supabase.table("lugares").select(cols + ",ultimo_scrape_intento")
              .not_.is_(campo, "null").neq("nivel_actividad", "cerrado")
-             .order("ultimo_scrape_intento", desc=False, nullsfirst=True).limit(limite))
-        return q.execute().data or []
+             .order("ultimo_scrape_intento", desc=False, nullsfirst=True).limit(max(limite * 4, limite)))
+        filas = q.execute().data or []
+        claves = [c.strip() for c in prioridad.split(",") if c.strip()]
+        if claves:
+            filas.sort(key=lambda l: _prioridad(l, claves))  # sort estable: conserva el orden por antigüedad
+        return filas[:limite]
     except Exception:
         return (supabase.table("lugares").select(cols).not_.is_(campo, "null").limit(limite).execute().data or [])
 
@@ -103,7 +117,7 @@ async def correr(args) -> int:
     try:
         async with abrir_navegador(headless=not args.ver) as ctx:
             if args.ig or args.feed:
-                lugares_ig = _cargar_lugares("instagram_handle", 1000 if args.feed else args.limite)
+                lugares_ig = _cargar_lugares("instagram_handle", 1000 if args.feed else args.limite, args.prioridad)
                 por_handle = {h: l for l in lugares_ig if (h := pipeline.handle_ig(l.get("instagram_handle")))}
                 if args.ig:
                     print(f"\n📸 Instagram: {min(len(por_handle), args.limite)} perfiles")
@@ -124,7 +138,7 @@ async def correr(args) -> int:
                     for k, v in st.items():
                         total[k] = total.get(k, 0) + v
             if args.fb:
-                lugares_fb = _cargar_lugares("facebook", args.limite)
+                lugares_fb = _cargar_lugares("facebook", args.limite, args.prioridad)
                 print(f"\n📘 Facebook: {len(lugares_fb)} páginas")
                 for lugar in lugares_fb:
                     url = pipeline.url_fb(lugar.get("facebook"))
@@ -154,6 +168,8 @@ def main() -> None:
     ap.add_argument("--limite", type=int, default=25, help="Máx. perfiles/páginas por corrida (default 25)")
     ap.add_argument("--dry-run", action="store_true", help="Solo mostrar qué haría, sin escribir")
     ap.add_argument("--ver", action="store_true", help="Mostrar el navegador mientras corre")
+    ap.add_argument("--prioridad", default=PRIORIDAD_DEFAULT,
+                    help="Tipos/categorías que se visitan primero (coma). Vacío = solo por antigüedad")
     args = ap.parse_args()
     sys.stdout = _Tee(sys.__stdout__, _log_archivo())
     if args.login:

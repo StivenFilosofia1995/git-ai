@@ -14,6 +14,7 @@ Supports Spanish date patterns:
   "21 de abril de 2026", "21 ABRIL - 8:00 P.M.",
   "Martes 22 de abril", ISO "2026-04-21T20:00:00"
 """
+import html
 import json
 import re
 from datetime import datetime, timedelta
@@ -158,9 +159,10 @@ def _make_event(
     desc: Optional[str] = None,
     img: Optional[str] = None,
     fecha_fin: Optional[str] = None,
+    hora_confirmada: Optional[bool] = None,
 ) -> dict:
-    return {
-        "titulo": titulo.strip()[:200],
+    ev = {
+        "titulo": html.unescape(titulo).strip()[:200],
         "categoria_principal": categoria,
         "categorias": [categoria],
         "fecha_inicio": fecha.isoformat(),
@@ -173,6 +175,9 @@ def _make_event(
         "imagen_url": img,
         "_source": source,
     }
+    if hora_confirmada is not None:
+        ev["hora_confirmada"] = hora_confirmada
+    return ev
 
 
 # ── 1. JSON-LD schema.org/Event ───────────────────────────────────────────
@@ -209,7 +214,14 @@ def _extract_jsonld(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now:
                 if not name or len(name) < 3:
                     continue
                 start = item.get("startDate") or item.get("doorTime") or ""
-                fecha = parse_date(str(start), now.year)
+                # ISO 8601 con hora (lo normal en JSON-LD): conservar la hora real
+                fecha, hora_ok = None, None
+                try:
+                    dt_iso = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+                    fecha = (dt_iso.replace(tzinfo=CO_TZ) if dt_iso.tzinfo is None else dt_iso.astimezone(CO_TZ))
+                    hora_ok = "T" in str(start) and (fecha.hour, fecha.minute) != (0, 0)
+                except (ValueError, TypeError):
+                    fecha = parse_date(str(start), now.year)
                 if not fecha or fecha.date() < now.date():
                     continue
                 end = item.get("endDate")
@@ -224,8 +236,8 @@ def _extract_jsonld(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now:
                 offers = item.get("offers", {})
                 precio, gratuito = "Consultar", False
                 for o in ([offers] if isinstance(offers, dict) else offers if isinstance(offers, list) else []):
-                    p = str(o.get("price", ""))
-                    if p in ("0", "0.0", ""):
+                    p = str(o.get("price", "")).strip()
+                    if p in ("0", "0.0", "0.00"):  # vacío = precio desconocido, NO gratis
                         precio, gratuito = "Entrada libre", True
                     elif p:
                         precio = f"${p}"
@@ -233,8 +245,9 @@ def _extract_jsonld(soup: BeautifulSoup, nombre_lugar: str, categoria: str, now:
                 events.append(_make_event(
                     name, fecha, categoria, loc_name, "jsonld",
                     precio, gratuito,
-                    desc=item.get("description", "")[:400],
+                    desc=html.unescape(item.get("description", "") or "")[:400],
                     img=img, fecha_fin=str(end) if end else None,
+                    hora_confirmada=hora_ok,
                 ))
         except Exception:
             continue

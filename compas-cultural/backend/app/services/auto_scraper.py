@@ -1342,6 +1342,13 @@ AGENDA_SOURCES = [
         "municipio": "medellin",
     },
     {
+        # JSON-LD schema.org/Event (detectado en el sondeo de 2026-10): extracción estructurada
+        "nombre": "Teatro Universidad de Medellín - Eventos",
+        "url": "https://teatro.udemedellin.edu.co/events",
+        "categoria_default": "teatro",
+        "municipio": "medellin",
+    },
+    {
         "nombre": "Comfenalco Antioquia - Agenda",
         "url": "https://www.comfenalcoantioquia.com.co/cultura-y-recreacion/eventos/",
         "categoria_default": "centro_cultural",
