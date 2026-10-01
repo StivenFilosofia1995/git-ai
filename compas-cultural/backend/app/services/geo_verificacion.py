@@ -213,7 +213,8 @@ def es_ambiguo(nombre: str, match: dict, homonimos: list[dict]) -> bool:
     return False
 
 
-async def _homonimos_overpass(client: httpx.AsyncClient, nombre: str) -> list[dict]:
+async def _homonimos_overpass(client: httpx.AsyncClient, nombre: str) -> Optional[list[dict]]:
+    """Homónimos en OSM. None = Overpass no respondió (no se puede confirmar unicidad)."""
     tok = token_distintivo(nombre)
     if not tok:
         return []
@@ -222,7 +223,7 @@ async def _homonimos_overpass(client: httpx.AsyncClient, nombre: str) -> list[di
     try:
         resp = await client.post(OVERPASS_URL, data={"data": query})
         if resp.status_code != 200:
-            return []
+            return None
         out = []
         for e in resp.json().get("elements", []):
             c = e.get("center") or {"lat": e.get("lat"), "lon": e.get("lon")}
@@ -231,9 +232,9 @@ async def _homonimos_overpass(client: httpx.AsyncClient, nombre: str) -> list[di
         return out
     except Exception as exc:
         print(f"[geo] overpass error: {exc}")
-        return []
+        return None
     finally:
-        await asyncio.sleep(1.1)
+        await asyncio.sleep(2.0)
 
 
 _VOCALES_RE = {"a": "[aá]", "e": "[eé]", "i": "[ií]", "o": "[oó]", "u": "[uúü]", "n": "[nñ]"}
@@ -247,8 +248,11 @@ async def verificar_lugar(client: httpx.AsyncClient, lugar: dict) -> dict:
                                  lugar.get("direccion"))
         if match:
             break
-    if match and es_ambiguo(lugar["nombre"], match, await _homonimos_overpass(client, lugar["nombre"])):
-        match = None  # p. ej. sede y filiales con el mismo nombre: mejor no tocar
+    if match:
+        homonimos = await _homonimos_overpass(client, lugar["nombre"])
+        # Sin respuesta de Overpass no se puede descartar un homónimo: no se toca
+        if homonimos is None or es_ambiguo(lugar["nombre"], match, homonimos):
+            match = None  # p. ej. sede y filiales con el mismo nombre
     actual = (float(lugar["lat"]), float(lugar["lng"])) if lugar.get("lat") is not None and lugar.get("lng") is not None else None
     estado, dist = clasificar(actual, match)
     return {"id": lugar["id"], "nombre": lugar["nombre"], "estado": estado, "dist_m": dist, "match": match}
@@ -261,7 +265,7 @@ async def run_verificacion_coordenadas(limit: int = 40, aplicar: bool = True) ->
     try:
         resp = (
             supabase.table("lugares")
-            .select("id,nombre,municipio,direccion,tipo,lat,lng,coords_verificadas_en")
+            .select("id,nombre,municipio,direccion,tipo,lat,lng,coords_verificadas_en,coords_estado")
             .neq("tipo", "colectivo")
             .order("coords_verificadas_en", desc=False, nullsfirst=True)
             .limit(limit)
@@ -273,7 +277,8 @@ async def run_verificacion_coordenadas(limit: int = 40, aplicar: bool = True) ->
             supabase.table("lugares").select("id,nombre,municipio,direccion,tipo,lat,lng")
             .neq("tipo", "colectivo").limit(limit).execute()
         )
-    lugares = resp.data or []
+    # Coordenadas verificadas a mano (seeds/data/coordenadas_verificadas.json) no se tocan
+    lugares = [l for l in (resp.data or []) if l.get("coords_estado") != "manual"]
     stats = {"revisados": 0, "ok": 0, "corregir": 0, "nuevo": 0, "placeholder": 0, "sin_verificar": 0}
     detalle = []
     ahora = datetime.now(timezone.utc).isoformat()

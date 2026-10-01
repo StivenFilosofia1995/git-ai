@@ -166,13 +166,21 @@ def _resolve_daynum_date(text: str, now: datetime) -> Optional[datetime]:
     year = now.year
 
     if month:
-        try:
-            dt = datetime(year, month, day_num, 0, 0, tzinfo=CO_TZ)
-            if dt.date() < now.date():
-                dt = dt.replace(year=year + 1)
-            return dt
-        except ValueError:
-            pass
+        # El día de la semana citado decide el año: "sábado 30 de septiembre" solo es
+        # sábado en 2023 → es un post viejo, no un evento del año que viene.
+        candidatos = []
+        for y in (year, year + 1):
+            try:
+                dt = datetime(y, month, day_num, 0, 0, tzinfo=CO_TZ)
+            except ValueError:
+                continue
+            if dt.date() >= now.date():
+                candidatos.append(dt)
+        if wd is not None:
+            coinciden = [dt for dt in candidatos if dt.weekday() == wd]
+            return coinciden[0] if coinciden else None
+        if candidatos:
+            return candidatos[0]
 
     # No month — find next occurrence of that day number within 14 days
     for delta in range(0, 14):

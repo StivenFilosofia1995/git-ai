@@ -298,7 +298,11 @@ def evaluar_evento(ev: dict, *, ahora: Optional[datetime] = None) -> Evaluacion:
         except (TypeError, ValueError):
             p["lat"] = p["lng"] = None
     cabecera = _norm(f"{p['titulo']} {(p.get('descripcion') or '')[:250]} {p.get('nombre_lugar') or ''}")
-    if _FUERA_RE.search(cabecera) and not _VALLE_RE.search(cabecera) and not p.get("espacio_id"):
+    # Otra ciudad en el TÍTULO es evidencia fuerte (aunque tenga espacio mal asociado);
+    # en la descripción solo cuenta si el evento no tiene espacio del Valle.
+    if _FUERA_RE.search(tn) and not _VALLE_RE.search(tn):
+        rechazos.append("otra_ciudad")
+    elif _FUERA_RE.search(cabecera) and not _VALLE_RE.search(cabecera) and not p.get("espacio_id"):
         rechazos.append("otra_ciudad")
 
     if rechazos:

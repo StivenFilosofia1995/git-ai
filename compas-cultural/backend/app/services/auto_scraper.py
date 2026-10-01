@@ -2974,7 +2974,10 @@ async def scrape_agenda_sources() -> dict:
                     else:
                         continue
 
-                    slug = _slugify(titulo)
+                    # Slug con fecha: antes un evento recurrente (misma obra, otro día)
+                    # se descartaba como duplicado. La puerta de calidad detecta los
+                    # duplicados reales (mismo día + título + lugar).
+                    slug = _slugify(f"{titulo}-{fecha.strftime('%Y%m%d')}")
                     existing = supabase.table("eventos").select("id").eq("slug", slug).execute()
                     if existing.data:
                         total["duplicados"] += 1

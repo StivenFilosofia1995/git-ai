@@ -1,0 +1,16 @@
+{
+  "_doc": "Verdad de terreno: coordenadas verificadas a mano para lugares que la verificación automática no puede resolver (nombres ambiguos en OSM). geo_verificacion.py nunca sobrescribe lugares con coords_estado='manual'. Cada entrada debe citar su fuente.",
+  "lugares": [
+    {
+      "ids": ["055271c7-f7f2-4795-bba2-8ad6d08a25bd", "62bfd95b-5c0e-4e8f-9d75-8c4db36418fb",
+              "46c2e6b6-90b3-4d32-b573-29d755aaeee1", "687f925b-5f2d-49f4-a6a9-899f7d4f7dd2"],
+      "nombre": "Biblioteca Pública Piloto de Medellín para América Latina (sede principal, Carlos E. Restrepo)",
+      "lat": 6.2554386,
+      "lng": -75.5775126,
+      "direccion": "Carrera 64 # 50-32, Medellín",
+      "fuente": "osm:node/4444344887",
+      "verificado": "2026-10-01",
+      "nota": "Nominatim devolvía un nodo homónimo en Doce de Octubre (Calle 102B); la sede principal está en Carlos E. Restrepo."
+    }
+  ]
+}

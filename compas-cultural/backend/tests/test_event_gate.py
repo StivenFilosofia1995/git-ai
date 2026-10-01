@@ -55,6 +55,8 @@ def test_fuera_del_valle():
     r = evaluar_evento(ev(titulo="Concierto en The Visulite Theatre - Charlotte", nombre_lugar=None,
                           fuente="auto_scraper_sitio_web"), ahora=AHORA)
     assert "otra_ciudad" in r.motivos
+    r = evaluar_evento(ev(titulo="Lovin' Life Music Festival- Charlotte", espacio_id="x"), ahora=AHORA)
+    assert "otra_ciudad" in r.motivos
     r = evaluar_evento(ev(lat=5.7, lng=-75.9), ahora=AHORA)
     assert "coordenadas_fuera_del_valle" in r.motivos
 
