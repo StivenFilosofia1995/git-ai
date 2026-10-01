@@ -980,9 +980,21 @@ def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
                   and not is_email_unsubscribed(r["email"])]
     stats["destinatarios"] = len(destinatarios)
     stats["pendientes"] = len(pendientes)
+    bloqueo = _kv_get("boletin_bloqueado_hasta")
+    if bloqueo and bloqueo > now_co.isoformat():
+        stats["reason"] = f"Envío pausado hasta {bloqueo} (fallos seguidos del remitente)"
+        return stats
+    seguidos = 0
     for r in pendientes[:lote]:
         res = enviar_digest_a(r, week_start)
         stats[res if res in stats else "skipped"] = stats.get(res, 0) + 1
+        seguidos = seguidos + 1 if res == "failed" else 0
+        if seguidos >= 3:
+            # Cortacircuitos: si el remitente no funciona (p. ej. Railway bloquea SMTP),
+            # no insistir cada 4 minutos; se reintenta en 6 horas.
+            _kv_upsert("boletin_bloqueado_hasta", (now_co + timedelta(hours=6)).isoformat())
+            stats["reason"] = "3 fallos seguidos: envío pausado 6 h"
+            break
         time.sleep(0.6)  # Resend: ≤ 2 req/s
     stats["pendientes"] = max(0, len(pendientes) - stats["sent"])
     if stats["sent"] or stats["failed"]:
