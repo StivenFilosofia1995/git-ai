@@ -146,12 +146,27 @@ except Exception as e:
     traceback.print_exc()
 
 
+# index.html y sw.js NUNCA deben quedar en caché: sin Cache-Control los
+# navegadores los daban por frescos días enteros y no veían los deploys nuevos.
+_NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
+
+
+def _static_headers(path) -> dict:
+    name = str(path).replace("\\", "/").rsplit("/", 1)[-1]
+    if name in ("index.html", "sw.js", "manifest.json"):
+        return _NO_CACHE
+    if "/assets/" in str(path).replace("\\", "/"):
+        # Vite pone hash en el nombre: se pueden cachear para siempre
+        return {"Cache-Control": "public, max-age=31536000, immutable"}
+    return {"Cache-Control": "public, max-age=3600"}
+
+
 @app.get("/")
 async def root():
     """Serve frontend index.html if available, otherwise API info."""
     index_file = STATIC_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(index_file)
+        return FileResponse(index_file, headers=_NO_CACHE)
     return {"service": "Cultura ETÉREA API", "version": "1.0.0", "docs": "/docs", "health": "/health"}
 
 
@@ -204,13 +219,13 @@ async def spa_404_handler(request: Request, exc):
     if "." in request.url.path.rsplit("/", 1)[-1]:
         static_file = _resolve_static_file(request.url.path)
         if static_file:
-            return FileResponse(static_file)
+            return FileResponse(static_file, headers=_static_headers(static_file))
         return _JSONResponse({"detail": "Not Found"}, status_code=404)
 
     # Serve SPA index.html for all other 404s (React Router routes)
     _index = STATIC_DIR / "index.html"
     if _index.exists():
-        return FileResponse(_index)
+        return FileResponse(_index, headers=_NO_CACHE)
     return _JSONResponse({"detail": "Not Found"}, status_code=404)
 
 # Serve frontend static assets (JS, CSS, images, fonts)
