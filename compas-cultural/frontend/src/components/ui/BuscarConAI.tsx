@@ -256,7 +256,7 @@ export default function BuscarConAI({
             disabled={!onCommit || committing}
             className="text-[10px] font-mono font-bold uppercase tracking-wider border-2 border-black px-3 py-1.5 hover:bg-black hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {committing ? 'Guardando aporte...' : '¿Desea agregar al sistema estos eventos para otros habitantes del Valle?'}
+            {committing ? 'Guardando aporte...' : '¿Desea agregar al sistema estos eventos para otros habitantes del Valle de Aburrá?'}
           </button>
         </div>
       )}

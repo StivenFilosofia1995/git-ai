@@ -320,7 +320,7 @@ export default function CulturalMap({ zonaFilter, zonas = [] }: CulturalMapProps
                 onClick={() => selectMunicipio(null)}
                 className="text-[9px] uppercase tracking-widest hover:underline text-neutral-500 mb-2 block"
               >
-                ← Todo el Valle
+                ← Todo el Valle de Aburrá
               </button>
 
               {/* Barrio sub-filter */}

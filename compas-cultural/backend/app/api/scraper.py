@@ -365,7 +365,7 @@ async def trigger_discover_events_publico(
                 )
     elif candidatos_n > 0:
         message = (
-            f"Se encontraron {candidatos_n} eventos candidatos para el Valle. "
+            f"Se encontraron {candidatos_n} eventos candidatos para el Valle de Aburrá. "
             "¿Deseas agregarlos al sistema para otros habitantes?"
         )
     else:

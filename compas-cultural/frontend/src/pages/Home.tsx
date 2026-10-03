@@ -217,7 +217,7 @@ export default function Home() {
           <div className="flex items-end justify-between mb-12">
             <div>
               <h2 className="text-4xl md:text-5xl font-heading font-black uppercase tracking-tighter">Zonas</h2>
-              <p className="text-sm font-mono font-bold mt-2 uppercase tracking-wider">Ecosistemas creativos del valle · Cultura en vivo</p>
+              <p className="text-sm font-mono font-bold mt-2 uppercase tracking-wider">Ecosistemas creativos del Valle de Aburrá · Cultura en vivo</p>
             </div>
             <span className="text-xs font-mono font-bold uppercase tracking-wider">{zonas.length} zonas</span>
           </div>

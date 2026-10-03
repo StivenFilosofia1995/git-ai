@@ -23,7 +23,7 @@ const TIME_OPTIONS: { value: TimeFilter; label: string }[] = [
 ]
 
 const TIME_TITLES: Record<TimeFilter, string> = {
-  hoy: 'Hoy en el Valle',
+  hoy: 'Hoy en el Valle de Aburrá',
   noche: 'Esta noche',
   finde: 'Este fin de semana',
   semana: 'Próximos 7 días',
@@ -31,7 +31,7 @@ const TIME_TITLES: Record<TimeFilter, string> = {
 }
 
 const MUNICIPIOS = [
-  { value: '', label: 'Todo el Valle' },
+  { value: '', label: 'Todo el Valle de Aburrá' },
   { value: 'medellin', label: 'Medellín' },
   { value: 'envigado', label: 'Envigado' },
   { value: 'itagui', label: 'Itagüí' },
