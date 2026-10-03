@@ -307,6 +307,7 @@ async function getEventosHoySupabase(filters?: EventosTemporalFilters): Promise<
   let q2 = supabase
     .from('eventos')
     .select('*')
+    .not('oculto', 'is', true)
     .gte('fecha_inicio', hace2dias)
     .lt('fecha_inicio', hoy)
     .gte('fecha_fin', hoy)
@@ -343,6 +344,7 @@ export async function getEventosSemana(filters?: EventosTemporalFilters): Promis
     let q = supabase
       .from('eventos')
       .select('*')
+      .not('oculto', 'is', true)
       .gte('fecha_inicio', hoy)
       .lte('fecha_inicio', hasta)
       .order('fecha_inicio')
@@ -381,6 +383,7 @@ export async function getEventosProximasSemanas(
     let q = supabase
       .from('eventos')
       .select('*')
+      .not('oculto', 'is', true)
       .gte('fecha_inicio', desde)
       .lte('fecha_inicio', hasta)
       .order('fecha_inicio')
@@ -441,7 +444,7 @@ export async function getEvento(slug: string): Promise<Evento> {
 export async function getEventosByEspacio(espacioId: string): Promise<Evento[]> {
   try {
     const { data, error } = await withTimeout(
-      supabase.from('eventos').select('*').eq('espacio_id', espacioId).order('fecha_inicio', { ascending: false })
+      supabase.from('eventos').select('*').eq('espacio_id', espacioId).not('oculto', 'is', true).order('fecha_inicio', { ascending: false })
     )
     if (error) throw error
     return (data ?? []) as Evento[]
@@ -555,7 +558,7 @@ export async function getEventos(params?: {
     let query = supabase
       .from('eventos')
       .select('*')
-      .neq('estado_moderacion', 'rechazado')
+      .not('oculto', 'is', true)
       .order('fecha_inicio')
       .range(offset, offset + limit - 1)
     if (params?.categoria) query = query.eq('categoria_principal', params.categoria)
@@ -584,7 +587,7 @@ export async function buscar(q: string): Promise<BusquedaResponse> {
     const bogotaNow = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().slice(0, 19)
     const [espaciosRes, eventosRes] = await withTimeout(Promise.all([
       supabase.from('lugares').select('*').neq('nivel_actividad', 'cerrado').or(`nombre.ilike.${term},descripcion_corta.ilike.${term},barrio.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term}`).limit(50),
-      supabase.from('eventos').select('*').gte('fecha_inicio', bogotaNow).neq('estado_moderacion', 'rechazado').or(`titulo.ilike.${term},descripcion.ilike.${term},nombre_lugar.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term},barrio.ilike.${term}`).order('fecha_inicio').limit(50),
+      supabase.from('eventos').select('*').gte('fecha_inicio', bogotaNow).not('oculto', 'is', true).or(`titulo.ilike.${term},descripcion.ilike.${term},nombre_lugar.ilike.${term},municipio.ilike.${term},categoria_principal.ilike.${term},barrio.ilike.${term}`).order('fecha_inicio').limit(50),
     ]))
 
     const resultados: ResultadoBusqueda[] = [
@@ -625,7 +628,7 @@ export async function getStats(): Promise<StatsResponse> {
     try {
       const [esp, ev, z, col] = await withTimeout(Promise.all([
         supabase.from('lugares').select('id', { count: 'exact', head: true }).neq('nivel_actividad', 'cerrado'),
-        supabase.from('eventos').select('id', { count: 'exact', head: true }),
+        supabase.from('eventos').select('id', { count: 'exact', head: true }).not('oculto', 'is', true),
         supabase.from('zonas_culturales').select('id', { count: 'exact', head: true }),
         supabase.from('lugares').select('id', { count: 'exact', head: true }).eq('tipo', 'colectivo'),
       ]), 5000)
@@ -966,7 +969,7 @@ export async function getZonaCulturaHoy(slug: string): Promise<ZonaCulturaHoy> {
       .select('*')
       .gte('fecha_inicio', today)
       .lte('fecha_inicio', in14d)
-      .neq('estado_moderacion', 'rechazado')
+      .not('oculto', 'is', true)
       .order('fecha_inicio')
       .limit(50)
 
@@ -990,7 +993,7 @@ export async function getZonaCulturaHoy(slug: string): Promise<ZonaCulturaHoy> {
         .select('*')
         .gte('fecha_inicio', today)
         .lte('fecha_inicio', in14d)
-        .neq('estado_moderacion', 'rechazado')
+        .not('oculto', 'is', true)
         .order('fecha_inicio')
         .limit(20)
       eventos = (fallback.data ?? []) as Evento[]
@@ -1279,7 +1282,7 @@ export async function getEventosDestacados(limit = 5): Promise<Evento[]> {
         .gte('fecha_inicio', hoy)
         .lte('fecha_inicio', en30)
         .not('imagen_url', 'is', null)
-        .neq('estado_moderacion', 'rechazado')
+        .not('oculto', 'is', true)
         .eq('oculto', false)
         .order('fecha_inicio', { ascending: true })
         .limit(limit)
@@ -1292,7 +1295,7 @@ export async function getEventosDestacados(limit = 5): Promise<Evento[]> {
         .select('*')
         .gte('fecha_inicio', hoy)
         .lte('fecha_inicio', en30)
-        .neq('estado_moderacion', 'rechazado')
+        .not('oculto', 'is', true)
         .eq('oculto', false)
         .order('fecha_inicio', { ascending: true })
         .limit(limit)

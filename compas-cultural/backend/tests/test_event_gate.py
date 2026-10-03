@@ -115,3 +115,11 @@ def test_precision_por_fuente():
     assert res["fuentes"] == ["precision_web"]          # 80 % malas con 25 decisiones
     assert "bibliotecas_mde" not in res["fuentes"]      # fuente estructurada: nunca se pone en revisión
     assert res["reporte"]["agenda_MAMM"]["tasa_mala"] < 0.1
+
+
+def test_titulo_con_anio_pasado_va_a_cuarentena():
+    r = evaluar_evento(ev(titulo="Design House 2025 – Materia infinita", fecha_fin="2026-12-20T00:00:00-05:00"),
+                       ahora=AHORA)
+    assert r.decision == "cuarentena" and "titulo_anio_pasado" in r.motivos
+    assert evaluar_evento(ev(titulo="Festival de Jazz 2026"), ahora=AHORA).decision == "publicar"
+    assert evaluar_evento(ev(titulo="Temporada 2025-2026"), ahora=AHORA).decision == "publicar"

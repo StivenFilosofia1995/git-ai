@@ -154,3 +154,23 @@ export function getEventDateParts(value: EventDateInput) {
     horaConfiable: hasReliableEventTime(value),
   }
 }
+
+/**
+ * Eventos de varios días (exposiciones, festivales, temporadas).
+ * Una exposición que empezó el 27 de agosto y sigue abierta NO debe mostrarse con su
+ * fecha de inicio (parece un error): se muestra "En curso · hasta 14 nov".
+ */
+export function rangoEvento(evento: { fecha_inicio?: string | null; fecha_fin?: string | null }) {
+  const iniKey = bogotaDayKey(evento.fecha_inicio)
+  const finKey = bogotaDayKey(evento.fecha_fin ?? null)
+  const hoyKey = bogotaDayKey(new Date())
+  const variosDias = Boolean(iniKey && finKey && finKey > iniKey)
+  const enCurso = Boolean(variosDias && iniKey && hoyKey && iniKey < hoyKey && finKey! >= hoyKey)
+  const hastaCorto = variosDias
+    ? formatEventDate(evento.fecha_fin, { day: 'numeric', month: 'short' })
+    : null
+  const rangoLargo = variosDias
+    ? `Del ${formatEventDate(evento.fecha_inicio, { day: 'numeric', month: 'long' })} al ${formatEventDate(evento.fecha_fin, { day: 'numeric', month: 'long', year: 'numeric' })}`
+    : null
+  return { variosDias, enCurso, hastaCorto, rangoLargo }
+}

@@ -311,6 +311,12 @@ def evaluar_evento(ev: dict, *, ahora: Optional[datetime] = None) -> Evaluacion:
 
     _reglas_legado(p, ev, ini, ahora, motivos, rechazos)
 
+    # "Design House 2025" visible en 2026: el título solo nombra años pasados → probable
+    # evento del año anterior con fechas mal leídas. Lo revisa una persona.
+    anios = [int(a) for a in re.findall(r"(?<!\d)(20\d{2})(?!\d)", titulo_orig or "")]
+    if anios and max(anios) < ahora.year:
+        motivos.append("titulo_anio_pasado")
+
     if rechazos:
         return Evaluacion("rechazar", rechazos + motivos, p)
 
@@ -329,7 +335,7 @@ def evaluar_evento(ev: dict, *, ahora: Optional[datetime] = None) -> Evaluacion:
         except Exception:
             pass
     dudosos = {"fuente_baja_sin_lugar", "titulo_era_bloque_de_texto", "no_parece_evento_cultural",
-               "ig_fecha_dudosa"}
+               "ig_fecha_dudosa", "titulo_anio_pasado"}
     if dudosos & set(motivos):
         return Evaluacion("cuarentena", motivos, p)
     return Evaluacion("publicar", motivos, p)

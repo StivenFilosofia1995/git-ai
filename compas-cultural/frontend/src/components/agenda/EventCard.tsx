@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useRef } from 'react'
 import { type Evento, trackInteraccion } from '../../lib/api'
-import { formatEventTime, hasReliableEventTime, relativeDayLabel } from '../../lib/datetime'
+import { formatEventTime, hasReliableEventTime, rangoEvento, relativeDayLabel } from '../../lib/datetime'
 import SmartEventImage from '../ui/SmartEventImage'
 import { useAuth } from '../../lib/AuthContext'
 import { useFavoritos } from '../../lib/useFavoritos'
@@ -71,9 +71,10 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
 
   const cat = evento.categoria_principal
   const placeholderColor = CAT_COLORS[cat] ?? '#0a0a0a'
-  const dia = relativeDayLabel(evento.fecha_inicio)
+  const rango = rangoEvento(evento)
+  const dia = rango.enCurso ? 'En curso' : relativeDayLabel(evento.fecha_inicio)
   const hora = hasReliableEventTime(evento) ? formatEventTime(evento) : null
-  const esHoy = dia === 'Hoy'
+  const esHoy = dia === 'Hoy' || rango.enCurso
 
   const lugar = evento.nombre_lugar || capitalizar(evento.barrio) || capitalizar(evento.municipio) || 'Valle de Aburrá'
   const zona = [evento.barrio, evento.municipio].map(capitalizar).filter(Boolean).find(z => z !== lugar)
@@ -171,8 +172,15 @@ export default function EventCard({ evento, compact }: Readonly<EventCardProps>)
       <div className="p-4 flex flex-col flex-1 gap-1.5">
         <p className="text-sm font-bold">
           <span className={esHoy ? 'bg-black text-white px-1.5 py-0.5 mr-1' : 'mr-1'}>{dia}</span>
-          {hora && <span>{hora}</span>}
-          {!hora && <span className="text-black/50 font-normal text-xs">hora por confirmar</span>}
+          {rango.enCurso ? (
+            <span>hasta el {rango.hastaCorto}</span>
+          ) : (
+            <>
+              {hora && <span>{hora}</span>}
+              {!hora && <span className="text-black/50 font-normal text-xs">hora por confirmar</span>}
+              {rango.variosDias && <span className="text-black/60 font-normal text-xs"> · hasta el {rango.hastaCorto}</span>}
+            </>
+          )}
         </p>
 
         <Link to={`/evento/${evento.slug}`} onClick={handleClick}>

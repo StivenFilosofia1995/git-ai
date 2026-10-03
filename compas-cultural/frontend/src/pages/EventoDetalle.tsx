@@ -5,7 +5,7 @@ import { getEvento, registrarInteraccion, type Evento } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { useFavoritos } from '../lib/useFavoritos'
 import ReviewSection from '../components/ui/ReviewSection'
-import { getEventDateParts } from '../lib/datetime'
+import { formatEventTime, getEventDateParts, hasReliableEventTime, rangoEvento } from '../lib/datetime'
 import SmartEventImage from '../components/ui/SmartEventImage'
 
 export default function EventoDetalle() {
@@ -145,7 +145,17 @@ export default function EventoDetalle() {
             <div className="space-y-4">
               <div>
                 <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">FECHA</h3>
-                <p className="text-lg capitalize">{fechaStr}</p>
+                {(() => {
+                  const rango = rangoEvento(evento)
+                  const hora = hasReliableEventTime(evento) ? formatEventTime(evento) : null
+                  return (
+                    <>
+                      <p className="text-lg first-letter:uppercase">{rango.rangoLargo ?? fechaStr}</p>
+                      {rango.enCurso && <p className="text-sm font-bold mt-1">En curso: puedes ir hoy</p>}
+                      {!rango.variosDias && <p className="text-sm text-black/70 mt-1">{hora ?? 'Hora por confirmar'}</p>}
+                    </>
+                  )
+                })()}
               </div>
               <div>
                 <h3 className="font-mono font-bold text-xs mb-1 uppercase tracking-wider">PRECIO</h3>
