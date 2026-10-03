@@ -249,8 +249,9 @@ def remitente_listo() -> tuple[bool, str]:
     remitente = (settings.smtp_from_email or "").strip().lower()
     if settings.resend_api_key and remitente and not remitente.endswith("@resend.dev"):
         return True, f"Resend con remitente {remitente}"
-    if settings.smtp_password and settings.smtp_user:
-        return True, "SMTP (Gmail). Ojo: límite ~500/día y Railway puede bloquear el puerto"
+    import os
+    if settings.smtp_password and settings.smtp_user and not os.getenv("RAILWAY_ENVIRONMENT"):
+        return True, "SMTP (Gmail). Ojo: límite ~500/día"
     if settings.resend_api_key:
         return False, ("El remitente es @resend.dev (modo prueba de Resend): solo entrega al dueño de la "
                        "cuenta. Verifica tu dominio en resend.com/domains y pon SMTP_FROM_EMAIL="
@@ -943,7 +944,10 @@ def enviar_digest_a(r: dict, week_start: str) -> str:
 
 # Envío extraordinario pedido por Stiven (fuera del lunes). Es un día puntual: se borra
 # o se cambia a mano. Cada destinatario sigue marcado por semana: nunca recibe dos veces.
-ENVIOS_EXTRA = {"2026-10-01", "2026-10-02"}
+# fecha de envío → semana (lunes) a la que cuenta. Lo enviado el fin de semana cuenta
+# como el boletín de la semana siguiente: el lunes no se repite a quien ya lo recibió.
+ENVIOS_EXTRA = {"2026-10-01": None, "2026-10-02": None,
+                "2026-10-03": "2026-10-05", "2026-10-04": "2026-10-05"}
 
 
 def _log_boletin(stats: dict) -> None:
@@ -966,8 +970,11 @@ def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
     stats = {"week_start": _week_start_iso(), "sent": 0, "skipped": 0, "failed": 0,
              "pendientes": 0, "remitente_listo": listo, "remitente": motivo}
     now_co = datetime.now(CO_TZ)
-    if now_co.date().isoformat() in ENVIOS_EXTRA:
+    hoy_iso = now_co.date().isoformat()
+    if hoy_iso in ENVIOS_EXTRA:
         force = True
+        if ENVIOS_EXTRA[hoy_iso]:
+            stats["week_start"] = ENVIOS_EXTRA[hoy_iso]
     if not force and (now_co.weekday() not in (0, 1) or now_co.hour < 7):
         stats["reason"] = "El boletín sale lunes desde las 7:00 (martes para reintentos)"
         return stats
@@ -980,9 +987,11 @@ def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
                   and not is_email_unsubscribed(r["email"])]
     stats["destinatarios"] = len(destinatarios)
     stats["pendientes"] = len(pendientes)
-    bloqueo = _kv_get("boletin_bloqueado_hasta")
-    if bloqueo and bloqueo > now_co.isoformat():
-        stats["reason"] = f"Envío pausado hasta {bloqueo} (fallos seguidos del remitente)"
+    # La pausa solo vale para el mismo remitente: si cambió (p. ej. dominio verificado), se reintenta ya
+    remitente_id = (settings.smtp_from_email or settings.smtp_user or "").lower()
+    bloqueo = (_kv_get("boletin_bloqueado_hasta") or "").split("|")
+    if len(bloqueo) == 2 and bloqueo[1] == remitente_id and bloqueo[0] > now_co.isoformat():
+        stats["reason"] = f"Envío pausado hasta {bloqueo[0]} (fallos seguidos del remitente)"
         return stats
     seguidos = 0
     for r in pendientes[:lote]:
@@ -992,7 +1001,7 @@ def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
         if seguidos >= 3:
             # Cortacircuitos: si el remitente no funciona (p. ej. Railway bloquea SMTP),
             # no insistir cada 4 minutos; se reintenta en 6 horas.
-            _kv_upsert("boletin_bloqueado_hasta", (now_co + timedelta(hours=6)).isoformat())
+            _kv_upsert("boletin_bloqueado_hasta", f"{(now_co + timedelta(hours=6)).isoformat()}|{remitente_id}")
             stats["reason"] = "3 fallos seguidos: envío pausado 6 h"
             break
         time.sleep(0.6)  # Resend: ≤ 2 req/s
