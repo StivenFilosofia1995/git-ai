@@ -77,12 +77,27 @@ async def _run_cleanup():
 
 
 async def _run_programacion_excel():
-    """Excel de programación guardados en el repo (seeds/data/programacion): una vez por archivo."""
+    """Excel de programación guardados en el repo (seeds/data/programacion): una vez por archivo.
+    Luego: coordenadas verificadas a mano (sedes EPM, Explora, Planetario…) a los lugares."""
     from app.services.programacion_excel import importar_semillas
+    from app.services.geo_verificacion import aplicar_verdad_de_terreno
     try:
         await asyncio.to_thread(importar_semillas)
     except Exception as e:
         print(f"❌ Programación Excel error: {e}")
+    try:
+        await asyncio.to_thread(aplicar_verdad_de_terreno)
+    except Exception as e:
+        print(f"❌ Verdad de terreno error: {e}")
+
+
+async def _run_explora_scraper():
+    """Parque Explora, Planetario de Medellín y Exploratorio (API pública de su agenda)."""
+    from app.services.explora_scraper import run_explora_scraper
+    try:
+        await run_explora_scraper()
+    except Exception as e:
+        print(f"❌ Explora scraper error: {e}")
 
 
 async def _run_revision_calidad():
@@ -434,6 +449,22 @@ def start_scheduler():
         trigger=CronTrigger(hour="8,14,20", minute=15, timezone=CO_TZ),
         id="comfama_scraper",
         name="Comfama — eventos, bibliotecas, centros culturales (3x día)",
+        replace_existing=True,
+    )
+
+    # ── Parque Explora + Planetario: 2 veces al día y al arrancar ───────────
+    scheduler.add_job(
+        _run_explora_scraper,
+        trigger=CronTrigger(hour="7,15", minute=25, timezone=CO_TZ),
+        id="explora_scraper",
+        name="Parque Explora y Planetario (2x día)",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _run_explora_scraper,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(minutes=3)),
+        id="explora_scraper_startup",
+        name="Parque Explora y Planetario (al arrancar)",
         replace_existing=True,
     )
 

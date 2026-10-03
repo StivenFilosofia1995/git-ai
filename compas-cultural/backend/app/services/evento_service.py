@@ -322,7 +322,8 @@ def get_eventos(
     """
     Listar eventos con filtros robustos.
     """
-    query = supabase.table("eventos").select("*")
+    # Ocultos fuera en la consulta: si se filtran después, la cuarentena se come los cupos del range()
+    query = supabase.table("eventos").select("*").not_.is_("oculto", "true")
 
     if fecha_desde:
         desde_iso = _co_iso(fecha_desde)
@@ -532,7 +533,7 @@ def get_eventos_proximas_semanas(
         barrio=barrio,
         categoria=categoria,
         es_gratuito=es_gratuito,
-        limit=500,
+        limit=1000,
         offset=0,
     )
 

@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import List, Union
 import json
@@ -17,6 +18,17 @@ class Settings(BaseSettings):
     # Frontend URL (for emails, CORS, etc.)
     # In Railway: set FRONTEND_URL=https://your-frontend.up.railway.app
     frontend_url: str = "http://localhost:5173"
+
+    @field_validator("frontend_url")
+    @classmethod
+    def _dominio_con_www(cls, v: str) -> str:
+        # culturaetereamed.com (sin www) solo redirige por http; por https no responde.
+        # Imágenes, enlaces de correos y bajas deben ir siempre a www.
+        v = (v or "").strip().rstrip("/")
+        p = urlparse(v)
+        if p.hostname == "culturaetereamed.com":
+            return f"https://www.culturaetereamed.com{p.path or ''}"
+        return v
 
     # Supabase (required for data, but defaults allow app to start)
     # Accept common variable names used across deployments.

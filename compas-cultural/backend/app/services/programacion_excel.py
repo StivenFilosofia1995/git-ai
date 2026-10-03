@@ -227,10 +227,9 @@ IMAGEN_POR_DEFECTO = "/images/sedes/epm/fundacion-epm.jpg"
 
 
 def url_imagen(sede: Optional[dict]) -> str:
-    """Foto libre de la sede (o ficha propia) cuando el Excel no trae imagen."""
-    from app.config import settings
-    base = settings.frontend_url.rstrip("/") if settings.frontend_url.startswith("https://") else SITIO
-    return base + ((sede or {}).get("imagen") or IMAGEN_POR_DEFECTO)
+    """Foto libre de la sede (o ficha propia) cuando el Excel no trae imagen.
+    Siempre con www: el dominio sin www no responde."""
+    return SITIO + ((sede or {}).get("imagen") or IMAGEN_POR_DEFECTO)
 
 
 def cargar_sedes() -> list[dict]:
@@ -600,7 +599,88 @@ def importar_semillas(base: Optional[Path] = None) -> dict:
                 print(f"[programacion_excel] marca/log: {exc}")
     print(f"📅 Programación Excel importada: {resumen or 'nada nuevo'}")
     asignar_imagenes_sedes()
+    sincronizar_lugares_sedes()
     return resumen
+
+
+def _tipo_lugar(nombre: str) -> str:
+    n = _norm(nombre)
+    if n.startswith("uva"):
+        return "uva"
+    if "museo" in n:
+        return "museo"
+    if "biblioteca" in n:
+        return "biblioteca"
+    return "parque_cultural"
+
+
+def lugares_de_sede(sede: dict, lugares: list[dict]) -> list[dict]:
+    """Lugares que son esta sede: mismo nombre, o un alias largo ("uva la imaginacion")."""
+    nombres = {_norm(sede["nombre"])} | {_norm(a) for a in sede.get("alias", []) if len(a) >= 12}
+    return [l for l in lugares if _norm(l.get("nombre")) in nombres]
+
+
+def sincronizar_lugares_sedes() -> dict:
+    """Las sedes EPM como lugares del mapa: corrige coordenadas (verificadas en sedes_epm.json),
+    crea las que no existen y enlaza las actividades del Excel con su lugar (espacio_id)."""
+    from app.database import supabase
+    stats = {"corregidos": 0, "creados": 0, "eventos_enlazados": 0, "eventos_ubicados": 0}
+    try:
+        lugares = supabase.table("lugares").select("id,nombre,slug,lat,lng,imagen_url,barrio,municipio").execute().data or []
+    except Exception as exc:
+        print(f"[programacion_excel] lugares: {exc}")
+        return stats
+    for sede in cargar_sedes():
+        if sede.get("lat") is None:
+            continue
+        coords = {"lat": sede["lat"], "lng": sede["lng"]}
+        propios = lugares_de_sede(sede, lugares)
+        for l in propios:
+            upd = {k: v for k, v in coords.items() if l.get(k) is None or abs(float(l[k]) - v) > 0.0003}
+            if not l.get("imagen_url"):
+                upd["imagen_url"] = url_imagen(sede)
+            if not l.get("barrio") and sede.get("barrio"):
+                upd["barrio"] = sede["barrio"]
+            if l.get("municipio") != sede.get("municipio", "medellin"):
+                upd["municipio"] = sede.get("municipio", "medellin")
+            if upd:
+                try:
+                    supabase.table("lugares").update(upd).eq("id", l["id"]).execute()
+                    stats["corregidos"] += 1
+                except Exception as exc:
+                    print(f"[programacion_excel] lugar {l['nombre']}: {exc}")
+        if not propios:
+            nuevo = {
+                "nombre": sede["nombre"], "slug": _slug(sede["nombre"]), "tipo": _tipo_lugar(sede["nombre"]),
+                "categoria_principal": "centro_cultural", "categorias": ["centro_cultural", "taller"],
+                "municipio": sede.get("municipio", "medellin"), "barrio": sede.get("barrio"),
+                "direccion": sede.get("direccion"), **coords, "imagen_url": url_imagen(sede),
+                "sitio_web": sede.get("url") or "https://www.grupo-epm.com/site/fundacionepm/",
+                "instagram_handle": "fundacionepm", "nivel_actividad": "activo", "es_institucional": True,
+                "es_underground": False, "fuente_datos": "fundacion_epm_excel",
+                "descripcion_corta": f"{sede['nombre']} · Fundación Grupo EPM. Programación cultural y formativa gratuita.",
+            }
+            try:
+                propios = supabase.table("lugares").insert(nuevo).execute().data or []
+                stats["creados"] += 1
+            except Exception as exc:
+                print(f"[programacion_excel] crear {sede['nombre']}: {exc}")
+        # Actividades del Excel: lugar enlazado y coordenadas (las que se importaron sin ubicación)
+        try:
+            if propios:
+                r = (supabase.table("eventos").update({"espacio_id": propios[0]["id"]})
+                     .eq("fuente", "fundacion_epm_excel").eq("nombre_lugar", sede["nombre"])
+                     .is_("espacio_id", "null").execute())
+                stats["eventos_enlazados"] += len(r.data or [])
+            ubic = {**coords, "barrio": sede.get("barrio"), "municipio": sede.get("municipio", "medellin")}
+            r = (supabase.table("eventos").update(ubic)
+                 .eq("fuente", "fundacion_epm_excel").eq("nombre_lugar", sede["nombre"])
+                 .is_("lat", "null").execute())
+            stats["eventos_ubicados"] += len(r.data or [])
+        except Exception as exc:
+            print(f"[programacion_excel] eventos {sede['nombre']}: {exc}")
+    print(f"🗺️ Sedes EPM en el mapa: {stats}")
+    return stats
 
 
 def asignar_imagenes_sedes() -> int:
@@ -608,6 +688,20 @@ def asignar_imagenes_sedes() -> int:
     from app.database import supabase
     total = 0
     sedes = cargar_sedes()
+    # Reparación: imágenes guardadas con el dominio sin www (no responde)
+    try:
+        malas = (supabase.table("eventos").select("id,imagen_url").eq("fuente", "fundacion_epm_excel")
+                 .like("imagen_url", "https://culturaetereamed.com/%").limit(2000).execute().data or [])
+        for url in {m["imagen_url"] for m in malas}:
+            r = (supabase.table("eventos").update({"imagen_url": url.replace("https://", "https://www.", 1)})
+                 .eq("fuente", "fundacion_epm_excel").eq("imagen_url", url).execute())
+            total += len(r.data or [])
+        for url in {l["imagen_url"] for l in (supabase.table("lugares").select("imagen_url")
+                    .like("imagen_url", "https://culturaetereamed.com/images/sedes/%").execute().data or [])}:
+            (supabase.table("lugares").update({"imagen_url": url.replace("https://", "https://www.", 1)})
+             .eq("imagen_url", url).execute())
+    except Exception as exc:
+        print(f"[programacion_excel] reparar dominio: {exc}")
     for nombre, url in [(s["nombre"], url_imagen(s)) for s in sedes] + [(None, url_imagen(None))]:
         try:
             q = supabase.table("eventos").update({"imagen_url": url}).eq("fuente", "fundacion_epm_excel").is_("imagen_url", "null")

@@ -1,9 +1,13 @@
 {
-  "_doc": "Verdad de terreno: coordenadas verificadas a mano para lugares que la verificación automática no puede resolver (nombres ambiguos en OSM). geo_verificacion.py nunca sobrescribe lugares con coords_estado='manual'. Cada entrada debe citar su fuente.",
+  "_doc": "Verdad de terreno: coordenadas verificadas a mano para lugares que la verificación automática no puede resolver (nombres ambiguos en OSM). geo_verificacion.py nunca sobrescribe lugares con coords_estado='manual'. Cada entrada debe citar su fuente. Además del id se puede dar 'nombres' (se compara sin tildes ni mayúsculas). Se aplican tras cada deploy.",
   "lugares": [
     {
-      "ids": ["055271c7-f7f2-4795-bba2-8ad6d08a25bd", "62bfd95b-5c0e-4e8f-9d75-8c4db36418fb",
-              "46c2e6b6-90b3-4d32-b573-29d755aaeee1", "687f925b-5f2d-49f4-a6a9-899f7d4f7dd2"],
+      "ids": [
+        "055271c7-f7f2-4795-bba2-8ad6d08a25bd",
+        "62bfd95b-5c0e-4e8f-9d75-8c4db36418fb",
+        "46c2e6b6-90b3-4d32-b573-29d755aaeee1",
+        "687f925b-5f2d-49f4-a6a9-899f7d4f7dd2"
+      ],
       "nombre": "Biblioteca Pública Piloto de Medellín para América Latina (sede principal, Carlos E. Restrepo)",
       "lat": 6.2554386,
       "lng": -75.5775126,
@@ -11,6 +15,31 @@
       "fuente": "osm:node/4444344887",
       "verificado": "2026-10-01",
       "nota": "Nominatim devolvía un nodo homónimo en Doce de Octubre (Calle 102B); la sede principal está en Carlos E. Restrepo."
+    },
+    {
+      "nombres": [
+        "Parque Explora"
+      ],
+      "nombre": "Parque Explora",
+      "lat": 6.2707974,
+      "lng": -75.5655578,
+      "direccion": "Carrera 52 # 73-75, Medellín",
+      "fuente": "osm:way/141166140",
+      "verificado": "2026-10-03"
+    },
+    {
+      "nombres": [
+        "Planetario de Medellin",
+        "Planetario de Medellín",
+        "Planetario Medellín",
+        "Planetario Jesús Emilio Ramírez"
+      ],
+      "nombre": "Planetario de Medellín",
+      "lat": 6.2689979,
+      "lng": -75.5661157,
+      "direccion": "Carrera 52 # 71-117, Medellín",
+      "fuente": "osm:way/93329440",
+      "verificado": "2026-10-03"
     }
   ]
 }

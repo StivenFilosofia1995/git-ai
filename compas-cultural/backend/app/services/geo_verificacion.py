@@ -26,10 +26,12 @@ lotes pequeños. Por eso corre en lotes (por defecto 40 lugares por ejecución).
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import re
 import unicodedata
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -263,6 +265,58 @@ async def verificar_lugar(client: httpx.AsyncClient, lugar: dict) -> dict:
     return {"id": lugar["id"], "nombre": lugar["nombre"], "estado": estado, "dist_m": dist, "match": match}
 
 
+_DATA = Path(__file__).resolve().parents[2] / "seeds" / "data"
+
+
+def verdad_de_terreno() -> list[dict]:
+    """Coordenadas verificadas a mano: coordenadas_verificadas.json + sedes de sedes_epm.json."""
+    out = []
+    try:
+        out += json.loads((_DATA / "coordenadas_verificadas.json").read_text(encoding="utf-8"))["lugares"]
+    except Exception:
+        pass
+    try:
+        for s in json.loads((_DATA / "sedes_epm.json").read_text(encoding="utf-8"))["sedes"]:
+            if s.get("lat") is not None:
+                out.append({"nombres": [s["nombre"]] + [a for a in s.get("alias", []) if len(a) >= 12],
+                            "lat": s["lat"], "lng": s["lng"], "fuente": s.get("fuente")})
+    except Exception:
+        pass
+    return out
+
+
+def es_protegido(lugar: dict, verdad: list[dict]) -> bool:
+    n = _norm(lugar.get("nombre"))
+    return any(lugar.get("id") in v.get("ids", []) or n in {_norm(x) for x in v.get("nombres", [])} for v in verdad)
+
+
+def aplicar_verdad_de_terreno() -> int:
+    """Escribe las coordenadas verificadas a mano en los lugares que las tengan distintas (idempotente)."""
+    if supabase is None:
+        return 0
+    verdad = [v for v in verdad_de_terreno() if v.get("lat") is not None]
+    try:
+        lugares = supabase.table("lugares").select("id,nombre,lat,lng").execute().data or []
+    except Exception as exc:
+        print(f"[geo] verdad de terreno: {exc}")
+        return 0
+    n = 0
+    for l in lugares:
+        for v in verdad:
+            if not es_protegido(l, [v]):
+                continue
+            if l.get("lat") is None or distancia_m(float(l["lat"]), float(l["lng"]), v["lat"], v["lng"]) > 30:
+                try:
+                    supabase.table("lugares").update({"lat": v["lat"], "lng": v["lng"]}).eq("id", l["id"]).execute()
+                    n += 1
+                except Exception as exc:
+                    print(f"[geo] verdad de terreno {l['nombre']}: {exc}")
+            break
+    if n:
+        print(f"📍 Verdad de terreno: {n} lugares con coordenadas corregidas")
+    return n
+
+
 async def run_verificacion_coordenadas(limit: int = 40, aplicar: bool = True) -> dict:
     """Verifica un lote de lugares físicos (los menos recientemente verificados primero)."""
     if supabase is None:
@@ -283,7 +337,8 @@ async def run_verificacion_coordenadas(limit: int = 40, aplicar: bool = True) ->
             .neq("tipo", "colectivo").limit(limit).execute()
         )
     # Coordenadas verificadas a mano (seeds/data/coordenadas_verificadas.json) no se tocan
-    lugares = [l for l in (resp.data or []) if l.get("coords_estado") != "manual"]
+    verdad = verdad_de_terreno()
+    lugares = [l for l in (resp.data or []) if l.get("coords_estado") != "manual" and not es_protegido(l, verdad)]
     stats = {"revisados": 0, "ok": 0, "corregir": 0, "nuevo": 0, "placeholder": 0, "sin_verificar": 0}
     detalle = []
     ahora = datetime.now(timezone.utc).isoformat()
