@@ -63,7 +63,15 @@ def main():
 
     semana = es.semana_campana()
     marca = es.marca_campana(args.campana, semana)
-    destinatarios = es.cargar_destinatarios()
+    destinatarios = []
+    for intento in range(1, 4):
+        destinatarios = es.cargar_destinatarios()
+        if destinatarios:
+            break
+        print(f"⚠️  No se pudo cargar la lista de registrados (intento {intento}/3). Reintentando en 10 s…")
+        time.sleep(10)
+    if not destinatarios:
+        sys.exit("❌ No hubo conexión con Supabase (error de red o DNS). Revisa el internet o la VPN y vuelve a ejecutar.")
     pendientes = [d for d in destinatarios
                   if not es._digest_already_sent(marca, d["email"]) and not es.is_email_unsubscribed(d["email"])]
     print(f"Campaña {args.campana} · semana {semana}: {len(destinatarios)} registrados, {len(pendientes)} pendientes.")
