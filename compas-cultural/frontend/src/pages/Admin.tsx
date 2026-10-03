@@ -10,11 +10,12 @@ import {
 
 import IgFeedScanner from '../components/admin/IgFeedScanner'
 import IgColectivosScanner from '../components/admin/IgColectivosScanner'
+import ProgramacionExcel from '../components/admin/ProgramacionExcel'
 const CulturalMap = lazy(() => import('../components/map/CulturalMap'))
 const KEY_STORAGE = 'admin:apikey'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
-type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web' | 'ig_feed' | 'ig_colectivos' | 'correo' | 'fuentes'
+type Tab = 'resumen' | 'eventos' | 'espacios' | 'usuarios' | 'logs' | 'mapa' | 'subir_evento' | 'modelo_ia' | 'buscar_web' | 'ig_feed' | 'ig_colectivos' | 'correo' | 'fuentes' | 'programacion_excel'
 
 const CAT_LABEL: Record<string, string> = {
   teatro: 'Teatro', hip_hop: 'Hip Hop', jazz: 'Jazz', galeria: 'Galería',
@@ -1916,6 +1917,7 @@ export default function Admin() {
     { id: 'usuarios', label: 'Usuarios' },
     { id: 'logs', label: 'Logs' },
     { id: 'subir_evento', label: '+ Subir Evento' },
+    { id: 'programacion_excel', label: '📅 Programación Excel' },
     { id: 'buscar_web', label: '🌐 Buscar Web' },
     { id: 'ig_feed', label: '📸 Feed IG' },
     { id: 'ig_colectivos', label: '🎭 Colectivos IG' },
@@ -1982,6 +1984,7 @@ export default function Admin() {
         {activeTab === 'modelo_ia' && <TabModeloIA apiKey={apiKey} />}
         {activeTab === 'mapa' && <TabMapaAdmin apiKey={apiKey} />}
         {activeTab === 'fuentes' && <TabFuentes apiKey={apiKey} />}
+        {activeTab === 'programacion_excel' && <ProgramacionExcel apiKey={apiKey} />}
       </div>
     </>
   )

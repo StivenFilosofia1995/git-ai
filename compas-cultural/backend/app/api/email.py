@@ -83,6 +83,7 @@ def estado_boletin(x_api_key: str | None = Header(default=None, alias="X-API-Key
 @router.post("/prueba")
 def enviar_prueba(
     para: str = Query(..., description="Correo que recibirá la vista previa"),
+    campana: str = Query("semanal", pattern="^(semanal|finde)$"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """Envía el boletín de esta semana a un solo correo (sin marcarlo como enviado)."""
@@ -96,10 +97,11 @@ def enviar_prueba(
     es._mark_digest_sent = lambda *_a, **_k: None  # la prueba no consume el envío real
     try:
         semana = "prueba-" + es._week_start_iso()
-        resultado = es.enviar_digest_a(r, semana)
+        resultado = es.enviar_digest_a(r, semana, campana)
     finally:
         es._mark_digest_sent = original
-    return {"resultado": resultado, "remitente_listo": listo, "remitente": motivo}
+    return {"resultado": resultado, "campana": campana, "remitente_listo": listo, "remitente": motivo,
+            "ultimo_error": dict(es.ULTIMO_ERROR)}
 
 
 @router.get("/blast-status")

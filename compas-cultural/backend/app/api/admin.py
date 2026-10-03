@@ -1332,6 +1332,29 @@ async def trigger_datos_gov_espacios(
     return {"ok": True, **stats}
 
 
+@router.post("/programacion-excel")
+async def importar_programacion_excel(
+    archivo: UploadFile = File(...),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    aplicar: bool = True,
+):
+    """Sube un Excel de programación (Fundación Grupo EPM: Parque de los Deseos, Museo del
+    Agua, UVA, Biblioteca EPM). Detecta el formato, publica las actividades abiertas y las
+    ubica en el mapa. `aplicar=false` = vista previa sin guardar. Reimportar es seguro (upsert)."""
+    _check_key(x_api_key)
+    import asyncio as _asyncio
+    from app.services.programacion_excel import importar_programacion
+    data = await archivo.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Archivo de más de 15 MB")
+    try:
+        res = await _asyncio.to_thread(importar_programacion, data, archivo.filename or "", aplicar)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"No se pudo leer el Excel: {type(exc).__name__}: {exc}")
+    res["descartados"] = dict(res["descartados"])
+    return res
+
+
 @router.post("/revisar-calidad")
 async def revisar_calidad(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),

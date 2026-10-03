@@ -1,0 +1,21 @@
+{
+  "_doc": "Sedes de la Fundación Grupo EPM para ubicar en el mapa la programación que llega en Excel. Coordenadas SOLO verificadas (OpenStreetMap). Si una sede no tiene lat/lng, sus eventos salen en la agenda pero no en el mapa hasta que alguien la confirme: agrega lat, lng y fuente.",
+  "sedes": [
+    {"nombre": "Parque de los Deseos", "alias": ["parque de los deseos", "plazoleta", "bajo palco", "terraza", "casa de la musica"], "lat": 6.2681798, "lng": -75.5661711, "barrio": "Sevilla", "municipio": "medellin", "fuente": "osm:way/30954416", "url": "https://www.grupo-epm.com/site/fundacionepm/"},
+    {"nombre": "Biblioteca EPM", "alias": ["biblioteca epm", "biblioteca"], "lat": 6.24655, "lng": -75.5730812, "barrio": "La Candelaria", "municipio": "medellin", "fuente": "osm:way/32474558", "url": "https://www.grupo-epm.com/site/fundacionepm/"},
+    {"nombre": "Museo del Agua EPM", "alias": ["museo del agua"], "lat": null, "lng": null, "barrio": "Parque de los Pies Descalzos", "municipio": "medellin", "fuente": null, "url": "https://www.grupo-epm.com/site/fundacionepm/"},
+    {"nombre": "UVA El Encanto", "alias": ["uva el encanto"], "lat": 6.3054573, "lng": -75.5743014, "municipio": "medellin", "fuente": "osm:way/346618724"},
+    {"nombre": "UVA de La Imaginación", "alias": ["uva de la imaginacion", "uva la imaginacion"], "lat": 6.2528126, "lng": -75.5557524, "municipio": "medellin", "fuente": "osm:node/4588628100"},
+    {"nombre": "UVA La Libertad", "alias": ["uva la libertad"], "lat": 6.2413898, "lng": -75.5406491, "municipio": "medellin", "fuente": "osm:way/293789067"},
+    {"nombre": "UVA Nuevo Amanecer", "alias": ["uva nuevo amanecer"], "lat": 6.2950475, "lng": -75.5382703, "municipio": "medellin", "fuente": "osm:node/5924126733"},
+    {"nombre": "UVA de La Cordialidad", "alias": ["uva de la cordialidad", "uva la cordialidad"], "lat": 6.2987709, "lng": -75.5463019, "municipio": "medellin", "fuente": "osm:node/4588274494"},
+    {"nombre": "UVA de La Esperanza", "alias": ["uva de la esperanza", "uva la esperanza"], "lat": 6.2870774, "lng": -75.5449251, "municipio": "medellin", "fuente": "osm:node/4588314790"},
+    {"nombre": "UVA de La Alegría", "alias": ["uva de la alegria", "uva la alegria"], "lat": 6.2717009, "lng": -75.5498522, "municipio": "medellin", "fuente": "osm:way/698697899"},
+    {"nombre": "UVA de Los Sueños", "alias": ["uva de los suenos", "uva los suenos"], "lat": 6.2636214, "lng": -75.5422069, "municipio": "medellin", "fuente": "osm:way/1317135902"},
+    {"nombre": "UVA de La Armonía", "alias": ["uva de la armonia", "uva la armonia"], "lat": 6.27452, "lng": -75.54542, "municipio": "medellin", "fuente": "osm:node/4588321489 (confirmado por el lago de la UVA, way/500082090)"},
+    {"nombre": "UVA Los Guayacanes", "alias": ["uva los guayacanes", "uva guayacanes"], "lat": null, "lng": null, "municipio": "medellin", "fuente": null},
+    {"nombre": "UVA Mirador de San Cristóbal", "alias": ["uva mirador de san cristobal"], "lat": null, "lng": null, "municipio": "medellin", "fuente": null},
+    {"nombre": "UVA Ilusión Verde", "alias": ["uva ilusion verde"], "lat": null, "lng": null, "municipio": "medellin", "barrio": "San Antonio de Prado", "fuente": null},
+    {"nombre": "UVA San Fernando", "alias": ["uva san fernando"], "lat": null, "lng": null, "municipio": "medellin", "fuente": null}
+  ]
+}

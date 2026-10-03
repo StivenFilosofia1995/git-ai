@@ -196,6 +196,8 @@ def _deliver_via_smtp(to_email: str, subject: str, html: str, text: str) -> bool
     if (from_email or "").lower().endswith("@resend.dev") or "@" not in (from_email or ""):
         from_email = settings.smtp_user  # Gmail no puede enviar "como" otro dominio (spam/DMARC)
     msg = MIMEMultipart("alternative")
+    if settings.smtp_user:
+        msg["Reply-To"] = settings.smtp_user
     msg["Subject"] = subject
     msg["From"] = f"{settings.smtp_from_name} <{from_email}>"
     msg["To"] = to_email
@@ -234,9 +236,11 @@ def _deliver_via_smtp(to_email: str, subject: str, html: str, text: str) -> bool
             return True
         except smtplib.SMTPAuthenticationError as e:
             logger.error("SMTP auth failed: %s (verifica App Password de Gmail)", e)
+            ULTIMO_ERROR["smtp"] = f"Autenticación rechazada por Gmail: {str(e)[:160]}"
             return False  # Auth falla igual en todos los modos
         except OSError as e:
             logger.warning("SMTP %s:%s falló (%s: %s) — probando siguiente", mode, p, type(e).__name__, e)
+            ULTIMO_ERROR["smtp"] = f"Conexión {mode}:{p} falló ({type(e).__name__}: {str(e)[:120]})"
         except Exception as e:
             logger.warning("SMTP %s:%s error (%s: %s) — probando siguiente", mode, p, type(e).__name__, e)
 
@@ -244,14 +248,16 @@ def _deliver_via_smtp(to_email: str, subject: str, html: str, text: str) -> bool
     return False
 
 
+ULTIMO_ERROR: dict[str, str] = {}  # se registra en scraping_log para diagnosticar sin ver logs de Railway
+
+
 def remitente_listo() -> tuple[bool, str]:
     """¿Puede el sistema enviar correos a cualquier destinatario?"""
     remitente = (settings.smtp_from_email or "").strip().lower()
     if settings.resend_api_key and remitente and not remitente.endswith("@resend.dev"):
         return True, f"Resend con remitente {remitente}"
-    import os
-    if settings.smtp_password and settings.smtp_user and not os.getenv("RAILWAY_ENVIRONMENT"):
-        return True, "SMTP (Gmail). Ojo: límite ~500/día"
+    if settings.smtp_password and settings.smtp_user:
+        return True, f"SMTP (Gmail {settings.smtp_user}). Límite ~500/día"
     if settings.resend_api_key:
         return False, ("El remitente es @resend.dev (modo prueba de Resend): solo entrega al dueño de la "
                        "cuenta. Verifica tu dominio en resend.com/domains y pon SMTP_FROM_EMAIL="
@@ -294,6 +300,7 @@ def _send_via_resend(to_email: str, subject: str, html: str) -> bool:
             logger.info("Email sent to %s via Resend", to_email)
             return True
         logger.error("Resend API error (%s): %s", resp.status_code, resp.text)
+        ULTIMO_ERROR["resend"] = f"HTTP {resp.status_code}: {resp.text[:160]}"
         return False
     except Exception as e:
         logger.error("Failed to send email to %s via Resend: %s", to_email, e)
@@ -362,11 +369,13 @@ def _fetch_weekly_events(
     categoria: str | None = None,
     limit: int = 8,
     barrio: str | None = None,
+    dias: int = 7,
+    desde_dias: int = 1,
 ) -> list[dict]:
-    """Próximos 7 días en hora Bogotá, sin ocultos/cuarentena (misma fuente que la web)."""
+    """Ventana [desde_dias, dias] en hora Bogotá, sin ocultos/cuarentena (misma fuente que la web)."""
     from app.services.evento_service import get_eventos_proximas_semanas
     try:
-        eventos = get_eventos_proximas_semanas(dias=7, desde_dias=1)
+        eventos = get_eventos_proximas_semanas(dias=dias, desde_dias=desde_dias)
     except Exception as exc:
         logger.warning("No se pudieron cargar los eventos de la semana: %s", exc)
         return []
@@ -468,6 +477,9 @@ def _build_weekly_digest_html(
     unsubscribe_url: str = "",
     municipio: str | None = None,
     preferencias: list[str] | None = None,
+    titulo_seccion: str = "ESTA SEMANA",
+    intro: str = "{escape(intro)}",
+    max_eventos: int = 6,
 ) -> str:
     frontend_url = settings.frontend_url.rstrip("/")
     now_co = datetime.now(CO_TZ)
@@ -482,7 +494,7 @@ def _build_weekly_digest_html(
 
     # SEMANA section — pairs of compact cards
     semana_rows = ""
-    semana_evs = eventos_semana[:6]
+    semana_evs = eventos_semana[:max_eventos]
     for i in range(0, len(semana_evs), 2):
         left = semana_evs[i]
         right = semana_evs[i + 1] if i + 1 < len(semana_evs) else None
@@ -592,13 +604,13 @@ def _build_weekly_digest_html(
   </tr>
 
   <!-- HOY section -->
-  {'<tr><td style="padding:24px 32px 8px;"><div style="font-family:Courier New,Courier,monospace;font-size:9px;font-weight:700;letter-spacing:3px;color:#ffffff;text-transform:uppercase;border-bottom:1px solid #1a1a1a;padding-bottom:10px;margin-bottom:16px;">◆ HOY EN EL VALLE</div>' + hoy_cards + '</td></tr>' if hoy_cards else ''}
+  {'<tr><td style="padding:24px 32px 8px;"><div style="font-family:Courier New,Courier,monospace;font-size:9px;font-weight:700;letter-spacing:3px;color:#ffffff;text-transform:uppercase;border-bottom:1px solid #1a1a1a;padding-bottom:10px;margin-bottom:16px;">◆ HOY EN EL VALLE DE ABURRÁ</div>' + hoy_cards + '</td></tr>' if hoy_cards else ''}
 
   <!-- ESTA SEMANA section -->
   <tr>
     <td style="padding:{'8px' if hoy_cards else '24px'} 32px 8px;">
       <div style="font-family:'Courier New',Courier,monospace;font-size:9px;font-weight:700;letter-spacing:3px;color:#ffffff;text-transform:uppercase;border-bottom:1px solid #1a1a1a;padding-bottom:10px;margin-bottom:16px;">
-        ◆ ESTA SEMANA
+        ◆ {escape(titulo_seccion)}
       </div>
       <table width="100%" cellpadding="0" cellspacing="0">
         {semana_rows}
@@ -917,15 +929,55 @@ def cargar_destinatarios(limit: int = 2000) -> list[dict]:
     return sorted(recipients, key=lambda r: r.get("email", ""))
 
 
-def enviar_digest_a(r: dict, week_start: str) -> str:
+def _ventana_finde(hoy) -> tuple[int, int]:
+    """(desde_dias, dias) de hoy al domingo: viernes→(0,3), sábado→(0,2), domingo→(0,1)."""
+    wd = hoy.weekday()
+    hasta_domingo = (6 - wd) % 7
+    return (0, hasta_domingo + 1) if wd >= 4 else ((4 - wd), (6 - wd) + 1)
+
+
+CAMPANAS = {
+    # Lunes: lo de esta semana y la próxima (fidelización)
+    "semanal": {
+        "dias_envio": (0, 1), "marca": "",
+        "asunto": "Tu agenda cultural: esta semana y la próxima — Valle de Aburrá",
+        "titulo": "ESTA SEMANA Y LA PRÓXIMA",
+        "intro": "Estos son los planes culturales de esta semana y la próxima en el Valle de Aburrá.",
+        "ventana": lambda hoy: (0, 14), "max": 10,
+    },
+    # Viernes: el plan del fin de semana
+    "finde": {
+        "dias_envio": (4, 5), "marca": "finde:",
+        "asunto": "Plan para este finde en el Valle de Aburrá — Cultura ETÉREA",
+        "titulo": "ESTE FIN DE SEMANA",
+        "intro": "Viernes, sábado y domingo: estos son los planes culturales del finde en el Valle de Aburrá.",
+        "ventana": _ventana_finde, "max": 10,
+    },
+}
+
+
+def semana_campana() -> str:
+    """Semana a la que cuenta un envío hecho hoy (los envíos extra del finde cuentan para el lunes siguiente)."""
+    return ENVIOS_EXTRA.get(datetime.now(CO_TZ).date().isoformat()) or _week_start_iso()
+
+
+def marca_campana(campana: str, week_start: str) -> str:
+    return f"{CAMPANAS[campana]['marca']}{week_start}"
+
+
+def enviar_digest_a(r: dict, week_start: str, campana: str = "semanal") -> str:
     """Envía el boletín a un destinatario. Devuelve 'sent' | 'skipped' | 'failed' | 'sin_eventos'."""
+    cfg = CAMPANAS[campana]
+    marca = marca_campana(campana, week_start)
     email = r.get("email") or ""
-    if not email or _digest_already_sent(week_start, email) or is_email_unsubscribed(email):
+    if not email or _digest_already_sent(marca, email) or is_email_unsubscribed(email):
         return "skipped"
+    desde, dias = cfg["ventana"](datetime.now(CO_TZ).date())
     eventos_hoy = _fetch_today_events(r.get("municipio"), limit=3)
-    eventos_semana = _fetch_weekly_events(r.get("municipio"), r.get("categoria"), barrio=r.get("barrio"))
-    if len(eventos_semana) < 3:
-        eventos_semana = _fetch_weekly_events(None, None, limit=8)
+    eventos_semana = _fetch_weekly_events(r.get("municipio"), r.get("categoria"), limit=cfg["max"],
+                                          barrio=r.get("barrio"), dias=dias, desde_dias=desde)
+    if len(eventos_semana) < 4:
+        eventos_semana = _fetch_weekly_events(None, None, limit=cfg["max"], dias=dias, desde_dias=desde)
     if not eventos_semana:
         return "sin_eventos"
     context_label = r.get("context_label") or VALLE_LABEL
@@ -934,10 +986,11 @@ def enviar_digest_a(r: dict, week_start: str) -> str:
     html = _build_weekly_digest_html(
         r["nombre"], context_label, eventos_semana, eventos_hoy, unsubscribe_url=unsub_url,
         municipio=profile.get("municipio") or r.get("municipio"), preferencias=profile.get("preferencias") or None,
+        titulo_seccion=cfg["titulo"], intro=cfg["intro"], max_eventos=cfg["max"],
     )
     text = _build_weekly_digest_text(r["nombre"], context_label, eventos_semana)
-    if _send_email(email, "Tu agenda cultural de la semana — Cultura ETÉREA", html, text):
-        _mark_digest_sent(week_start, email)
+    if _send_email(email, cfg["asunto"], html, text):
+        _mark_digest_sent(marca, email)
         return "sent"
     return "failed"
 
@@ -955,35 +1008,41 @@ def _log_boletin(stats: dict) -> None:
         supabase.table("scraping_log").insert({
             "fuente": "boletin_semanal", "registros_nuevos": stats.get("sent", 0),
             "registros_actualizados": stats.get("pendientes", 0), "errores": stats.get("failed", 0),
-            "detalle": {k: v for k, v in stats.items() if k != "remitente"} | {"remitente": stats.get("remitente")},
+            "detalle": {k: v for k, v in stats.items() if k != "remitente"} | {"remitente": stats.get("remitente"),
+                                                                               "ultimo_error": dict(ULTIMO_ERROR)},
         }).execute()
     except Exception:
         pass
 
 
-def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
+def send_weekly_digest_batch(lote: int = 10, force: bool = False, campana: str = "semanal") -> dict:
     """Envía el boletín semanal por lotes (lunes y martes, para recuperar fallos).
 
     Cada destinatario queda marcado por semana: nunca recibe dos veces el mismo boletín.
     """
+    cfg = CAMPANAS[campana]
     listo, motivo = remitente_listo()
-    stats = {"week_start": _week_start_iso(), "sent": 0, "skipped": 0, "failed": 0,
+    stats = {"campana": campana, "week_start": _week_start_iso(), "sent": 0, "skipped": 0, "failed": 0,
              "pendientes": 0, "remitente_listo": listo, "remitente": motivo}
     now_co = datetime.now(CO_TZ)
     hoy_iso = now_co.date().isoformat()
-    if hoy_iso in ENVIOS_EXTRA:
+    if campana == "semanal" and hoy_iso in ENVIOS_EXTRA:
         force = True
         if ENVIOS_EXTRA[hoy_iso]:
             stats["week_start"] = ENVIOS_EXTRA[hoy_iso]
-    if not force and (now_co.weekday() not in (0, 1) or now_co.hour < 7):
-        stats["reason"] = "El boletín sale lunes desde las 7:00 (martes para reintentos)"
+    if campana == "finde" and hoy_iso in ENVIOS_EXTRA:
+        stats["reason"] = "Hoy sale el envío extra de la campaña semanal (no se manda doble)"
+        return stats
+    if not force and (now_co.weekday() not in cfg["dias_envio"] or now_co.hour < 7):
+        stats["reason"] = f"La campaña '{campana}' sale los días {cfg['dias_envio']} desde las 7:00"
         return stats
     if not listo:
         stats["reason"] = motivo
         return stats
     week_start = stats["week_start"]
+    marca = f"{cfg['marca']}{week_start}"
     destinatarios = cargar_destinatarios()
-    pendientes = [r for r in destinatarios if not _digest_already_sent(week_start, r["email"])
+    pendientes = [r for r in destinatarios if not _digest_already_sent(marca, r["email"])
                   and not is_email_unsubscribed(r["email"])]
     stats["destinatarios"] = len(destinatarios)
     stats["pendientes"] = len(pendientes)
@@ -995,7 +1054,7 @@ def send_weekly_digest_batch(lote: int = 10, force: bool = False) -> dict:
         return stats
     seguidos = 0
     for r in pendientes[:lote]:
-        res = enviar_digest_a(r, week_start)
+        res = enviar_digest_a(r, week_start, campana)
         stats[res if res in stats else "skipped"] = stats.get(res, 0) + 1
         seguidos = seguidos + 1 if res == "failed" else 0
         if seguidos >= 3:

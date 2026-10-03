@@ -76,6 +76,15 @@ async def _run_cleanup():
         print(f"❌ Cleanup error: {e}")
 
 
+async def _run_programacion_excel():
+    """Excel de programación guardados en el repo (seeds/data/programacion): una vez por archivo."""
+    from app.services.programacion_excel import importar_semillas
+    try:
+        await asyncio.to_thread(importar_semillas)
+    except Exception as e:
+        print(f"❌ Programación Excel error: {e}")
+
+
 async def _run_revision_calidad():
     """Puerta de calidad sobre los eventos ya publicados (oculta basura y duplicados)."""
     from app.services.event_gate import revisar_calidad_eventos, guardar_precision_diaria
@@ -188,14 +197,19 @@ async def _run_ig_colectivos_discovery():
 
 
 def _run_weekly_digest():
-    """Boletín semanal por lotes de 10 (lunes desde las 7:00; martes reintenta fallos)."""
+    """Boletines por lotes de 10: 'semanal' (lunes; martes reintenta) y 'finde' (viernes; sábado reintenta)."""
     from app.services.email_service import send_weekly_digest_batch
+    for campana in ("semanal", "finde"):
+        _tick_digest(send_weekly_digest_batch, campana)
+
+
+def _tick_digest(send_weekly_digest_batch, campana: str):
     try:
-        stats = send_weekly_digest_batch(lote=10)
+        stats = send_weekly_digest_batch(lote=10, campana=campana)
         if not (stats.get("sent") or stats.get("failed")):
             return
         print(
-            "📬 Digest tick: "
+            f"📬 Digest {campana}: "
             f"pendientes={stats.get('pendientes', 0)} | "
             f"sent={stats.get('sent', 0)} | "
             f"skipped={stats.get('skipped', 0)} | "
@@ -501,7 +515,7 @@ def start_scheduler():
         # Todos los días cada 4 min; la función decide (lunes/martes o ENVIOS_EXTRA)
         trigger=CronTrigger(minute="*/4", timezone=CO_TZ),
         id="weekly_digest",
-        name="Boletín semanal (lotes de 10, lunes y martes)",
+        name="Boletines: semanal (lunes) y finde (viernes), lotes de 10",
         replace_existing=True,
     )
     # (La "blast campaign" de prueba corría todos los días en paralelo al boletín: retirada.
@@ -522,6 +536,14 @@ def start_scheduler():
         trigger=CronTrigger(hour=3, minute=30, timezone=CO_TZ),
         id="privacy_cleanup",
         name="Limpieza automática de datos (privacidad)",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        _run_programacion_excel,
+        trigger=DateTrigger(run_date=datetime.now(CO_TZ) + timedelta(minutes=2)),
+        id="programacion_excel_startup",
+        name="Importar Excel de programación (EPM)",
         replace_existing=True,
     )
 

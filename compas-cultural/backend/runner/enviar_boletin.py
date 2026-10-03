@@ -38,6 +38,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prueba", help="Enviar solo a este correo (no marca a nadie como enviado)")
     ap.add_argument("--si", action="store_true", help="No pedir confirmación")
+    ap.add_argument("--campana", choices=["semanal", "finde"], default="semanal",
+                    help="semanal = esta semana y la próxima · finde = viernes a domingo")
     args = ap.parse_args()
 
     from app.config import settings
@@ -54,16 +56,17 @@ def main():
         original = es._mark_digest_sent
         es._mark_digest_sent = lambda *_a, **_k: None
         try:
-            print("Resultado:", es.enviar_digest_a(r, "prueba-" + es._week_start_iso()))
+            print("Resultado:", es.enviar_digest_a(r, "prueba-" + es._week_start_iso(), args.campana))
         finally:
             es._mark_digest_sent = original
         return
 
-    semana = es._week_start_iso()
+    semana = es.semana_campana()
+    marca = es.marca_campana(args.campana, semana)
     destinatarios = es.cargar_destinatarios()
     pendientes = [d for d in destinatarios
-                  if not es._digest_already_sent(semana, d["email"]) and not es.is_email_unsubscribed(d["email"])]
-    print(f"Semana {semana}: {len(destinatarios)} registrados, {len(pendientes)} pendientes.")
+                  if not es._digest_already_sent(marca, d["email"]) and not es.is_email_unsubscribed(d["email"])]
+    print(f"Campaña {args.campana} · semana {semana}: {len(destinatarios)} registrados, {len(pendientes)} pendientes.")
     print(f"Remitente: {settings.smtp_from_name} <{settings.smtp_user}> (Gmail)")
     if not pendientes:
         print("Nada que enviar.")
@@ -76,7 +79,7 @@ def main():
             return
     enviados = fallidos = sin_eventos = 0
     for i, r in enumerate(pendientes[:tope], 1):
-        res = es.enviar_digest_a(r, semana)
+        res = es.enviar_digest_a(r, semana, args.campana)
         enviados += res == "sent"
         fallidos += res == "failed"
         sin_eventos += res == "sin_eventos"
@@ -87,7 +90,7 @@ def main():
         time.sleep(1.2)  # ritmo amable con Gmail
     print(f"\n✅ Enviados {enviados} · fallidos {fallidos} · sin eventos {sin_eventos}")
     es._log_boletin({"sent": enviados, "failed": fallidos, "pendientes": len(pendientes) - enviados,
-                     "remitente": "PC (Gmail SMTP)", "week_start": semana, "destinatarios": len(destinatarios)})
+                     "remitente": "PC (Gmail SMTP)", "campana": args.campana, "week_start": semana, "destinatarios": len(destinatarios)})
 
 
 if __name__ == "__main__":
