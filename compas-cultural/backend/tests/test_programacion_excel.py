@@ -60,3 +60,14 @@ def test_biblioteca_mes_desde_el_titulo_de_la_hoja():
     hora_cuento = [e for e in r.eventos if e["titulo"].startswith("Hora del cuento")]
     assert hora_cuento and all(e["fecha_inicio"][:7] == "2026-10" for e in hora_cuento)
     assert all(e["hora_confirmada"] for e in hora_cuento) and hora_cuento[0]["fecha_inicio"][11:16] == "14:00"
+
+
+def test_cada_sede_tiene_imagen_existente():
+    from pathlib import Path
+    from app.services.programacion_excel import cargar_sedes, url_imagen
+    public = Path(__file__).resolve().parents[2] / "frontend" / "public"
+    for s in cargar_sedes():
+        assert s.get("imagen"), s["nombre"]
+        assert (public / s["imagen"].lstrip("/")).exists(), s["imagen"]
+        assert url_imagen(s).startswith("https://") and url_imagen(s).endswith(s["imagen"])
+    assert url_imagen(None).endswith("/fundacion-epm.jpg")

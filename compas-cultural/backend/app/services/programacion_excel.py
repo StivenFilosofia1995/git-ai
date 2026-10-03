@@ -222,6 +222,17 @@ def parsear_fechas(v: Any, anio: int, mes: Optional[int], dias_txt: str = "") ->
 
 # ─── Sedes ──────────────────────────────────────────────────────────────────
 
+SITIO = "https://www.culturaetereamed.com"
+IMAGEN_POR_DEFECTO = "/images/sedes/epm/fundacion-epm.jpg"
+
+
+def url_imagen(sede: Optional[dict]) -> str:
+    """Foto libre de la sede (o ficha propia) cuando el Excel no trae imagen."""
+    from app.config import settings
+    base = settings.frontend_url.rstrip("/") if settings.frontend_url.startswith("https://") else SITIO
+    return base + ((sede or {}).get("imagen") or IMAGEN_POR_DEFECTO)
+
+
 def cargar_sedes() -> list[dict]:
     try:
         return json.loads(SEDES_JSON.read_text(encoding="utf-8"))["sedes"]
@@ -336,6 +347,7 @@ def _a_eventos(f: Fila, hoy: date) -> list[dict]:
         "barrio": sede.get("barrio"),
         "lat": sede.get("lat"),
         "lng": sede.get("lng"),
+        "imagen_url": url_imagen(sede),
         "fuente": "fundacion_epm_excel",
         "fuente_url": f.enlace or sede.get("url") or "https://www.grupo-epm.com/site/fundacionepm/",
         "hora_confirmada": hora_ok,
@@ -587,4 +599,22 @@ def importar_semillas(base: Optional[Path] = None) -> dict:
             except Exception as exc:
                 print(f"[programacion_excel] marca/log: {exc}")
     print(f"📅 Programación Excel importada: {resumen or 'nada nuevo'}")
+    asignar_imagenes_sedes()
     return resumen
+
+
+def asignar_imagenes_sedes() -> int:
+    """Pone la foto o ficha de la sede a los eventos EPM que quedaron sin imagen (idempotente)."""
+    from app.database import supabase
+    total = 0
+    sedes = cargar_sedes()
+    for nombre, url in [(s["nombre"], url_imagen(s)) for s in sedes] + [(None, url_imagen(None))]:
+        try:
+            q = supabase.table("eventos").update({"imagen_url": url}).eq("fuente", "fundacion_epm_excel").is_("imagen_url", "null")
+            q = q.eq("nombre_lugar", nombre) if nombre else q.is_("nombre_lugar", "null")
+            total += len(q.execute().data or [])
+        except Exception as exc:
+            print(f"[programacion_excel] imágenes {nombre}: {exc}")
+    if total:
+        print(f"🖼️ Programación Excel: {total} eventos recibieron la imagen de su sede")
+    return total

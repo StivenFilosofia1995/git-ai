@@ -1,0 +1,35 @@
+{
+ "_doc": "Fotos de Wikimedia Commons (dominio público o CC BY-SA 4.0). Las versiones recortadas con el crédito se comparten con la misma licencia. Las fichas (uva-*.jpg sin foto y fundacion-epm.jpg) son de Cultura Etérea.",
+ "fotos": {
+  "parque-de-los-deseos": {
+   "archivo": "File:Parque de los Deseos(1)-Medellin.JPG",
+   "autor": "SajoR",
+   "licencia": "Public domain",
+   "pagina": "https://commons.wikimedia.org/wiki/File:Parque_de_los_Deseos(1)-Medellin.JPG"
+  },
+  "museo-del-agua-epm": {
+   "archivo": "File:Museo Interactivo EPM-FachadaEste.JPG",
+   "autor": "SajoR",
+   "licencia": "Public domain",
+   "pagina": "https://commons.wikimedia.org/wiki/File:Museo_Interactivo_EPM-FachadaEste.JPG"
+  },
+  "biblioteca-epm": {
+   "archivo": "File:Medellín, Plaza Cisneros, 2023-07 CN-02.jpg",
+   "autor": "Steffen Schmitz",
+   "licencia": "CC BY-SA 4.0",
+   "pagina": "https://commons.wikimedia.org/wiki/File:Medell%C3%ADn,_Plaza_Cisneros,_2023-07_CN-02.jpg"
+  },
+  "uva-de-la-imaginacion": {
+   "archivo": "File:UVA de La Imaginación - 03.jpg",
+   "autor": "XalD",
+   "licencia": "CC BY-SA 4.0",
+   "pagina": "https://commons.wikimedia.org/wiki/File:UVA_de_La_Imaginaci%C3%B3n_-_03.jpg"
+  },
+  "uva-nuevo-amanecer": {
+   "archivo": "File:Atardecer en la UVA Nuevo Amanecer, barrio La Avanzada, Medellín.jpg",
+   "autor": "Farley Jhair Macias Betancur",
+   "licencia": "CC BY-SA 4.0",
+   "pagina": "https://commons.wikimedia.org/wiki/File:Atardecer_en_la_UVA_Nuevo_Amanecer,_barrio_La_Avanzada,_Medell%C3%ADn.jpg"
+  }
+ }
+}
