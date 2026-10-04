@@ -598,6 +598,10 @@ def _inject_page_context(contexto: Dict, slug: str, tipo: str) -> None:
 
 
 def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
+    """ETÉREA determinista: entiende fecha, tipo de plan, precio y zona, y responde con la agenda
+    real (eterea_buscador). Sin LLM: cero tokens. El camino con LLM queda solo si CHAT_ENGINE=llm."""
+    if (settings.chat_engine or "").lower() != "llm":
+        return _chat_determinista(request, user_id)
     if _is_smalltalk_message(request.mensaje):
         respuesta = "Hola, soy ETÉREA. Te ayudo a encontrar planes culturales reales en Medellín y el Valle de Aburrá. ¿Qué te gusta más: música, teatro, cine o algo para hoy?"
         return ChatResponse(respuesta=respuesta, fuentes=[])
@@ -639,6 +643,30 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
     except Exception as e:
         print(f"[chat_service] No se pudo guardar memoria_consultas: {e}")
 
+    return ChatResponse(respuesta=respuesta, fuentes=fuentes)
+
+
+def _chat_determinista(request: ChatRequest, user_id: str) -> ChatResponse:
+    from app.services.eterea_buscador import responder
+    previos = [m.contenido for m in (request.historial or []) if m.rol == "usuario"][-3:]
+    if previos and previos[-1].strip() == request.mensaje.strip():
+        previos = previos[:-1]
+    respuesta, eventos = responder(request.mensaje, previos)
+    fuentes = [
+        FuenteCitada(
+            tipo="evento", id=str(ev["id"]), nombre=ev.get("slug") or str(ev["id"]),
+            categoria=ev.get("categoria_principal") or "otro", barrio=ev.get("barrio"),
+            url=f"/evento/{ev.get('slug') or ev['id']}", imagen_url=ev.get("imagen_url"),
+        )
+        for ev in eventos
+    ]
+    try:
+        supabase.table("memoria_consultas").insert({
+            "pregunta": request.mensaje, "respuesta": respuesta,
+            "contexto": {"motor": "determinista", "eventos": [f.nombre for f in fuentes], "user_id": user_id},
+        }).execute()
+    except Exception as e:
+        print(f"[chat_service] No se pudo guardar memoria_consultas: {e}")
     return ChatResponse(respuesta=respuesta, fuentes=fuentes)
 
 
