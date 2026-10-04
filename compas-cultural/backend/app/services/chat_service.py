@@ -647,27 +647,36 @@ def chat(request: ChatRequest, user_id: str = "anonymous") -> ChatResponse:
 
 
 def _chat_determinista(request: ChatRequest, user_id: str) -> ChatResponse:
-    from app.services.eterea_buscador import responder
-    previos = [m.contenido for m in (request.historial or []) if m.rol == "usuario"][-3:]
-    if previos and previos[-1].strip() == request.mensaje.strip():
-        previos = previos[:-1]
-    respuesta, eventos = responder(request.mensaje, previos)
+    from app.services.eterea_dialogo import responder
+    historial = [(m.rol, m.contenido) for m in (request.historial or [])][-8:]
+    if historial and historial[-1][0] == "usuario" and historial[-1][1].strip() == request.mensaje.strip():
+        historial = historial[:-1]
+    turno = responder(request.mensaje, historial)
     fuentes = [
         FuenteCitada(
             tipo="evento", id=str(ev["id"]), nombre=ev.get("slug") or str(ev["id"]),
             categoria=ev.get("categoria_principal") or "otro", barrio=ev.get("barrio"),
             url=f"/evento/{ev.get('slug') or ev['id']}", imagen_url=ev.get("imagen_url"),
         )
-        for ev in eventos
+        for ev in turno.eventos
+    ] + [
+        FuenteCitada(
+            tipo="espacio", id=str(l["id"]), nombre=l.get("slug") or str(l["id"]),
+            categoria=l.get("categoria_principal") or "otro", barrio=l.get("barrio"),
+            url=f"/espacio/{l.get('slug') or l['id']}", instagram=l.get("instagram_handle"),
+            sitio_web=l.get("sitio_web"),
+        )
+        for l in turno.espacios if l.get("slug")
     ]
     try:
         supabase.table("memoria_consultas").insert({
-            "pregunta": request.mensaje, "respuesta": respuesta,
-            "contexto": {"motor": "determinista", "eventos": [f.nombre for f in fuentes], "user_id": user_id},
+            "pregunta": request.mensaje, "respuesta": turno.texto,
+            "contexto": {"motor": "determinista", "accion": turno.accion,
+                         "fuentes": [f.nombre for f in fuentes], "user_id": user_id},
         }).execute()
     except Exception as e:
         print(f"[chat_service] No se pudo guardar memoria_consultas: {e}")
-    return ChatResponse(respuesta=respuesta, fuentes=fuentes)
+    return ChatResponse(respuesta=turno.texto, fuentes=fuentes)
 
 
 def _chat_via_groq(system_prompt: str, messages: list) -> Optional[str]:
