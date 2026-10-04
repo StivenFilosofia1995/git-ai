@@ -493,7 +493,8 @@ def responder(mensaje: str, historial: Optional[list[tuple[str, str]]] = None,
     ahora = ahora or datetime.now(CO_TZ)
     historial = historial or []
     crudo = mensaje or ""
-    t = f" {L.norm(re.sub(r'\[[^\]]*\]', ' ', crudo))} "
+    sin_etiquetas = re.sub(r"\[[^\]]*\]", " ", crudo)  # "[Ubicación: …]" (fuera del f-string: Python 3.11)
+    t = f" {L.norm(sin_etiquetas)} "
     semilla = f"{t}{ahora.date()}"
     previos = [txt for rol, txt in historial if rol not in ROLES_ASISTENTE]
 

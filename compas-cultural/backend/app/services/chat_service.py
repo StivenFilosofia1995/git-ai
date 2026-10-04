@@ -651,7 +651,16 @@ def _chat_determinista(request: ChatRequest, user_id: str) -> ChatResponse:
     historial = [(m.rol, m.contenido) for m in (request.historial or [])][-8:]
     if historial and historial[-1][0] == "usuario" and historial[-1][1].strip() == request.mensaje.strip():
         historial = historial[:-1]
-    turno = responder(request.mensaje, historial)
+    try:
+        turno = responder(request.mensaje, historial)
+    except Exception as exc:  # el árbol nunca debe dejar el chat mudo: cae al buscador simple
+        import traceback
+        print(f"[chat_service] eterea_dialogo falló: {exc}")
+        print(traceback.format_exc())
+        from app.services.eterea_buscador import responder as responder_simple
+        from app.services.eterea_dialogo import Turno
+        texto, eventos = responder_simple(request.mensaje, [h[1] for h in historial if h[0] == "usuario"])
+        turno = Turno(texto, eventos=eventos, accion="respaldo")
     fuentes = [
         FuenteCitada(
             tipo="evento", id=str(ev["id"]), nombre=ev.get("slug") or str(ev["id"]),
