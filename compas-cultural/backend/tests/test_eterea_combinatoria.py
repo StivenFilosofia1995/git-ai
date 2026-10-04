@@ -196,6 +196,15 @@ def test_conversacion_con_referencias_y_foco():
     assert all(e["es_gratuito"] for e in tu.eventos)
 
 
+def test_pregunta_nueva_tras_una_lista_no_es_referencia():
+    h = []
+    tu = G.responder("sorprendeme", h, AHORA)
+    h += [("usuario", "sorprendeme"), ("compas", tu.texto)]
+    assert G.responder("¿cuántos conciertos hay este finde?", h, AHORA).accion == "contar"
+    assert G.responder("teatro esta noche", h, AHORA).accion == "eventos"
+    assert G.responder("¿y el segundo a qué hora es?", h, AHORA).accion == "detalle_ref"
+
+
 def test_lugares_y_luego_su_instagram():
     h = []
     tu = G.responder("colectivos de hip hop en Bello", h, AHORA)

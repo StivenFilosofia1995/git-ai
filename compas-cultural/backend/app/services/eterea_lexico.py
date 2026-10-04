@@ -108,8 +108,9 @@ CAMPOS_LUGAR = {
 ORDINALES = {"primero": 0, "primer": 0, "primera": 0, "1": 0, "uno": 0, "segundo": 1, "segunda": 1, "2": 1,
              "dos": 1, "tercero": 2, "tercer": 2, "tercera": 2, "3": 2, "tres": 2, "cuarto": 3, "cuarta": 3,
              "4": 3, "quinto": 4, "quinta": 4, "5": 4, "sexto": 5, "sexta": 5, "6": 5}
+# "este"/"esta" no: casi siempre son tiempo ("este finde", "esta noche"), no "ese evento"
 DEICTICOS = ("ese", "esa", "eso", "ese evento", "ese plan", "ese lugar", "ese sitio", "el ultimo", "la ultima",
-             "ultimo", "ultima", "este", "esta")
+             "ultimo", "ultima", "ese mismo", "esa misma")
 
 # ─── Recomendación, conteo y listados de lugares ─────────────────────────
 RECOMENDAR = ("recomienda", "recomiendame", "recomendame", "recomendas", "recomiendas", "sugiere", "sugerime",

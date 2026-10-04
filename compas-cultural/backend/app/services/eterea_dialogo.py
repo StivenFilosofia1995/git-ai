@@ -518,7 +518,10 @@ def responder(mensaje: str, historial: Optional[list[tuple[str, str]]] = None,
     tipo_lista, lista = _ultima_lista(historial)
     if lista:
         i = _referencia(t, len(lista))
-        if i is not None and (campo_ev or campo_lu or len(t.split()) <= 6 or L.hay(t, *L.DEICTICOS)):
+        # Una pregunta con tema propio ("¿cuántos conciertos…?", "teatro mañana") no es una referencia
+        tema_nuevo = bool(c.tipos or L.hay(t, *L.CONTAR) or L.hay(t, *L.RECOMENDAR) or L.hay(t, *L.LUGARES_PREGUNTA))
+        ordinal_explicito = bool(re.search(r" (" + "|".join(k for k in L.ORDINALES if not k.isdigit()) + r") ", t))
+        if i is not None and (ordinal_explicito or not tema_nuevo) and                 (campo_ev or campo_lu or len(t.split()) <= 6 or L.hay(t, *L.DEICTICOS)):
             item = lista[i]
             if tipo_lista == "eventos":
                 return Turno(detalle_evento(item, campo_ev), eventos=[item], accion="detalle_ref")
