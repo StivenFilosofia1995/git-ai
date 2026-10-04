@@ -17,7 +17,12 @@ export default function Header() {
             </div>
             <div>
               <span className="block text-sm font-heading font-black tracking-tight leading-none uppercase">CULTURA ETÉREA</span>
-              <p className="text-[10px] text-black/60 tracking-[0.08em] sm:tracking-[0.2em] uppercase leading-none mt-0.5 font-mono whitespace-nowrap">Agenda del Valle de Aburrá</p>
+              <p className="text-[10px] text-black/60 tracking-[0.08em] sm:tracking-[0.2em] xl:tracking-[0.12em] uppercase leading-none mt-0.5 font-mono whitespace-nowrap">
+                Agenda del Valle de Aburrá<span className="hidden xl:inline"> · agéntica y autónoma con IA</span>
+              </p>
+              <p className="xl:hidden text-[9px] text-black/50 tracking-[0.08em] sm:tracking-[0.16em] uppercase leading-none mt-0.5 font-mono whitespace-nowrap">
+                Agéntica y autónoma con IA
+              </p>
             </div>
           </Link>
           <div className="flex items-center gap-2 lg:gap-4">

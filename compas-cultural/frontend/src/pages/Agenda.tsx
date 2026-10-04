@@ -333,6 +333,10 @@ export default function Agenda() {
           <p className="hidden sm:block text-base text-black/70 mt-2 max-w-md">
             Teatro, música, arte y todo lo que pasa en el Valle de Aburrá, con hora, lugar y precio.
           </p>
+          <p className="flex items-center gap-2 mt-1.5 sm:mt-2 font-mono text-[11px] sm:text-xs uppercase tracking-[0.04em] sm:tracking-[0.14em] text-black whitespace-nowrap">
+            <span className="w-2 h-2 bg-black motion-safe:animate-pulse" aria-hidden="true" />
+            Una IA que escucha la cultura en tiempo real
+          </p>
         </div>
       </div>
 
