@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import ChatMessage from './ChatMessage'
 import ChatInput from './ChatInput'
+import IcosaedroEterea from './IcosaedroEterea'
 import { enviarMensajeChat, getEvento, getEspacio, type ChatMessage as ApiChatMessage, type Evento, type Espacio } from '../../lib/api'
 
 interface Mensaje {
@@ -15,6 +16,7 @@ interface Mensaje {
 
 export default function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false)
+  const [encima, setEncima] = useState(false)
   const [mensajes, setMensajes] = useState<Mensaje[]>([
     {
       id: '1',
@@ -96,11 +98,19 @@ export default function ChatWidget() {
       <div className="fixed bottom-20 right-3 md:bottom-8 md:right-6 z-[60]">
         <button
           onClick={toggleChat}
-          aria-label="Abrir asistente cultural ETÉREA"
-          className="flex items-center gap-2 px-3 md:pl-3 md:pr-4 h-11 bg-black text-white border-2 border-black hover:bg-white hover:text-black transition-colors shadow-[3px_3px_0_0_rgba(0,0,0,0.25)]"
+          onMouseEnter={() => setEncima(true)}
+          onMouseLeave={() => setEncima(false)}
+          onFocus={() => setEncima(true)}
+          onBlur={() => setEncima(false)}
+          aria-label="Abrir ETÉREA, la IA de la agenda cultural"
+          title="Pregúntale a ETÉREA"
+          className="group flex flex-col items-center gap-0.5 px-1.5 pt-1.5 pb-1 bg-black text-white border-2 border-black hover:bg-white hover:text-black focus-visible:bg-white focus-visible:text-black transition-colors shadow-[4px_4px_0_0_rgba(0,0,0,0.3)]"
         >
-          <span className="text-sm font-black">◆</span>
-          <span className="hidden md:inline text-xs font-bold">Pregúntale a Etérea</span>
+          <IcosaedroEterea size={42} velocidad={encima ? 2.6 : 1} />
+          <span className="flex items-center gap-1 font-mono text-[10px] font-bold tracking-[0.18em] leading-none">
+            ETÉREA
+            <span className="px-1 py-0.5 bg-white text-black group-hover:bg-black group-hover:text-white group-focus-visible:bg-black group-focus-visible:text-white text-[9px] tracking-normal">IA</span>
+          </span>
         </button>
       </div>
     )
@@ -110,8 +120,11 @@ export default function ChatWidget() {
     <div className="fixed bottom-20 md:bottom-8 right-3 md:right-6 w-[calc(100vw-1.5rem)] max-w-80 h-[28rem] bg-white border-2 border-black z-[60] flex flex-col shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
       <div className="px-4 py-3 border-b-2 border-black flex justify-between items-center bg-black text-white">
         <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 bg-white" />
-          <h3 className="font-mono font-bold text-[11px] tracking-[0.2em] uppercase">ETÉREA</h3>
+          <IcosaedroEterea size={28} nube={false} />
+          <div className="leading-tight">
+            <h3 className="font-mono font-bold text-[11px] tracking-[0.2em] uppercase">ETÉREA</h3>
+            <p className="font-mono text-[9px] tracking-wider opacity-70">IA de la agenda cultural</p>
+          </div>
         </div>
         <button onClick={toggleChat} className="text-white hover:opacity-60 transition-opacity text-lg font-black">
           ✕
