@@ -70,13 +70,18 @@ async def _exchange_token(current_token: str) -> str | None:
                     "access_token": current_token,
                 }
             )
-            if debug_resp.status_code == 200:
-                token_data = debug_resp.json().get("data", {})
-                expires_at = token_data.get("expires_at", 0)
-                if expires_at == 0:
-                    # Token never expires (system user token) — just store it
-                    await _store_token(current_token, None)
-                    return current_token
+            token_data = debug_resp.json().get("data", {}) if debug_resp.status_code == 200 else {}
+            if not token_data.get("is_valid"):
+                # Token muerto: no guardarlo con una fecha inventada (eso hacía que
+                # /health reportara "valid" mientras Meta respondía 400).
+                print(f"[META] Token inválido o expirado (debug_token {debug_resp.status_code}). Genera uno nuevo.")
+                return None
+            expires_at = token_data.get("expires_at", 0)
+            if expires_at == 0:
+                # Token never expires (system user token) — just store it
+                await _store_token(current_token, None)
+                return current_token
+            real_expiry = datetime.fromtimestamp(expires_at, tz=timezone.utc)
 
             # Exchange for long-lived token
             resp = await client.get(
@@ -99,10 +104,10 @@ async def _exchange_token(current_token: str) -> str | None:
                     print(f"[META] Token renewed, expires: {expires_at_dt.isoformat()}")
                     return new_token
             else:
-                # Token exchange failed — the current token might still work
-                # Store it anyway so we have it in DB
-                await _store_token(current_token, _utcnow() + timedelta(days=30))
-                print(f"[META] Token exchange failed ({resp.status_code}), using current token")
+                # Token exchange failed — the current token is still valid (checked above);
+                # store it with its REAL expiry so health reflects reality
+                await _store_token(current_token, real_expiry)
+                print(f"[META] Token exchange failed ({resp.status_code}), using current token until {real_expiry}")
     except Exception as e:
         print(f"[META] Token exchange error: {e}")
 

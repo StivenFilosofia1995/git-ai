@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import os
 import sys
 import traceback
@@ -67,6 +68,15 @@ async def lifespan(app: FastAPI):
         print(f"✅ Conectado a Supabase — {result.count} lugares en BD")
     except Exception as e:
         print(f"⚠️  Supabase check failed (app continues): {e}")
+
+    # Venues con agenda (mapeo oct-2026): idempotente, tras la primera corrida no inserta nada
+    async def _seed_venues_bg():
+        try:
+            from seeds.seed_venues_agenda import seed_venues
+            await asyncio.to_thread(seed_venues, True, False)
+        except Exception as e:
+            print(f"⚠️  Seed venues agenda failed (app continues): {e}")
+    asyncio.create_task(_seed_venues_bg())
 
     try:
         if os.getenv("DISABLE_SCHEDULER", "").lower() not in ("1", "true"):
