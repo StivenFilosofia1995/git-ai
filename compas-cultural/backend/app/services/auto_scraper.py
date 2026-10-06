@@ -593,9 +593,11 @@ async def _fetch_instagram_profile(handle: str) -> Optional[str]:
 # ──────────────────────────────────────────────────────────────────────────
 # Core: scrape a single lugar
 # ──────────────────────────────────────────────────────────────────────────
-async def _scrape_lugar(lugar: dict) -> dict:
+async def _scrape_lugar(lugar: dict, ig_profile: Optional[dict] = None, skip_web: bool = False) -> dict:
     """
     Scrape website + Instagram for a single lugar.
+    ig_profile: perfil ya capturado afuera (p.ej. tools/ig_local en el PC del admin,
+    con sesión real de Instagram); si viene, no se intenta leer IG desde el servidor.
     Returns stats: {nuevos, duplicados, errores}
     """
     lugar_id = lugar["id"]
@@ -610,7 +612,7 @@ async def _scrape_lugar(lugar: dict) -> dict:
     # ── 1. Scrape website ──────────────────────────────────────────────────
     sitio = _normalize_site_url(lugar.get("sitio_web"))
     sitio_is_ig = bool(sitio and "instagram.com" in sitio.lower())
-    if sitio:
+    if sitio and not skip_web:
         if sitio_is_ig:
             print(f"  ℹ sitio_web es Instagram URL — se usa flujo IG: {sitio}")
         else:
@@ -648,8 +650,8 @@ async def _scrape_lugar(lugar: dict) -> dict:
 
         clean_handle = ig_handle
 
-        # Scraper puro (Playwright/httpx — sin APIs externas)
-        profile = await fetch_ig_profile(clean_handle)
+        # Scraper puro (Playwright/httpx — sin APIs externas), salvo que el perfil venga de afuera
+        profile = ig_profile if ig_profile is not None else await fetch_ig_profile(clean_handle)
 
         if profile and (profile.get("captions") or profile.get("biography")):
             print(f"    ✅ Playwright: {len(profile.get('captions', []))} posts")

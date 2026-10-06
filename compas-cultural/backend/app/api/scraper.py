@@ -724,3 +724,92 @@ async def get_cultural_network_stats():
         "por_municipio": by_municipio,
         "por_categoria": by_cat,
     }
+
+
+# ── IG local: perfiles capturados en el PC del admin (tools/ig_local) ─────────
+# El servidor no puede leer Instagram (bloqueo a IPs de datacenter, sin token Meta).
+# El admin corre tools/ig_local con su propia sesión de Instagram y envía aquí los
+# perfiles; la extracción de eventos sigue siendo la misma (ig_precision, sin IA).
+
+from pydantic import BaseModel, Field  # noqa: E402
+
+
+class IgPerfilLocal(BaseModel):
+    handle: str
+    biography: str = ""
+    external_url: str | None = None
+    captions: list[str] = Field(default_factory=list)
+    image_urls: list[str] = Field(default_factory=list)
+    permalink_urls: list[str] = Field(default_factory=list)
+    timestamps: list[int] = Field(default_factory=list)
+
+
+class IgLocalRequest(BaseModel):
+    perfiles: list[IgPerfilLocal] = Field(..., max_length=50)
+
+
+def _norm_handle(raw: str | None) -> str:
+    return (raw or "").strip().lstrip("@").split("?")[0].strip("/").lower()
+
+
+def _lugares_con_ig() -> list[dict]:
+    from app.database import supabase
+    rows, offset = [], 0
+    while True:
+        page = (
+            supabase.table("lugares")
+            .select("id,nombre,slug,instagram_handle,sitio_web,categoria_principal,municipio,barrio,fuente_datos,nivel_actividad")
+            .not_.is_("instagram_handle", "null")
+            .range(offset, offset + 999).execute().data or []
+        )
+        rows.extend(page)
+        if len(page) < 1000:
+            return rows
+        offset += 1000
+
+
+@router.get("/ig-local/handles", dependencies=[Depends(_verify_scraper_key)])
+def ig_local_handles():
+    """Handles a visitar desde tools/ig_local: primero los venues con agenda (mapeo oct-2026)."""
+    vistos, prioridad, resto = set(), [], []
+    for r in _lugares_con_ig():
+        h = _norm_handle(r.get("instagram_handle"))
+        if not h or h in vistos or r.get("nivel_actividad") == "cerrado":
+            continue
+        vistos.add(h)
+        (prioridad if r.get("fuente_datos") == "mapeo_venues_2026_10" else resto).append(h)
+    return {"handles": prioridad + resto, "prioritarios": len(prioridad)}
+
+
+@router.post("/ig-local", dependencies=[Depends(_verify_scraper_key)])
+async def ig_local_import(body: IgLocalRequest):
+    """Recibe perfiles de IG capturados localmente y extrae/inserta sus eventos."""
+    from app.services.auto_scraper import _scrape_lugar, _log_scraping
+
+    por_handle: dict[str, list[dict]] = {}
+    for r in _lugares_con_ig():
+        por_handle.setdefault(_norm_handle(r.get("instagram_handle")), []).append(r)
+
+    resultado = {}
+    for p in body.perfiles:
+        h = _norm_handle(p.handle)
+        lugares = por_handle.get(h)
+        if not lugares:
+            resultado[h] = {"estado": "no_registrado"}
+            continue
+        perfil = p.model_dump()
+        # Si hay varias filas con el mismo handle (duplicados), basta con la primera
+        stats = await _scrape_lugar(lugares[0], ig_profile=perfil, skip_web=True)
+        _log_scraping(
+            fuente=f"ig_local:{h}",
+            registros_nuevos=stats.get("nuevos", 0),
+            errores=stats.get("errores", 0),
+            detalle={"lugar": lugares[0]["nombre"], "posts": len(p.captions), "duplicados": stats.get("duplicados", 0)},
+        )
+        resultado[h] = {"estado": "ok", "posts": len(p.captions), **stats}
+
+    return {
+        "perfiles": len(body.perfiles),
+        "eventos_nuevos": sum(v.get("nuevos", 0) for v in resultado.values()),
+        "detalle": resultado,
+    }
