@@ -1,7 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional, Union
-from .espacio import EspacioCultural
-from .evento import Evento
+from typing import Any, Dict, List, Optional
 
 class BusquedaRequest(BaseModel):
     q: str
@@ -13,7 +11,9 @@ class BusquedaRequest(BaseModel):
 
 class ResultadoBusqueda(BaseModel):
     tipo: str  # "espacio" o "evento"
-    item: Union[EspacioCultural, Evento]
+    # dict: la tabla tiene valores (tipo, categorías, municipio) fuera de los Enum de
+    # EspacioCultural/Evento; validar contra ellos tumbaba toda la búsqueda con 500.
+    item: Dict[str, Any]
     similitud: Optional[float] = None
 
 class BusquedaResponse(BaseModel):

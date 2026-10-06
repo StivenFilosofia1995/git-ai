@@ -73,7 +73,9 @@ async def lifespan(app: FastAPI):
     async def _seed_venues_bg():
         try:
             from seeds.seed_venues_agenda import seed_venues
+            from seeds.fix_ig_handles_2026_10 import fix_handles
             await asyncio.to_thread(seed_venues, True, False)
+            await asyncio.to_thread(fix_handles, True, False)
         except Exception as e:
             print(f"⚠️  Seed venues agenda failed (app continues): {e}")
     asyncio.create_task(_seed_venues_bg())

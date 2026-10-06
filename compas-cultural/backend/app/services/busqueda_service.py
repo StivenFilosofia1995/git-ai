@@ -124,6 +124,11 @@ def _buscar_eventos(request: BusquedaRequest) -> List[ResultadoBusqueda]:
     response = query.execute()
     results = []
     for e in response.data:
+        if e.get("lat") is not None and e.get("lng") is not None:
+            e["coordenadas"] = {"lat": e["lat"], "lng": e["lng"]}
+        else:
+            e["coordenadas"] = None
+
         # BM25 multi-campo
         bm25 = multi_field_bm25(
             query_tokens,
